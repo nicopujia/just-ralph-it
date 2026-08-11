@@ -26,8 +26,7 @@ class Auth(httpx.Auth):
     OAUTH_URL = "https://auth.openai.com/oauth/token"
 
     def __init__(self, originator: str) -> None:
-        # Naming the application refreshing the login lets concurrent
-        # applications lock the login file under their own name.
+        # State which application refreshes the login. Concurrent applications use separate login locks.
         self.originator = originator
         self.path = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "auth.json"
         self.lock = threading.Lock()
@@ -90,9 +89,8 @@ class Auth(httpx.Auth):
 
     @contextmanager
     def _lock_login(self) -> Iterator[None]:
-        # A lock beside the login is as reachable as the login itself,
-        # so the login's own failure is what a lock nothing can take
-        # has to arrive as.
+        # Place the lock beside the login. It is accessible whenever the login is accessible. Report a lock failure
+        # as a login failure.
         try:
             with self.file_lock:
                 yield
@@ -103,8 +101,7 @@ class Auth(httpx.Auth):
         with self.lock, self._lock_login():
             current = self._read()
             tokens = current.get("tokens")
-            # Spending the refresh token is irreversible, so the login
-            # it would be saved into has to be usable beforehand.
+            # A refresh token cannot be used again. Validate the login data before you save the new token.
             if not isinstance(tokens, dict):
                 raise AuthError("The Codex login is invalid. Run `codex login` again.")
             tokens = cast("dict[str, Any]", tokens)
@@ -148,15 +145,13 @@ class Auth(httpx.Auth):
         temporary_path: Path | None = None
         try:
             self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            # A temporary file is readable by its owner alone, which is
-            # what the login replacing it with must stay.
+            # Only its owner can read the temporary file. Keep this access when it replaces the login.
             with NamedTemporaryFile("w", encoding="utf-8", newline="\n", dir=self.path.parent, delete=False) as file:
                 temporary_path = Path(file.name)
                 file.write(f"{json.dumps(data, indent=2)}\n")
             temporary_path.replace(self.path)
         except (OSError, TypeError, ValueError) as error:
-            # A scratch copy of the credentials must not outlive the
-            # attempt to save them.
+            # Remove the temporary credentials file after a save fails.
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
             raise AuthError("The refreshed Codex login could not be saved.") from error

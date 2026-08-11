@@ -2,21 +2,17 @@ from .notes import Graph
 from .support import ISSUES_URL
 
 DRAW_ERROR = f"The graph viewer loaded, but it could not draw the graph. Report it at {ISSUES_URL}."
-# The page fetches what draws it rather than carrying it. Nothing JRI
-# does works offline -- every interview turn is a call to a model
-# provider -- so a viewer that survives a lost network survives alone,
-# and the self-contained mermaid build that would buy it weighs 3.6 MB
-# in the wheel and again in every page `jri view` writes. What the
-# fetch costs is stated instead: a failure to load says so, and says
-# what to do about it.
+# The page fetches its drawing libraries instead of carrying them. JRI requires a model-provider network connection.
+# An offline viewer alone has no value.
+# A self-contained Mermaid build adds 3.6 MB to the wheel and each `jri view` page.
+# State the fetch failure and the required user action.
 LOAD_ERROR = (
     "The graph viewer could not load what it needs from the internet. Check your connection and run `jri view` again."
 )
 
-# The browser decodes HTML entities inside the `mermaid` block before
-# mermaid parses it, so HTML escaping protects nothing: `&quot;` turns
-# back into the `"` that ends a label. Mermaid's own entity codes
-# survive that decoding and reach the parser as text.
+# The browser decodes HTML entities in a `mermaid` block before Mermaid parses it.
+# HTML escaping does not protect labels.
+# `&quot;` becomes the `"` that ends a label. Mermaid entity codes survive decoding and reach the parser as text.
 ESCAPES = str.maketrans({
     "#": "#35;",
     "&": "#amp;",
@@ -29,9 +25,8 @@ ESCAPES = str.maketrans({
     "|": "#124;",
 })
 INDENTATION = "    " * 3
-# The template is mostly CSS and JavaScript, so it is full of braces and
-# percentages that neither `%` nor `format` would leave alone. The slots
-# are substituted literally instead.
+# The template contains CSS and JavaScript braces and percentages. `%` and `format` would change them.
+# Substitute these slots literally instead.
 DIAGRAM_SLOT = "<!-- diagram -->"
 DRAW_ERROR_SLOT = "<!-- draw error -->"
 LOAD_ERROR_SLOT = "<!-- load error -->"

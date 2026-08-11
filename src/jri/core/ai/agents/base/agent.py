@@ -93,9 +93,7 @@ class Agent:
                 logger.info("message_finished agent=%s", type(self).__name__)
                 return
 
-            # Every call of the round is answered, cancelled ones
-            # included: a call left without an output would make the
-            # next request malformed.
+            # Give each call in a round an output, including cancelled calls. The next request requires every output.
             for output in function_calls:
                 tool = tools_by_name.get(output["name"])
                 yield from self._invoke(output, tool, cancelled)
@@ -108,10 +106,9 @@ class Agent:
         name = cast("str", output["name"])
         arguments = cast("str", output["arguments"])
         call_id = cast("str", output["call_id"])
-        # A call already cancelled opens no row, and a row this opens is
-        # closed before it returns, so no row it left behind is anyone
-        # else's to sweep. The row reaches the user before this resumes,
-        # so a stop pressed while looking at it still stops the call.
+        # Do not open a row for a cancelled call.
+        # Close each opened row before return to prevent removal by another process.
+        # Yield the row before the call continues. The user can then stop the call.
         opened = not cancelled.is_set()
         if opened:
             yield ai.ToolCallStarted(
@@ -124,9 +121,7 @@ class Agent:
         elif tool:
             invocation = tool.invoke(arguments)
         else:
-            # The name is the model's own, so JRI's sentence about it
-            # is one that name can write a second, contradicting copy
-            # of, naming a tool this run does answer to.
+            # The model provides this name. Quote it so it cannot state that this run supports an unknown tool.
             invocation = Invocation(prompt.render(tool_call_failed=f"Unknown tool `{name}`."), failed=True)
         for event in invocation:
             yield event

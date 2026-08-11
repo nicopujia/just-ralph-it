@@ -7,19 +7,19 @@ import pytest
 from jri.lib.terminal import end_on_hangup
 
 ANSWERS_WITHIN = 5.0
-# Long enough for the watch to have looked more than once.
+# This duration lets the watcher poll more than one time.
 STANDS_FOR = 1.0
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a pseudo-terminal is the one terminal a test can hang up")
 def test_answers_the_hangup_of_the_terminal_the_process_was_started_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    # `os.openpty` rather than `pty.openpty`: importing `pty` reaches
-    # `termios`, which Windows has not, and a module that fails to
-    # import is a collection error the skip above never answers. It is
-    # also nobody's controlling terminal, which is what makes it the
-    # case the watch is for: had this process been given it as its own,
-    # the kernel would end the process on SIGHUP before the watch ever
-    # looked, and no assertion here could tell the two apart.
+    # Use `os.openpty` instead of `pty.openpty`.
+    # Importing `pty` imports `termios`, which Windows does not provide.
+    # An import failure occurs before the skip can handle the platform.
+    # This pseudo-terminal is not the controlling terminal of a process.
+    # This is the case that the watcher must handle.
+    # A controlling terminal would end the process on `SIGHUP` first.
+    # Then the test could not distinguish the two conditions.
     master, slave = os.openpty()
     with os.fdopen(slave, "rb", buffering=0) as terminal:
         for stream in ("__stdin__", "__stdout__", "__stderr__"):
@@ -42,8 +42,8 @@ def test_leaves_a_process_alone_where_no_standard_stream_is_a_terminal(monkeypat
         monkeypatch.setattr(sys, "__stdin__", shut)
         for stream in ("__stdout__", "__stderr__"):
             monkeypatch.setattr(sys, stream, piped)
-        # The far side of the pipe is gone, which a descriptor reports
-        # exactly as a terminal reports a hangup.
+        # The other end of this pipe is closed.
+        # A descriptor reports this as it reports a terminal hangup.
         os.close(writer)
         ended = threading.Event()
 

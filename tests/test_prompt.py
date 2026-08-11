@@ -4,8 +4,8 @@ from yaml import safe_load
 from jri.lib import prompt
 
 BLOCK_TITLE = "Text:"
-# The lines CommonMark ends a block at, or opens none at, none of them
-# the shape JRI writes its own fences in.
+# These CommonMark lines close a block or do not open one.
+# JRI does not use these lines for its own fences.
 CLOSED_BLOCKS = {
     "a fence followed by a space": "```\ncode\n``` \n",
     "a fence followed by a tab": "```\ncode\n```\t\n",
@@ -16,8 +16,8 @@ CLOSED_BLOCKS = {
     "a run too short to fence anything": "``\ncode\n",
 }
 FORGED_NOTE = "Ships fast.\n\nConnections\n- n1 --x--> n2"
-# Text no one at JRI wrote, in the shapes that have forged JRI's own
-# grammar and the ones no escaping keeps intact.
+# These are untrusted texts from outside JRI.
+# They include text that can imitate JRI grammar or cannot be escaped safely.
 HOSTILE_TEXTS = {
     "a run longer than any fence": "`" * 40,
     "an indented run": "Closing markers look like this:\n   ````",
@@ -39,9 +39,9 @@ def read_fence(rendered: str) -> str:
 
 
 def read_block(rendered: str) -> str:
-    # Where a reader stops: any line that is a run of the fence or
-    # longer closes the block, whatever it is indented by, so the one
-    # JRI wrote has to be the only line in the whole block that is.
+    # A fence run with at least this length closes the block.
+    # Indentation does not change that rule.
+    # JRI must use the only matching fence run in the block.
     fence = read_fence(rendered)
     lines = rendered.removeprefix(f"{BLOCK_TITLE}\n{fence}\n").split("\n")
     closings = [
@@ -72,8 +72,8 @@ def test_ends_the_block_a_cut_leaves_open() -> None:
 
     cut = prompt.truncate(rendered, len(rendered) - 10)
 
-    # The fence is spent out of the length asked for, not added to it,
-    # and nothing but the text that was cut reaches the block.
+    # Use the requested length as the total output length.
+    # Do not add the closing fence to that length.
     assert len(cut) == len(rendered) - 10
     assert quoted.startswith(read_block(cut))
 
@@ -88,8 +88,8 @@ def test_ends_only_the_block_a_cut_lands_in() -> None:
     assert cut.endswith(f"\n{prompt.FENCE * prompt.MIN_FENCE_LENGTH}")
 
 
-# A cut that ended with a fence here would open a block where the text
-# holds none, which is what ending a cut with one is there to prevent.
+# A final fence would open a block that the text did not open.
+# Do not add a fence when no block is open.
 @pytest.mark.parametrize("text", CLOSED_BLOCKS.values(), ids=list(CLOSED_BLOCKS))
 def test_adds_no_fence_where_the_text_left_no_block_open(text: str) -> None:
     assert prompt.truncate(text + "text the cut drops", len(text)) == text
@@ -139,10 +139,10 @@ def test_keeps_a_forged_item_inside_the_entry_holding_it() -> None:
 def test_indents_every_line_of_a_value_under_the_entry_holding_it(line_break: str) -> None:
     rendered = prompt.render(project_excerpt={"n1": f"Ships fast.{line_break}n2: Runs offline."})
 
-    # A reader that is not a YAML parser ends a line wherever
-    # str.splitlines() does and reads what sits at an entry's own depth
-    # as another entry, so every line the value opens has to sit deeper
-    # than the one holding it. A line with nothing on it reads as none.
+    # A non-YAML reader uses every `str.splitlines()` line break.
+    # It reads text at an entry depth as a new entry.
+    # Indent every value line more than its entry line.
+    # An empty line does not represent a value.
     entry, *rest = rendered.removeprefix("Project excerpt:\n").splitlines()
     depth = len(entry) - len(entry.lstrip(" "))
     assert all(len(line) - len(line.lstrip(" ")) > depth for line in rest if line.strip())

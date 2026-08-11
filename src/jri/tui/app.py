@@ -59,28 +59,20 @@ class CommandPalette(TextualCommandPalette):
 
 
 class Screen(TextualScreen[None]):
-    # The shortcuts are the message input's, and the input answers them
-    # only while the screen it is on is the one the terminal is talking
-    # to. Whatever goes over this screen -- the command palette today,
-    # anything pushed tomorrow -- takes those keys with it, so the mode
-    # they belong to ends here rather than leaving hints up over keys
-    # that now answer somewhere else.
+    # The message input owns the shortcuts. It handles them only while this screen is active.
+    # A screen over this screen takes the keys. Close the mode here to avoid hints for unavailable keys.
     def on_screen_suspend(self) -> None:
         self.query_one(MessageInput).is_shortcuts_open = False
 
 
 class App(TextualApp[None]):
-    # The footer carries the three ways out of whatever the reader is
-    # looking at, and nothing else: every other binding is `show=False`
-    # and lives in the keymap panel the first of them opens. A hint
-    # that is always there teaches nothing after the first minute, and
-    # the footer is the one line the terminal never gives back.
+    # The footer shows only the three exits from the current view.
+    # All other bindings have `show=False` and are in the keymap panel.
+    # A permanent hint has little value. The footer is the only terminal line that remains reserved.
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+k", "toggle_keymap_panel", copy.KEYMAP_PANEL, priority=True),
-        # Declared rather than left to Textual's own, which describes
-        # itself as "palette" and which the footer only ever renders
-        # docked to the right -- so it stays hidden from the run of
-        # keys and reaches the footer through that door alone.
+        # Declare this binding instead of using Textual's. Textual calls it "palette".
+        # The footer shows it on the right. Keep it hidden from the key list.
         Binding("ctrl+p", "command_palette", copy.COMMAND_PALETTE, show=False, priority=True),
         Binding("ctrl+q", "quit", copy.QUIT, priority=True),
         Binding("escape", "cancel_turn", copy.CANCEL_TURN, key_display=copy.CANCEL_TURN_KEY, show=False),
@@ -92,28 +84,26 @@ class App(TextualApp[None]):
     theme = Reactive(styles.THEME_DARK)
     active_turn_state: Reactive[InterviewerTurnState | None] = Reactive(None, repaint=False)
 
-    # Methods order:
+    # Method order:
     # 1. Magic methods
-    # 2. Misc overrides
-    # 3. Event handlers
-    # 4. Actions
-    # 5. Workers
-    # 6. Callbacks
-    # 7. Rendering helpers
-    # 8. Misc helpers
-    # Order alphabetically within each section, except for section 1
+    # 2. Other overrides
+    # 3. Event methods
+    # 4. Action methods
+    # 5. Worker methods
+    # 6. Callback methods
+    # 7. Render methods
+    # 8. Other helper methods
+    # Keep alphabetical order in each section, except section 1.
 
     def __init__(self, conversation: Conversation) -> None:
         super().__init__()
         self.theme = styles.THEME_LIGHT if appearance.read() == "light" else styles.THEME_DARK
         self.conversation = conversation
-        # Set once, when this window is on its way out, for whatever is
-        # following a run that outlives it.
+        # Set this event when the window closes. It signals a run that continues after the window.
         self.detached = Event()
         self.restored_turns = conversation.restore()
         self.is_reasoning_visible = conversation.session.show_thinking_blocks
-        # Restored turns mount newest-first, so this is also the
-        # conversation index of the first mounted turn.
+        # Restored turns mount newest first. This is the conversation index of the first mounted turn.
         self.restored_turn_index = len(self.restored_turns)
         self.is_restoring_history = False
         self.mounted_turns: list[tuple[Markdown, Vertical]] = []
@@ -147,9 +137,8 @@ class App(TextualApp[None]):
 
     @override
     def get_default_screen(self) -> Screen:
-        # The id Textual gives the screen it would have put here: this
-        # one adds a suspend hook and changes nothing else, so anything
-        # looking the first screen up by id still finds it.
+        # Textual uses this id for its default screen. This screen only adds a suspend event method.
+        # Code that uses the first screen id still finds it.
         return Screen(id="_default")
 
     @override
@@ -167,7 +156,7 @@ class App(TextualApp[None]):
     def is_busy(self) -> bool:
         return self.active_turn_state is not None
 
-    # --- Event handlers --------------------------------------------- #
+    # --- Event methods ---------------------------------------------- #
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if self.is_busy:
@@ -220,10 +209,8 @@ class App(TextualApp[None]):
         self.ralph_button.display = False
 
         if event.history_index is not None:
-            # A refused rewind changes nothing, so the message asking
-            # for one is not sent and the offer on screen still stands.
-            # The name it reports is the provider's, so it reaches the
-            # screen as text rather than as markup of this terminal's.
+            # If rewind is refused, do not send the message. Keep the current offer on screen.
+            # Display the provider name as text, not as terminal markup.
             try:
                 self.conversation.rewind(event.history_index)
             except PersistenceError as error:
@@ -244,8 +231,7 @@ class App(TextualApp[None]):
         placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
         turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
         self.active_turn_state = turn_state
-        # Textual may hit-test a block after update() detaches it, and
-        # dereferences the parent it no longer has.
+        # Textual can hit-test a block after `update()` detaches it. It then accesses a missing parent.
         App.ALLOW_SELECT = False
         self.mounted_turns.append((user_message_widget, interviewer_turn))
 
@@ -260,20 +246,16 @@ class App(TextualApp[None]):
     async def on_mount(self) -> None:
         self.watch(self.message_input, "is_shortcuts_open", self._sync_shortcut_hints)
         await self._restore_history()
-        # A run the window before this one left going is picked up
-        # through the very door that starts one, so the rows, the
-        # reply and the ending arrive exactly as they would have. One
-        # that finished unwatched folds on the first read.
+        # Resume a pending run through its normal start path. This renders its rows, reply, and ending as usual.
+        # On the first read, finish a run that ended without a window.
         if self.conversation.pending_generation:
             await self._start_ralphing()
         await self._sync_ralph_button()
         self.set_focus(self.message_input)
         logger.info("mounted theme=%s", self.theme)
 
-    # The last thing the window does, and the only thing a run needs
-    # from it: whoever is following one is told to stop following, so
-    # the thread it is following in comes back rather than holding the
-    # terminal for as long as the run lasts.
+    # When the window closes, set this event. It stops window updates for a run that continues.
+    # The worker then returns instead of holding the terminal during the run.
     def on_unmount(self) -> None:
         self.detached.set()
         logger.info("unmounted")
@@ -281,7 +263,7 @@ class App(TextualApp[None]):
     def watch_active_turn_state(self) -> None:
         self.message_input.is_turn_active = self.is_busy
 
-    # --- Actions ---------------------------------------------------- #
+    # --- Action methods --------------------------------------------- #
 
     async def action_cancel_turn(self) -> None:
         if not self.is_busy:
@@ -316,13 +298,11 @@ class App(TextualApp[None]):
             if reasoning_block.has_class(styles.INTERVIEWER_REASONING_CLASSES):
                 reasoning_block.display = self.is_reasoning_visible
 
-    # --- Workers ---------------------------------------------------- #
+    # --- Worker methods --------------------------------------------- #
 
     @work(thread=True)
     def _run_turn(self, events: Generator[TurnEvent], turn_state: InterviewerTurnState) -> None:
-        # The turn ends with a `TurnFinished` whatever happens, so this
-        # worker never leaves a row spinning on an event that the
-        # conversation could not get as far as yielding.
+        # The turn ends with `TurnFinished` in all cases. This worker does not leave a row waiting for a missing event.
         finished = TurnFinished("failed", copy.INTERNAL_ERROR)
         detached = False
         try:
@@ -331,10 +311,8 @@ class App(TextualApp[None]):
                     finished = event
                     continue
                 self._call_from_thread(self._render_agent_event, turn_state, event)
-        # The window is leaving and the run is not: there is no ending
-        # to render, no turn to end, and nothing to write down. The run
-        # goes on recording itself, and the window that picks it up
-        # ends the turn from what it recorded.
+        # The window closes, but the run continues. Do not render an ending, close the turn, or write data.
+        # The run records itself. A later window ends the turn from the saved data.
         except RunDetached:
             detached = True
             logger.info("turn_detached")
@@ -346,7 +324,7 @@ class App(TextualApp[None]):
             if not detached:
                 self._call_from_thread(self._finish_turn, turn_state, finished)
 
-    # --- Callbacks -------------------------------------------------- #
+    # --- Callback methods ------------------------------------------- #
 
     def _finish_restoring_history(self, old_scroll_y: float, old_max_scroll_y: int) -> None:
         self.messages_container.scroll_to(
@@ -362,9 +340,8 @@ class App(TextualApp[None]):
         if content:
             await self._render_interviewer_status(turn_state, content, classes)
         elif turn_state.placeholder is not None:
-            # A turn with nothing left to say leaves no thinking notice
-            # behind: the recording holds no such item, and the restored
-            # view reads that recording.
+            # A turn with no content removes its thinking notice. The saved record has no notice.
+            # The restored view uses that record.
             await turn_state.placeholder.remove()
             turn_state.placeholder = None
         if event.ending in RETRYABLE_ENDINGS:
@@ -386,9 +363,8 @@ class App(TextualApp[None]):
         self.is_restoring_history = True
         old_scroll_y = self.messages_container.scroll_y
         old_max_scroll_y = self.messages_container.max_scroll_y
-        # Hidden turns are a prefix while scrolling, but a suffix
-        # while previewing history, where turn 0 stays visible and
-        # there is nothing older to reveal.
+        # During scrolling, hidden turns are a prefix. During history preview, they are a suffix.
+        # Turn 0 stays visible during preview, so no older turns are available.
         first_visible_turn = next(
             (index for index, (user_message, _) in enumerate(self.mounted_turns) if user_message.display),
             len(self.mounted_turns),
@@ -445,7 +421,7 @@ class App(TextualApp[None]):
         if self.active_turn_state is not None:
             self.active_turn_state.follow_bottom = False
 
-    # --- Rendering helpers ----------------------------------------- #
+    # --- Render methods --------------------------------------------- #
 
     async def _render_reasoning_delta(self, turn_state: InterviewerTurnState, event: ReasoningDelta) -> None:
         if turn_state.active_reasoning is None:
@@ -498,20 +474,15 @@ class App(TextualApp[None]):
         turn_state.tool_rows[event.call_id] = row
         await turn_state.container.mount(row)
 
-    # The affordance sits under the failure it answers, so a turn that
-    # failed again offers it below what it has just written rather than
-    # where the failure before it left one.
+    # Put the retry control below the failure that it answers. A later failure gets a control below its own message.
     async def _show_retry_button(self, turn_state: InterviewerTurnState) -> None:
         await turn_state.container.mount(self._build_retry_button())
 
-    # --- Helpers ---------------------------------------------------- #
+    # --- Helper methods --------------------------------------------- #
 
     def _build_restored_turns(self, start: int, end: int) -> list[tuple[Markdown, Vertical]]:
-        # Retrying re-runs the conversation's last turn, so that turn is
-        # the only one the affordance asking for it can sit under. The
-        # newest turns restore first, so the last turn is in the batch
-        # built before anything is mounted, and every batch after it is
-        # older than a turn already on screen.
+        # A retry runs the last conversation turn again. Only that turn can contain the retry control.
+        # Newest turns restore first. The last turn is in the first batch, and later batches contain older turns.
         retried_turn = None if self.mounted_turns else self.restored_turns[-1]
         restored_turns: list[tuple[Markdown, Vertical]] = []
         for turn in self.restored_turns[start:end]:
@@ -567,11 +538,8 @@ class App(TextualApp[None]):
             if self.is_running:
                 raise
 
-    # The affordance answers a failure by re-running whatever the turn
-    # was last doing, so every way of starting a run takes the standing
-    # ones out with it: a retry left over from an earlier failure would
-    # re-run the work the newest run leaves behind, which is not the
-    # work the failure it sits under names.
+    # A retry repeats the last turn operation. Remove all retry controls before each new run.
+    # An earlier control could repeat new work, not the work of its failure.
     async def _clear_retry_buttons(self) -> None:
         for retry_button in self.query(f".{styles.RETRY_BUTTON_CLASSES}"):
             await retry_button.remove()
@@ -600,10 +568,8 @@ class App(TextualApp[None]):
             await interviewer_turn.remove()
         del self.mounted_turns[offset:]
 
-    # The run needs a moment to reach the stop it was asked for, and a
-    # model call takes minutes to reach one. So whatever the turn has
-    # on screen says so the instant it is asked, rather than spinning
-    # under the label it opened with until the run comes back.
+    # A run can take time to stop, and a model call can take minutes. Show the stopping status at once.
+    # Do not keep the original status until the run returns.
     async def _request_cancellation(self) -> None:
         turn_state = self.active_turn_state
         if turn_state is None or turn_state.cancelled.is_set():
@@ -630,13 +596,9 @@ class App(TextualApp[None]):
     async def _retry(self, button: Button) -> None:
         container = cast("Vertical", button.parent)
         self.ralph_button.display = False
-        # What is on offer while the run the retry asked for is under
-        # way is stopping that run, not asking again.
+        # While a retry runs, offer only the stop action.
         await self._clear_retry_buttons()
-        # A run reports into a turn the interview already wrote in, so
-        # asking for it again clears nothing: what the turn said before
-        # the run stays, exactly as it does when a second run is
-        # started from the button that starts the first.
+        # A retry reports in the existing turn. Keep its previous content, as for another run from the Ralph button.
         is_ralphing = self.conversation.retried_work == "generation"
         if is_ralphing:
             self._show_ralphing()
@@ -652,9 +614,7 @@ class App(TextualApp[None]):
         self.messages_container.anchor()
         self._run_turn(self.conversation.retry(turn_state.cancelled, self.detached), turn_state)
 
-    # The panel covers the message input rather than replacing it, so
-    # the box both are in goes on being measured by the input for as
-    # long as the run lasts.
+    # The panel covers the message input instead of replacing it. The input continues to set the container size.
     def _show_ralphing(self) -> None:
         self.message_input.disabled = True
         self.ralphing.display = True
@@ -665,11 +625,8 @@ class App(TextualApp[None]):
         self.ralph_button.display = False
         await self._clear_retry_buttons()
         self._show_ralphing()
-        # A run is minutes of rows, and whatever thinking the models
-        # publish under them is hidden until the reader asks for it.
-        # Nothing says so where they are already looking, and the hint
-        # would read as an instruction to hide what they can see if
-        # they had asked already.
+        # A run can add many rows. Hide model reasoning until the reader asks to see it.
+        # Do not show a hint in the rows. It could tell readers who show reasoning to hide it.
         if not self.is_reasoning_visible:
             self.notify(copy.RALPHING_THINKING_HINT)
         turn_state = InterviewerTurnState(container=self.mounted_turns[-1][1], placeholder=None, is_ralphing=True)
@@ -684,9 +641,7 @@ class App(TextualApp[None]):
         self.message_input.is_ralph_ready = False
         if self.is_busy or not self.conversation.is_ready_to_ralph or not self.mounted_turns:
             return
-        # A retry that re-runs the generation starts the very run this
-        # button starts, so the offer stays on screen once, under the
-        # name the failure it answers gave it.
+        # A generation retry starts the same run as this button. Show one offer under the failure that names it.
         if self.query(f".{styles.RETRY_BUTTON_CLASSES}") and self.conversation.retried_work == "generation":
             return
         self.ralph_button = Button(copy.RALPH_BUTTON, classes=styles.RALPH_BUTTON_CLASSES, compact=True)
@@ -696,10 +651,8 @@ class App(TextualApp[None]):
     def _sync_retry_shortcut(self) -> None:
         self.message_input.is_retry_ready = bool(self.query(f".{styles.RETRY_BUTTON_CLASSES}"))
 
-    # Textual's footer picks its entries by the `show` a binding is
-    # declared with, so a mode that changes which keys are on offer
-    # cannot be rendered there: the hints it puts up are this bar,
-    # which takes the footer's place for as long as the mode is open.
+    # Textual selects footer entries from each binding `show` value.
+    # It cannot show keys that change with a mode. Use this bar while the mode is open.
     def _sync_shortcut_hints(self) -> None:
         is_open = self.message_input.is_shortcuts_open
         if is_open:
@@ -708,16 +661,13 @@ class App(TextualApp[None]):
         self.footer.display = not is_open
 
 
-# Every ending is answered here and nowhere else, so the live view and
-# the restored one say the same thing, and one left unanswered is a
-# return type this function cannot satisfy.
+# Handle every ending here. The live and restored views then use the same result.
+# An unhandled ending does not satisfy the return type.
 def _describe_ending(ending: TurnEnding | None, detail: str) -> tuple[str, str]:
     match ending:
-        # A turn still open has nothing to say about how it went. The
-        # run it is open for is the one this window picks up, except
-        # where a runner had taken its lock and written no journal yet:
-        # `on_mount` asks for the journal, so that turn is drawn open
-        # and stays unwatched until the user asks again.
+        # An open turn has no ending status. This window resumes its associated run.
+        # A runner can hold its lock before it writes a journal. `on_mount` reads the journal and draws the turn open.
+        # That turn stays without a window until the user asks again.
         case None:
             return "", styles.INTERVIEWER_MESSAGE_CLASSES
         case "replied":
@@ -726,12 +676,11 @@ def _describe_ending(ending: TurnEnding | None, detail: str) -> tuple[str, str]:
             return copy.TURN_NO_RESPONSE, styles.INTERVIEWER_MESSAGE_CLASSES
         case "stopped":
             return copy.TURN_STOPPED, styles.INTERVIEWER_MESSAGE_CLASSES
-        # A window that went is not a failure of the turn's either.
+        # A closed window is not a turn failure.
         case "interrupted":
             return copy.TURN_INTERRUPTED, styles.INTERVIEWER_MESSAGE_CLASSES
-        # Only a failure that could be JRI's own asks for an issue and
-        # a zip: a provider that refused or that could not be reached
-        # is answered where the answer is, and never in the tracker.
+        # Report only failures that JRI can cause. Report a provider refusal or unavailable service where it occurs.
+        # Do not report them in the issue tracker.
         case "failed":
             return copy.TURN_ERROR.format(error=detail), styles.INTERVIEWER_ERROR_CLASSES
         case "refused":
@@ -740,6 +689,6 @@ def _describe_ending(ending: TurnEnding | None, detail: str) -> tuple[str, str]:
             return copy.TURN_UNAVAILABLE.format(error=detail), styles.INTERVIEWER_ERROR_CLASSES
         case "exhausted":
             return copy.TURN_EXHAUSTED, styles.INTERVIEWER_ERROR_CLASSES
-        # A repository the user has to sort out is not a crash.
+        # A repository state that the user must fix is not a crash.
         case "blocked":
             return copy.TURN_BLOCKED.format(error=detail), styles.INTERVIEWER_MESSAGE_CLASSES

@@ -11,8 +11,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 CHILD_SUFFIX = ".child"
-# A holder nothing killed would keep the lock for as long as the run
-# lasts, so it gives up on its own well before a suite would.
+# Check this test support.
+# Check this test support.
 HOLDER = """
 import multiprocessing, sys, time
 from pathlib import Path
@@ -40,8 +40,8 @@ from jri.lib.lock import Lock
 with Lock(Path(sys.argv[1])):
     pass
 """
-# A lock its holder's death freed is taken as soon as it is asked for,
-# so this is only ever waited out by a lock that never came back.
+# Check this test support.
+# Check this test support.
 TIMEOUT = 5
 
 
@@ -61,8 +61,8 @@ def hold(path: Path, *, forking: bool = False) -> "Iterator[subprocess.Popen[byt
         holder.kill()
         holder.wait()
         if child.exists():
-            # A process the holder forked is nobody else's to reap, so
-            # a suite that made one takes it down itself.
+            # Check this test support.
+            # Check this test support.
             os.kill(read_fork_child(path), signal.SIGTERM)
 
 
@@ -79,8 +79,8 @@ def runs(pid: int) -> bool:
 
 
 def take(path: Path) -> bool:
-    # The lock is asked for in a process of its own, so a lock that
-    # never comes back ends the test rather than hanging the suite.
+    # Check this test support.
+    # Check this test support.
     try:
         taker = subprocess.run([sys.executable, "-c", TAKER, str(path)], timeout=TIMEOUT, check=False)
     except subprocess.TimeoutExpired:

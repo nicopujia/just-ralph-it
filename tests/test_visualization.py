@@ -6,9 +6,9 @@ import pytest
 from jri.core.notes import Connection, Graph, Note, Topic
 from jri.core.visualization import DRAW_ERROR, LOAD_ERROR, render
 
-# Where the project declares the tracker it takes reports at, so a
-# message offering one is read against the declaration and not against
-# a second copy of the same string.
+# Read the tracker URL from the project declaration.
+# Do not keep a second copy of the same URL.
+# This prevents the URL values from becoming inconsistent.
 PYPROJECT = Path(__file__).parent.parent / "pyproject.toml"
 
 
@@ -44,12 +44,12 @@ def test_hangs_a_note_off_its_topic_only_where_nothing_else_connects_them() -> N
     assert 't1 -->|"asks about"| n1' in diagram
 
 
-# Every label below is a sentence a user could write, paired with what
-# mermaid has to receive for it to read back as written: a delimiter
-# arriving as itself ends the label early and the page becomes a parse
-# error instead of a graph. Only a browser settles whether these codes
-# are the right ones, which is what `jri view` is for; what a test can
-# settle is that a note's own text never reaches the parser raw.
+# These labels are texts that a user can write.
+# Each expected label is safe Mermaid input for that text.
+# A raw delimiter can close a label early.
+# Then Mermaid reports a parse error instead of a graph.
+# Only a browser can verify that the encoded labels look correct.
+# This test verifies that raw note text does not reach Mermaid.
 @pytest.mark.parametrize(
     ("text", "label"),
     [
@@ -89,11 +89,11 @@ def test_leaves_the_percentages_and_braces_of_the_page_alone() -> None:
     assert 'mermaid.initialize({ startOnLoad: false, theme: "default" });' in page
 
 
-# The colours below only exist together: mermaid draws its edges in
-# #333 and its topic text in black, so the canvas they land on has to
-# be the light one they were chosen for, whatever scheme the browser
-# is following. Only a browser settles whether the page reads well;
-# what a test can settle is that neither half of the pin is dropped.
+# These colors must remain together.
+# Mermaid uses `#333` edges and black topic text.
+# They require the light canvas that they were selected for.
+# The browser color scheme must not change that canvas.
+# This test verifies both required color settings.
 def test_pins_the_page_to_the_scheme_the_graph_is_drawn_for() -> None:
     page = render(build_graph())
 
@@ -108,10 +108,10 @@ def test_opens_the_graph_at_its_top_instead_of_its_middle() -> None:
     assert "center: false," in page
 
 
-# A viewer that cannot draw has one thing left to offer, and it is the
-# address: the sentence around it can be reworded, but a message that
-# names a failure and nowhere to take it puts the reader back where a
-# first name with no channel behind it left them.
+# A viewer that cannot draw can still provide an address.
+# The message can use different words around that address.
+# A failure message without a destination does not help the user.
+# It has the same problem as a name without a contact channel.
 def test_names_the_tracker_the_project_declares_for_reports() -> None:
     tracker = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["urls"]["Issues"]
 
@@ -126,13 +126,13 @@ def test_says_what_went_wrong_where_the_page_can_show_it() -> None:
     assert "<!--" not in page
 
 
-# The page's script reaches each library by the global name it defines,
-# and a library the page never fetches leaves that name undefined.
-# Dropping a name from the page is invisible to a test that reads the
-# page for what it fetches alone, since a page that fetches nothing and
-# calls nothing is consistent. Each pair below is a call the script
-# makes and the URL that gives it something to call; a library moved to
-# another host or version has to say here where the global comes from.
+# The page script uses each library global name.
+# A library that the page does not load leaves that name undefined.
+# A fetch-only test cannot detect a missing global call.
+# A page with no fetches and no calls is still internally consistent.
+# Each pair gives a script call and its library URL.
+# Update this test when a library host or version changes.
+# The URL must define the global name that the script uses.
 @pytest.mark.parametrize(
     ("call", "source"),
     [

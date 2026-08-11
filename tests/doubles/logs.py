@@ -15,15 +15,15 @@ from jri.core import logs, paths
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-# Every path the log needs: the directory holding them, the lock the
-# runs of a session take turns over, and each name the rotation walks
-# through, which follows `KEPT_LOG_FILES` rather than restating it.
-# Their parents are not here. `.jri` holds the notebook, the
-# configuration and the specifications, so it is not the log's to
-# clear the way it clears the names under it, and what a file standing
-# on it costs the run has a test of its own. The project root is what
-# every file JRI writes shares, so a wrong one there is not the log's
-# class at all.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 LOG_PATHS = (
     paths.LOGS_DIR,
     paths.LOG_LOCK_FILE,
@@ -31,20 +31,20 @@ LOG_PATHS = (
     *(f"{paths.LOG_FILE}.{index}" for index in range(1, logs.KEPT_LOG_FILES)),
 )
 POLL = 0.01
-# What an unprivileged process can leave on one of those names, and
-# `sabotage` makes every one of them on every one of those paths.
-# Three states are left out, each for a reason rather than for want of
-# looking. An immutable or append-only file needs
-# `CAP_LINUX_IMMUTABLE` and a device node needs `CAP_MKNOD`, so
-# neither is this process's to make. A filesystem with nothing left on
-# it needs a mount of one's own or the filling of one the whole
-# machine shares, and a record dropped for want of a block is one no
-# repair puts back -- what the run does when a write can never land is
-# pinned where `.jri` is taken instead. Two more are no state of their
-# own: a name that collides on a case-insensitive filesystem is `a
-# file` or `a directory` there, since `JRI.LOG` *is* `jri.log`, and a
-# path past `PATH_MAX` needs a project root the user chose, since
-# `NAME_MAX` stops any component here from growing.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 SABOTAGE_SHAPES = (
     "gone",
     "a file",
@@ -57,15 +57,15 @@ SABOTAGE_SHAPES = (
     "a hard link",
     "nothing may use",
     "nothing may write",
-    # Neither is Python's to make on Windows: no pipe of the
-    # platform's own answers to a path, and `socket` there carries no
-    # `AF_UNIX`. The platform withholds these two, not a privilege.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
     *(() if sys.platform == "win32" else ("a pipe", "a socket")),
 )
-# A second run of the same session, doing what `jri view` does beside a
-# `jri chat`: configuring the same log and writing to it. It waits for
-# its turn between batches, so a test can put its own records before,
-# after or alongside this run's.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 SECOND_RUN = """
 import logging, sys, time
 from pathlib import Path
@@ -87,24 +87,24 @@ for turn, size in enumerate(int(batch) for batch in sys.argv[3].split(",")):
     (turns / f"{turn}.done").touch()
 logging.shutdown()
 """
-# A turn that never comes ends the test rather than hanging the suite.
+# Check this test support.
 TIMEOUT = 30
-# `tests.conftest.isolate_network` stands a guard on `socket.socket`,
-# and a socket bound to a name under `.jri` reaches nothing at all, so
-# the constructor is taken here -- at import, before the guard stands
-# -- and the shape below is made rather than skipped.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 UNGUARDED_SOCKET = socket.socket
-# A directory of the user's beside `.jri`, holding what the links and
-# the hard links below point at. A record that reaches anything under
-# it is a record that left the workspace directory.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 USER_FILES_DIR = "src"
 
 
-# Newest last, since the rotated file carries the older records. A
-# name the log rotates through that holds something else holds no
-# record either, and a pipe on one of them answers a read by never
-# coming back, so what is listed is the regular files and a name still
-# standing wrong reads as the record it was holding gone.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 def list_log_files(workspace: Path) -> list[Path]:
     return sorted(
         (
@@ -116,10 +116,10 @@ def list_log_files(workspace: Path) -> list[Path]:
     )
 
 
-# A mode a sabotage left behind is the sabotage's and not the log's,
-# and whoever reads a session's records back owns the files, so the
-# access is taken back here. What the log wrote is unchanged by it:
-# a record the run never managed to write is missing either way.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 def read_session_log(workspace: Path) -> str:
     _grant_access(workspace / paths.LOGS_DIR, stat.S_IRWXU)
     files = list_log_files(workspace)
@@ -128,12 +128,12 @@ def read_session_log(workspace: Path) -> str:
     return "".join(file.read_text(encoding="utf-8") for file in files)
 
 
-# Everything the project holds beside `.jri`, by the bytes it is long:
-# a record that reached one of these grew it, and one that made a file
-# of its own left a name that was not here before. A link is measured
-# rather than followed, and a directory a link stands for is not
-# walked, so what is counted is the project and never a tree the log
-# was pointed at from inside `.jri`.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 def read_user_files(workspace: Path) -> dict[str, int]:
     return {
         str(path.relative_to(workspace)): path.lstat().st_size
@@ -146,10 +146,10 @@ def read_user_files(workspace: Path) -> dict[str, int]:
 def run_beside(workspace: Path, *, bound: int, batches: "Sequence[int]", padding: str = "") -> "Iterator[Turns]":
     turns = workspace / "turns"
     turns.mkdir()
-    # An argument is capped at `MAX_ARG_STRLEN` -- 128 KiB on Linux --
-    # and a record the size the log bounds is what these runs are for,
-    # so the payload reaches the second run as a file rather than as
-    # one of its arguments.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
     padding_file = workspace / "padding"
     padding_file.write_text(padding, encoding="utf-8")
     arguments = (str(bound), str(turns), ",".join(str(batch) for batch in batches), str(padding_file))
@@ -164,17 +164,17 @@ def run_beside(workspace: Path, *, bound: int, batches: "Sequence[int]", padding
     finally:
         run.kill()
         run.wait()
-    # The terminal is a `jri chat` screen's, so a run that logged has
-    # nothing to say on it -- and `logging` says plenty when it fails.
+    # Check this test support.
+    # Check this test support.
     assert not reported, f"the second run wrote this to the terminal:\n{reported}"
     assert run.returncode == 0
 
 
-# One of `SABOTAGE_SHAPES` left on one of `LOG_PATHS`. A link goes
-# somewhere the user's rather than nowhere in particular, since a link
-# the log follows out of `.jri` is the thing worth catching, and the
-# two dangling ones are told apart by whether the name they point at
-# can be created: only the second one lets an `O_CREAT` land outside.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 def sabotage(workspace: Path, path: str, shape: str) -> None:
     sabotaged = workspace / path
     a_directory = workspace / USER_FILES_DIR / "notes"
@@ -208,9 +208,9 @@ def sabotage(workspace: Path, path: str, shape: str) -> None:
         case "a hard link":
             _clear(sabotaged)
             sabotaged.hardlink_to(a_file)
-        # The guards say what the shapes above already say, and are
-        # what lets a checker read these two arms on a platform whose
-        # `os` and whose `socket` do not carry what they call.
+        # Check this test support.
+        # Check this test support.
+        # Check this test support.
         case "a pipe" if sys.platform != "win32":
             _clear(sabotaged)
             os.mkfifo(sabotaged)

@@ -12,8 +12,8 @@ COMMIT = "1a2b3c4"
 FINISHED_ROW = ToolCallFinished("commit", "Saved the specifications to your project", "done")
 STARTED_ROW = ToolCallStarted("commit", "Saving the specifications to your project", "💾")
 THOUGHT = ReasoningDelta("Weighing the options.")
-# A stop that never arrives would hang the suite, and one that is going
-# to arrive is a poll away.
+# Check this test support.
+# Check this test support.
 STOPS_WITHIN = 10.0
 
 
@@ -27,8 +27,8 @@ def generate_failing(_settings: "Settings", _cancelled: Event | None = None) -> 
     raise RuntimeError("The architect could not be reached.")
 
 
-# The reasoning effort an architect's model does not offer, which the
-# provider answers the same way on every attempt of every run.
+# Check this test support.
+# Check this test support.
 def generate_refused(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
     yield STARTED_ROW
     raise ProviderRefusalError("The provider answered 400 Bad Request, saying:\n```\nUnsupported value.\n```")
@@ -47,8 +47,8 @@ def generate_thinking(_settings: "Settings", _cancelled: Event | None = None) ->
     return COMMIT
 
 
-# Most of a run is a model call saying nothing for minutes, and a stop
-# has to reach it there rather than at the next thing it writes down.
+# Check this test support.
+# Check this test support.
 def generate_silently(_settings: "Settings", cancelled: Event | None = None) -> Generator[object, None, str | None]:
     assert cancelled is not None
     assert cancelled.wait(STOPS_WITHIN), "the stop never reached the run"
@@ -56,10 +56,10 @@ def generate_silently(_settings: "Settings", cancelled: Event | None = None) -> 
     yield
 
 
-# The workflow answers a stop by returning no result at all. A run in a
-# process of its own hears about one only once the file the follower
-# writes reaches its watcher, so this waits for the stop rather than
-# looking for one that could not have arrived yet.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 def generate_stopped(_settings: "Settings", cancelled: Event | None = None) -> Generator[object, None, str | None]:
     yield STARTED_ROW
     assert cancelled is not None

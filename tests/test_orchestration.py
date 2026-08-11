@@ -40,9 +40,9 @@ type Row = ToolCallStarted | ToolCallFinished
 
 AMBIGUITIES = functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
-# A draft placing a specification `Specs.write` refuses a model: Git
-# reads a body holding a null character as binary, and the diff of a
-# binary file names it and carries none of its content.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
 NULL_BODY_DRAFT = (
     "diff --git a/.jri/specs/functional/null.md b/.jri/specs/functional/null.md\n"
     "new file mode 100644\n"
@@ -52,11 +52,11 @@ NULL_BODY_DRAFT = (
     "+# Null\x00byte\n"
 )
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
-# The same refusal over a draft that names its one path in two
-# sections, which is what a patch a run composed twice carries: Git
-# places both, and `git apply --reverse` ends at nought over it having
-# undone the second alone. Windows resolves `CON` to a device however
-# it is cased, so no clone there could check the commit out.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
 REDRAFTED_DEVICE_NAME_DRAFT = """\
 diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
 new file mode 100644
@@ -71,9 +71,9 @@ diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
  # Console
 +The console reports totals.
 """
-# A draft that places a specification JRI would write beside a file it
-# never would: `Specs.read` answers for `*.md`, the commit takes
-# `*.md`, and nothing else names the second file again.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
 FOREIGN_FILE_DRAFT = """\
 diff --git a/.jri/specs/functional/exports.md b/.jri/specs/functional/exports.md
 new file mode 100644
@@ -108,8 +108,8 @@ def generate(
         captured.append((yield from specs_generation.generate(settings, cancelled)))
 
     events: list[Progress] = []
-    # A stop reaches the run while the row naming the step it
-    # interrupts is the one on screen.
+    # Check the behavior in `test_returns_ambiguities_without_committing`.
+    # Check the behavior in `test_returns_ambiguities_without_committing`.
     for event in drive():
         events.append(event)
         if event == stop_at:
@@ -167,13 +167,13 @@ def read_prompts(client: FakeClient) -> list[str]:
     ]
 
 
-# What a tool answered, which is where a path a model was shown lands:
-# an output carries its text under `output` rather than under the
-# `content` a message has, as one string from most tools and as a list
-# of items from the ones that answer with images or files. Both are
-# taken apart rather than searched as one string, since `repr` over the
-# whole context doubles every separator a path carries on a filesystem
-# that spells them with backslashes.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
+# Check the behavior in `test_returns_ambiguities_without_committing`.
 def read_tool_outputs(client: FakeClient) -> list[str]:
     answered: list[str] = []
     for context in client.responses.inputs:
@@ -271,17 +271,17 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     assert any("Ship a web app." in prompt for prompt in prompts)
     assert not any("nonsense" in prompt for prompt in prompts)
     diff = next(prompt for prompt in prompts if "Notebook diff from accepted baseline:" in prompt)
-    # A baseline JRI cannot read is no baseline: the whole notebook
-    # arrives as additions, the state a first generation reports,
-    # rather than as the nothing-changed an unreadable one would.
+    # Check the behavior in `test_writes_specifications_against_an_accepted_notebook_it_cannot_read`.
+    # Check the behavior in `test_writes_specifications_against_an_accepted_notebook_it_cannot_read`.
+    # Check the behavior in `test_writes_specifications_against_an_accepted_notebook_it_cannot_read`.
     assert "@@ -0,0 +1," in diff
     assert "+    n1: Ship a web app." in diff
 
 
-# Handed notes it has already answered, a model returns the
-# specifications the project holds -- the shape the prompt asks for
-# when nothing needs changing. Git reads that as no change at all,
-# which is the models' conclusion rather than a write that failed.
+# Check the behavior in `test_reports_a_generation_that_changed_nothing`.
+# Check the behavior in `test_reports_a_generation_that_changed_nothing`.
+# Check the behavior in `test_reports_a_generation_that_changed_nothing`.
+# Check the behavior in `test_reports_a_generation_that_changed_nothing`.
 def test_reports_a_generation_that_changed_nothing(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -321,13 +321,13 @@ def test_stops_a_run_without_touching_the_project(
     rows, result = generate(client, stop_at)
 
     assert result is None
-    # The run says nothing more, leaving the row the stop landed on
-    # for the turn to close.
+    # Check the behavior in `test_stops_a_run_without_touching_the_project`.
+    # Check the behavior in `test_stops_a_run_without_touching_the_project`.
     assert rows[-1] == stop_at
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
-    # Nothing staged and no worktree left behind: a stop that left
-    # either would be worse than never stopping.
+    # Check the behavior in `test_stops_a_run_without_touching_the_project`.
+    # Check the behavior in `test_stops_a_run_without_touching_the_project`.
     assert not run_git(tmp_path, "diff", "--cached")
     assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
 
@@ -350,8 +350,8 @@ def test_stops_a_run_while_a_model_is_still_answering(
 
     _, result = generate(client, cancelled=cancelled)
 
-    # A stop mid-answer ends the run where a stop between two steps
-    # does, rather than after the minutes that answer had left.
+    # Check the behavior in `test_stops_a_run_while_a_model_is_still_answering`.
+    # Check the behavior in `test_stops_a_run_while_a_model_is_still_answering`.
     assert result is None
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
@@ -363,8 +363,8 @@ def test_stops_the_repository_study_without_calling_it_a_failure(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    # The only round the study is served, so a run that carried on
-    # would answer this call and then ask for a round nobody queued.
+    # Check the behavior in `test_stops_the_repository_study_without_calling_it_a_failure`.
+    # Check the behavior in `test_stops_the_repository_study_without_calling_it_a_failure`.
     client = FakeClient(
         [response(call("read", "read_files", paths=["README.md"]))], parsed=[written_specs(), designed_architecture()]
     )
@@ -376,10 +376,10 @@ def test_stops_the_repository_study_without_calling_it_a_failure(
     assert architect.Output not in [options.get("text_format") for options in client.responses.options]
 
 
-# Every call to a model is a wait of its own, minutes long, so it says
-# on screen who is working and on which round -- and it says it in a
-# row of its own, opened when the call starts and closed on what that
-# call answered.
+# Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
+# Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
+# Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
+# Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
 def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
@@ -420,18 +420,18 @@ def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repo
         ("ToolCallStarted", "commit", "Saving the specifications to your project"),
         ("ToolCallFinished", "commit", "Saved the specifications to your project"),
     ]
-    # Saving is JRI's own work rather than a model's, so every other row
-    # answers for exactly one call the run made.
+    # Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
+    # Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
     assert len([row for row in rows if isinstance(row, ToolCallStarted) and row.call_id != "commit"]) == len(
         client.responses.inputs
     )
     assert isinstance(result, str)
 
 
-# A call has one row of its own and publishes whatever it says about
-# its own reasoning while that row is open, so a thought is read under
-# the row of the model that thought it. A run whose models publish
-# nothing reads exactly as this one does with the thoughts taken out.
+# Check the behavior in `test_carries_the_thinking_of_a_call_between_its_two_rows`.
+# Check the behavior in `test_carries_the_thinking_of_a_call_between_its_two_rows`.
+# Check the behavior in `test_carries_the_thinking_of_a_call_between_its_two_rows`.
+# Check the behavior in `test_carries_the_thinking_of_a_call_between_its_two_rows`.
 def test_carries_the_thinking_of_a_call_between_its_two_rows(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -512,9 +512,9 @@ def test_finishes_the_open_round_when_ambiguities_appear(tmp_path: Path, create_
     ]
 
 
-# The number a round opens with is the length of the list of issues
-# that round is being sent, so the screen cannot claim a round is
-# answering more or fewer than the analyst was handed.
+# Check the behavior in `test_names_the_issues_the_round_it_opens_answers`.
+# Check the behavior in `test_names_the_issues_the_round_it_opens_answers`.
+# Check the behavior in `test_names_the_issues_the_round_it_opens_answers`.
 def test_names_the_issues_the_round_it_opens_answers(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
@@ -564,11 +564,11 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
     assert "Rejected functional draft:" not in revision
 
 
-# A round writes onto the specifications standing in the run's
-# worktree, so a file the analyst leaves out of its answer keeps
-# whatever the round before it left there -- and on the first round
-# that is the accepted baseline, which is what makes an answer naming
-# one file a whole answer.
+# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
+# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
+# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
+# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
+# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
 def test_keeps_the_accepted_specification_a_round_left_out(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -595,12 +595,12 @@ def test_keeps_the_accepted_specification_a_round_left_out(
     ]
 
 
-# The round answering the architect edits the draft the architect
-# rejected rather than writing the accepted baseline out again, so a
-# file only the first round wrote survives into the commit and the file
-# the second round changed carries the second round's words. Move the
-# run's worktree back inside the loop and the first round's file is
-# gone.
+# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
+# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
+# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
+# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
+# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
+# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
 def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
@@ -624,8 +624,8 @@ def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_reposito
     )
 
 
-# The first round has no draft to write onto, so what it is shown is
-# the specifications the project holds and nothing else.
+# Check the behavior in `test_asks_the_first_round_for_specifications_against_the_accepted_baseline`.
+# Check the behavior in `test_asks_the_first_round_for_specifications_against_the_accepted_baseline`.
 def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -645,10 +645,10 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     assert UPDATED_FUNCTIONAL_FILES["functional/behavior.md"] not in first
 
 
-# What a run leaves behind is Git's own patch onto the specifications
-# the project holds, so an ending that reaches no commit keeps the
-# rounds that did finish -- and keeps them out of the project, which
-# still holds only what it held before the run.
+# Check the behavior in `test_keeps_the_draft_a_run_that_reached_no_commit_wrote`.
+# Check the behavior in `test_keeps_the_draft_a_run_that_reached_no_commit_wrote`.
+# Check the behavior in `test_keeps_the_draft_a_run_that_reached_no_commit_wrote`.
+# Check the behavior in `test_keeps_the_draft_a_run_that_reached_no_commit_wrote`.
 @pytest.mark.parametrize(
     "queue_tail",
     [[functional_analyst.Output(result=AMBIGUITIES)], [written_specs(), designed_architecture(FUNCTIONAL_FILES)]],
@@ -691,10 +691,10 @@ def test_forgets_the_draft_a_run_committed(tmp_path: Path, create_repository: Cr
     assert not (tmp_path / paths.DRAFT_FILE).exists()
 
 
-# A run picking up a draft says so in a row of its own, and what it
-# picks up is what the next round writes onto: the file the run before
-# it drafted is in the analyst's context and in the commit, even though
-# no round of this run ever wrote it.
+# Check the behavior in `test_resumes_the_draft_a_run_left_behind`.
+# Check the behavior in `test_resumes_the_draft_a_run_left_behind`.
+# Check the behavior in `test_resumes_the_draft_a_run_left_behind`.
+# Check the behavior in `test_resumes_the_draft_a_run_left_behind`.
 def test_resumes_the_draft_a_run_left_behind(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -724,10 +724,10 @@ def test_resumes_the_draft_a_run_left_behind(
     ]
 
 
-# The row counts the draft, which is a delta: a specification the
-# project already holds is one the checkout put there, and no part of
-# what the run picked up. A mature specification tree would otherwise
-# report forty files for a draft that changed one.
+# Check the behavior in `test_counts_the_draft_rather_than_the_specifications_the_project_holds`.
+# Check the behavior in `test_counts_the_draft_rather_than_the_specifications_the_project_holds`.
+# Check the behavior in `test_counts_the_draft_rather_than_the_specifications_the_project_holds`.
+# Check the behavior in `test_counts_the_draft_rather_than_the_specifications_the_project_holds`.
 def test_counts_the_draft_rather_than_the_specifications_the_project_holds(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -748,10 +748,10 @@ def test_counts_the_draft_rather_than_the_specifications_the_project_holds(
     assert read_rows(rows)[1] == ("ToolCallFinished", "resume", "Picked up a draft of 1 specification file")
 
 
-# A draft the project has moved past is refused whole, and refusing it
-# is not a failure of the run that met it: the run writes from the
-# specifications the project holds, commits, and never meets that draft
-# again.
+# Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
+# Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
+# Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
+# Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
 def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -762,8 +762,8 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
         parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],
     )
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
-    # Another accepted generation moves the specifications out from
-    # under the draft, so what it says it is a delta onto is gone.
+    # Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
+    # Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
     (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# Totals\nThe project reports totals.\n")
     run_git(tmp_path, "add", "--force", paths.FUNCTIONAL_SPECS_DIR)
     run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
@@ -786,13 +786,13 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
     assert not run_git(tmp_path, "status", "--short")
 
 
-# A draft carrying what no answer of a model's could is refused like
-# any other draft that does not fit, and the refusal is what the run
-# goes on to write from: the specification is in no prompt, in no
-# commit, and in nothing the next run picks up. A run that met it only
-# after picking it up would end over a specification nothing of JRI's
-# wrote -- and since every ending but a commit keeps the draft, so
-# would the run after it, and the one after that.
+# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
+# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
+# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
+# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
+# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
+# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
+# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
 @pytest.mark.parametrize(
     ("draft", "refused"),
     [(NULL_BODY_DRAFT, "null.md"), (REDRAFTED_DEVICE_NAME_DRAFT, "CON.md"), (FOREIGN_FILE_DRAFT, "exports.md")],
@@ -828,12 +828,12 @@ def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
     assert not run_git(tmp_path, "status", "--short")
 
 
-# Every way a draft can be wrong ends the same way: the run says it
-# could not be used and writes from the specifications the project
-# holds. A draft JRI can neither read, nor remove, nor write over is
-# the worst of them, and a run that stopped over it would meet the very
-# same draft on every run after, with no way out but the user deleting
-# a file JRI wrote.
+# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
+# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
+# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
+# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
+# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
+# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
 def test_runs_through_a_draft_it_can_neither_read_nor_replace(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -898,9 +898,9 @@ def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
     assert report.endswith("Repository analysis report:\n```\nFinal report\n```")
 
 
-# The study's thinking is the model working; its report is the
-# evidence the architect designs against. A thought reaches the reader
-# as a thought and never the architect as a fact about the project.
+# Check the behavior in `test_keeps_the_thinking_of_the_project_study_out_of_its_report`.
+# Check the behavior in `test_keeps_the_thinking_of_the_project_study_out_of_its_report`.
+# Check the behavior in `test_keeps_the_thinking_of_the_project_study_out_of_its_report`.
 def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -973,9 +973,9 @@ def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Pa
     assert "README.md" in tree
 
 
-# A newline is a character Windows refuses in a name outright, so no
-# repository checked out there holds a path like this one for the tree
-# to have to quote whole.
+# Check the behavior in `test_reports_a_file_name_holding_a_newline_as_one_tracked_path`.
+# Check the behavior in `test_reports_a_file_name_holding_a_newline_as_one_tracked_path`.
+# Check the behavior in `test_reports_a_file_name_holding_a_newline_as_one_tracked_path`.
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows holds no file whose name carries a newline")
 def test_reports_a_file_name_holding_a_newline_as_one_tracked_path(
     tmp_path: Path, create_repository: CreateRepository

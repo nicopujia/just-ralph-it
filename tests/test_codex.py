@@ -312,7 +312,7 @@ def test_reports_a_refresh_the_sibling_process_left_without_an_account(
     with pytest.raises(codex.AuthError, match="incomplete"):
         retry_after_rejection(codex.Auth(ORIGINATOR), lambda: write_login(tmp_path, sibling))
 
-    # The refresh token was already spent, so it must not be lost.
+    # Check the behavior in `test_reports_a_refresh_the_sibling_process_left_without_an_account`.
     assert json.loads((tmp_path / "auth.json").read_text())["tokens"] == sibling
 
 

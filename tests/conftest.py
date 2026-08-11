@@ -21,8 +21,8 @@ type ReadCredential = Callable[[str], str]
 type RunGit = Callable[..., str]
 
 CONTRACT_MARKER = "contract"
-# The file `jri chat` reads its keys from, so a live call is paid for
-# by the same credential the product uses.
+# This file gives `jri chat` its API keys.
+# A live call uses the same credential as the product.
 ENV_FILE = Path(__file__).parent.parent / ".env"
 NETWORK = ((socket, "getaddrinfo"), (socket, "create_connection"), (socket, "socket"), (httpx, "get"))
 
@@ -32,8 +32,8 @@ def run_git() -> RunGit:
     executable = shutil.which("git")
     assert executable is not None
 
-    # Git reports the states it stops in as failures, so reaching one
-    # means running a command that is meant to come back non-zero.
+    # Git reports its stop states as failures.
+    # Run a command with a nonzero result to reach one state.
     def run(path: Path, *arguments: str, check: bool = True) -> str:
         return subprocess.run(
             [executable, "-C", str(path), *arguments], check=check, capture_output=True, text=True
@@ -46,8 +46,8 @@ def run_git() -> RunGit:
 def create_link() -> CreateLink:
     def create(path: Path, target: Path) -> None:
         try:
-            # Windows keeps a link to a directory apart from a link to
-            # a file, and refuses to follow one made as the other.
+            # Windows distinguishes directory links from file links.
+            # It does not follow a link of the other type.
             path.symlink_to(target, target_is_directory=target.is_dir())
         except OSError as error:
             pytest.skip(f"a link needs a privilege this machine withholds: {error}")
@@ -60,8 +60,8 @@ def create_repository(run_git: RunGit) -> CreateRepository:
     def create(path: Path) -> git.Repository:
         path.mkdir(parents=True, exist_ok=True)
         run_git(path, "init", "-q")
-        # Git and the assertions read the bytes back, and the line
-        # ending a platform would put in them is not JRI's.
+        # Git and these assertions read the stored bytes.
+        # The platform line ending is not part of JRI data.
         (path / "README.md").write_bytes(b"# Project\n")
         run_git(path, "add", "README.md")
         run_git(path, "commit", "-qm", "initial")
@@ -70,15 +70,15 @@ def create_repository(run_git: RunGit) -> CreateRepository:
     return create
 
 
-# The outside world answers with what this repository wrote, so no test
-# needs a network to be deterministic. The one belief a double cannot
-# falsify is the wire contract it is the oracle for, so a test marked
-# `contract` -- and only such a test -- reaches the endpoint itself.
+# The repository provides all external responses for these tests.
+# Therefore, normal tests do not need network access.
+# A double cannot verify its own wire contract.
+# Only a `contract` test calls the real endpoint.
 @pytest.fixture(autouse=True)
 def isolate_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     if request.node.get_closest_marker(CONTRACT_MARKER):
-        # Nothing else clears it, and a limit an earlier test cached
-        # would answer in the endpoint's place.
+        # No other fixture clears this cache.
+        # A cached limit from another test could replace the endpoint result.
         read_context_limit.cache_clear()
         return
 
@@ -90,8 +90,8 @@ def isolate_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPa
     serve_catalog(monkeypatch)
 
 
-# A JRI command runs inside the project it works on, so the code under
-# test reads the working directory rather than being told about it.
+# A JRI command runs in its project directory.
+# The code under test reads the current working directory.
 @pytest.fixture(autouse=True)
 def isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
@@ -99,9 +99,9 @@ def isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def read_credential() -> ReadCredential:
-    # A contract nothing pays for is a contract nothing checks, and the
-    # run that asked for one is a release, so an unset key is a failure
-    # rather than the quiet pass a skip would be.
+    # An unpaid contract test does not verify the contract.
+    # A release run must fail when its required key is not set.
+    # A skip would hide this release failure.
     def read(variable: str) -> str:
         value = os.environ.get(variable) or dotenv_values(ENV_FILE).get(variable)
         if not value:

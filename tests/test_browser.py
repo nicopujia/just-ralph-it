@@ -7,15 +7,15 @@ import pytest
 
 from jri.lib.browser import open_page
 
-# A browser stands for whatever the machine would have started, and the
-# only thing this one does is write down that it ran and what it was
-# handed. `-c` leaves the script out of `sys.argv`, so the marker is
-# the first argument and the page the second.
+# This browser represents the browser that the machine would start.
+# It records that it ran and the page that it received.
+# `-c` excludes the script from `sys.argv`.
+# Therefore, the marker is the first argument and the page is the second.
 BROWSER = "import pathlib, sys; pathlib.Path(sys.argv[1]).write_text(sys.argv[2], encoding='utf-8')"
 POLL = 0.01
 PAGE = "file:///tmp/notes.html"
-# A spawn nothing waits for is one the assertion has to wait for, and
-# the wait covers an interpreter starting on a machine under load.
+# An unchecked spawn requires the assertion to wait.
+# The wait allows for a slow interpreter start.
 RUNS_WITHIN = 30.0
 
 
@@ -40,12 +40,12 @@ def test_starts_a_browser_that_leaves_this_terminal_alone(tmp_path: Path, monkey
     assert marker.read_text(encoding="utf-8") == PAGE
 
 
-# The class below is the one `webbrowser` registers lynx, w3m and links
-# as, and starting it hands over the terminal the command was run in:
-# it inherits the standard streams and is waited for. So the answer a
-# test can read is that the browser never ran at all -- a marker that
-# is not there is a process that was never started -- rather than a
-# claim about where its output went.
+# This is the class that `webbrowser` uses for lynx, w3m, and links.
+# Starting it gives the command the current terminal.
+# It inherits standard streams and the caller waits for it.
+# The test can verify only that the browser did not start.
+# A missing marker means that no process started.
+# Do not infer where browser output would go.
 def test_leaves_a_browser_that_would_take_this_terminal_unstarted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -57,12 +57,12 @@ def test_leaves_a_browser_that_would_take_this_terminal_unstarted(
     assert not marker.exists()
 
 
-# `Elinks` is one of these, and `webbrowser` puts it ahead of every
-# other console browser it finds. What such a browser does with a page
-# no copy of it is already showing is run itself over the terminal and
-# wait, and `background` is the declaration that decides it. The
-# command below stands where the browser's own would, so a guard that
-# stopped reading the declaration would leave the marker behind.
+# `Elinks` is one browser in this class.
+# `webbrowser` selects it before other console browsers.
+# It runs in the terminal when it does not display the page already.
+# The `background` value controls this behavior.
+# This command replaces the browser command for the test.
+# A missing declaration check would create the marker.
 def test_leaves_a_unix_browser_that_stays_in_the_foreground_unstarted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

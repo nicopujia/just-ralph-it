@@ -6,7 +6,7 @@ import pytest
 from jri.lib import files
 from tests.conftest import CreateLink
 
-# A lone surrogate is the shortest string utf-8 cannot encode.
+# A lone surrogate is the shortest string that UTF-8 cannot encode.
 UNENCODABLE_CONTENT = "\ud800"
 READABLE_BY_EVERYONE = 0o644
 
@@ -67,8 +67,8 @@ def test_leaves_no_temporary_file_behind_when_the_write_fails(tmp_path: Path) ->
     occupied = tmp_path / "occupied"
     occupied.mkdir()
 
-    # Every platform refuses to put a file where a directory is; the
-    # error each refuses with is its own.
+    # Every platform refuses a file at a directory path.
+    # Each platform returns its own error for this condition.
     with pytest.raises(OSError, match="occupied"):
         files.write_atomically(occupied, "content")
 

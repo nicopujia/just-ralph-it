@@ -38,11 +38,11 @@ diff --git a/README.md b/README.md
  The store keeps orders.
 +The reporter renders totals.
 """
-# Two hunks whose header and body disagree: one counting more lines
-# than the body holds, one cut back to the single context line a write
-# stopped part way through leaves. Re-derived from their bodies, the
-# first places a change nobody wrote a header for and the second
-# places nothing at all.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
 MISCOUNTED_PATCHES = (
     b"""\
 diff --git a/README.md b/README.md
@@ -69,18 +69,18 @@ diff --git a/README.md b/README.md
 -# Project
 +# Renamed
 """
-# What a hard kill inside `git init` leaves behind, by the lock it was
-# holding: the command writes the config and then HEAD, each under one,
-# so the wreck is what it had written by then with that lock standing.
-# Built rather than killed for, and what makes the built state the
-# killed one is where Git stops in it: `rev-parse` calls neither a
-# repository, and the next `init` reports `File exists` over the config
-# and `cannot lock ref` over HEAD, exactly as it does over a real kill.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
 KILLED_INITS = (("config.lock", ("config", "HEAD")), ("HEAD.lock", ("HEAD",)))
-# The signals Git is asked to stop at that a hook can end a commit
-# with. `sigchain_push_common` gives SIGPIPE the same handler as these
-# four, and Git ignores it over a commit, so it is the one member of
-# that handler's set no commit here can be made to die of.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
 HANDLED_SIGNALS_A_COMMIT_DIES_OF = ("HUP", "INT", "QUIT", "TERM")
 
 
@@ -237,8 +237,8 @@ def test_keeps_the_lock_another_command_took_while_a_refused_one_ran(
 ) -> None:
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
-    # HEAD rather than the index, since the commit is holding the index
-    # lock here and no second command could have taken that one.
+    # Check that JRI keeps the lock another command took while a refused one ran.
+    # Check that JRI keeps the lock another command took while a refused one ran.
     window = TAKE_THE_LOCK.format(directory=tmp_path / ".git", lock="HEAD.lock") + REFUSE_THE_COMMIT
 
     with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
@@ -262,9 +262,9 @@ def test_keeps_the_lock_a_running_command_holds_when_a_signal_ends_its_own_git(
     try:
         assert is_the_second_command_running(tmp_path)
         assert read_git_locks(tmp_path) == (tmp_path / ".git/HEAD.lock",)
-        # Git's handler took its own away before the signal ended it,
-        # so what the next command meets is the second command's lock
-        # and nothing this one left, and what it does is say so.
+        # Check that JRI keeps the lock a running command holds when a signal ends its own git.
+        # Check that JRI keeps the lock a running command holds when a signal ends its own git.
+        # Check that JRI keeps the lock a running command holds when a signal ends its own git.
         with pytest.raises(git.Error, match=r"HEAD\.lock"):
             repository.commit("second", paths=("README.md",))
     finally:
@@ -277,9 +277,9 @@ def test_reports_git_refusing_a_repository_whose_head_cannot_be_read(
 ) -> None:
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
-    # Which locks a command of this repository's can leave is read off
-    # HEAD, and a HEAD nothing can read is a repository Git refuses:
-    # what the run ends over is Git's own words, not the read.
+    # Check that JRI reports git refusing a repository whose head cannot be read.
+    # Check that JRI reports git refusing a repository whose head cannot be read.
+    # Check that JRI reports git refusing a repository whose head cannot be read.
     (tmp_path / ".git/HEAD").chmod(0o000)
 
     try:
@@ -295,9 +295,9 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_git_that_neve
     tmp_path: Path, create_repository: CreateRepository, lock: str
 ) -> None:
     repository = create_repository(tmp_path)
-    # `git worktree add` locks nothing of the main worktree's, so a
-    # second command has the whole of its span to take one of these in
-    # and the kill below answers for none of them.
+    # Check that JRI keeps the lock a running command holds when a kill ends a git that never took it.
+    # Check that JRI keeps the lock a running command holds when a kill ends a git that never took it.
+    # Check that JRI keeps the lock a running command holds when a kill ends a git that never took it.
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock=lock) + KILL_THE_GIT
 
     with open_a_window(tmp_path, "worktree", window), pytest.raises(git.Error), repository.open_worktree("HEAD"):
@@ -339,8 +339,8 @@ def test_frees_the_locks_the_git_it_started_died_holding(
         repository.commit("second", paths=("README.md",))
 
     assert read_git_locks(tmp_path) == ()
-    # The commit the kill cut short never landed, and the next command
-    # runs as though the locks it would have met had never been made.
+    # Check that JRI frees the locks the git it started died holding.
+    # Check that JRI frees the locks the git it started died holding.
     assert run_git(tmp_path, "log", "--format=%s") == "initial"
     assert repository.commit("second", paths=("README.md",))
     assert run_git(tmp_path, "log", "--format=%s").splitlines() == ["second", "initial"]
@@ -357,11 +357,11 @@ def test_leaves_the_refs_a_commit_died_inside_its_transaction_holding(
     with open_a_window(tmp_path, "branch", KILL_THE_GIT), pytest.raises(git.Error):
         repository.commit("second", paths=("README.md",))
 
-    # These two are the commit's own here, and there is no reading of
-    # the ending that says so: the same files are a second command's
-    # over the whole span ahead of this transaction. What the refusal
-    # below costs is a run; what taking them away costs is the ref the
-    # second command was landing.
+    # Check that JRI leaves the refs a commit died inside its transaction holding.
+    # Check that JRI leaves the refs a commit died inside its transaction holding.
+    # Check that JRI leaves the refs a commit died inside its transaction holding.
+    # Check that JRI leaves the refs a commit died inside its transaction holding.
+    # Check that JRI leaves the refs a commit died inside its transaction holding.
     assert read_git_locks(tmp_path) == (tmp_path / ".git/HEAD.lock", branch)
     assert run_git(tmp_path, "log", "--format=%s") == "initial"
     with pytest.raises(git.Error, match=r"HEAD\.lock|cannot lock ref"):
@@ -375,9 +375,9 @@ def test_keeps_the_ref_lock_a_running_command_holds_when_a_kill_ends_a_commit(
 ) -> None:
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
-    # A commit reaches its reference transaction past every hook, so
-    # HEAD and the branch stand free for the whole of `pre-commit` and
-    # a second command has that span to take either one in.
+    # Check that JRI keeps the ref lock a running command holds when a kill ends a commit.
+    # Check that JRI keeps the ref lock a running command holds when a kill ends a commit.
+    # Check that JRI keeps the ref lock a running command holds when a kill ends a commit.
     name = f"{run_git(tmp_path, 'symbolic-ref', 'HEAD')}.lock" if lock == "branch" else lock
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock=name) + KILL_THE_GIT
 
@@ -399,13 +399,13 @@ def test_keeps_the_index_lock_that_was_standing_before_a_staging_a_kill_ended(
     index_lock = tmp_path / ".git/index.lock"
     index_lock.touch()
     (tmp_path / ".git" / WINDOW_MARKER).touch()
-    # A staging holds the index lock from before its first write of the
-    # index to its last, so a kill inside one is exactly where the
-    # release takes that lock away. The lock this one meets is not the
-    # one it took: it was already standing when the command started, so
-    # it is whosever it already was, and the kill says nothing about it.
-    # The repository is built after the shim is installed, since which
-    # Git a `Repository` runs is resolved once, on the way in.
+    # Check that JRI keeps the index lock that was standing before a staging a kill ended.
+    # Check that JRI keeps the index lock that was standing before a staging a kill ended.
+    # Check that JRI keeps the index lock that was standing before a staging a kill ended.
+    # Check that JRI keeps the index lock that was standing before a staging a kill ended.
+    # Check that JRI keeps the index lock that was standing before a staging a kill ended.
+    # Check that JRI keeps the index lock that was standing before a staging a kill ended.
+    # Check that JRI keeps the index lock that was standing before a staging a kill ended.
     install_a_killing_git(monkeypatch, tmp_path, STAGING_QUESTION)
     repository = git.Repository(tmp_path)
 
@@ -424,8 +424,8 @@ def test_frees_the_index_lock_the_apply_it_started_died_holding(
     with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="smudge"), pytest.raises(git.Error):
         repository.apply_patch(RENAMING_PATCH, index=True)
 
-    # What the release answers for is a lock the dead apply was holding,
-    # and an apply that never took one leaves the same empty `.git`.
+    # Check that JRI frees the index lock the apply it started died holding.
+    # Check that JRI frees the index lock the apply it started died holding.
     assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
     assert read_git_locks(tmp_path) == ()
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
@@ -437,8 +437,8 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_an_apply_that_t
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path)
-    # An apply that was not asked for the index never takes its lock, so
-    # the one standing at the end is the second command's whole.
+    # Check that JRI keeps the lock a running command holds when a kill ends an apply that took none.
+    # Check that JRI keeps the lock a running command holds when a kill ends an apply that took none.
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
 
     with open_a_filter_window(tmp_path, window, side="smudge"), pytest.raises(git.Error):
@@ -461,9 +461,9 @@ def test_frees_the_index_lock_the_staging_it_started_died_holding(
     with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="clean"), pytest.raises(git.Error):
         repository.stage(("README.md",))
 
-    # What the release answers for is a lock the dead staging was
-    # holding, and a command that never took one leaves the same empty
-    # `.git`, so what the window saw is what tells those two apart.
+    # Check that JRI frees the index lock the staging it started died holding.
+    # Check that JRI frees the index lock the staging it started died holding.
+    # Check that JRI frees the index lock the staging it started died holding.
     assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
     assert read_git_locks(tmp_path) == ()
     assert repository.commit("second", paths=("README.md",))
@@ -475,10 +475,10 @@ def test_keeps_the_lock_over_head_a_running_command_holds_when_a_kill_ends_a_sta
 ) -> None:
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
-    # A commit is the one command here that moves HEAD and the branch,
-    # so a staging leaves both free for the whole of its span however
-    # firmly it is holding the index, and the lock over HEAD standing at
-    # the end is the second command's whole.
+    # Check that JRI keeps the lock over head a running command holds when a kill ends a staging.
+    # Check that JRI keeps the lock over head a running command holds when a kill ends a staging.
+    # Check that JRI keeps the lock over head a running command holds when a kill ends a staging.
+    # Check that JRI keeps the lock over head a running command holds when a kill ends a staging.
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="HEAD.lock") + KILL_THE_GIT
 
     with open_a_filter_window(tmp_path, window, side="clean"), pytest.raises(git.Error):
@@ -496,9 +496,9 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_read(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path)
-    # A read of Git's takes the index lock at no point at all, so a
-    # second command has the whole of its span to take that lock in and
-    # the kill below answers for none of it.
+    # Check that JRI keeps the lock a running command holds when a kill ends a read.
+    # Check that JRI keeps the lock a running command holds when a kill ends a read.
+    # Check that JRI keeps the lock a running command holds when a kill ends a read.
     stale_the_filtered_path(tmp_path)
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
 
@@ -519,10 +519,10 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_commit_of_no_
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
     repository.stage(("README.md",))
-    # A commit of everything already staged renames the index it
-    # refreshed over the file before `pre-commit` runs, so the index is
-    # free for the whole of the hook and the kill below answers for
-    # none of it.
+    # Check that JRI keeps the lock a running command holds when a kill ends a commit of no named paths.
+    # Check that JRI keeps the lock a running command holds when a kill ends a commit of no named paths.
+    # Check that JRI keeps the lock a running command holds when a kill ends a commit of no named paths.
+    # Check that JRI keeps the lock a running command holds when a kill ends a commit of no named paths.
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
 
     with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
@@ -539,9 +539,9 @@ def test_leaves_the_index_alone_where_a_read_would_only_be_refreshing_it(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path)
-    # The index caches what `stat` said about each file it holds, so a
-    # tracked file whose timestamp no longer matches is one Git writes
-    # a refreshed index for -- under the lock, and for a read.
+    # Check that JRI leaves the index alone where a read would only be refreshing it.
+    # Check that JRI leaves the index alone where a read would only be refreshing it.
+    # Check that JRI leaves the index alone where a read would only be refreshing it.
     os.utime(repository.path / "README.md", (0, 0))
     index = repository.path / ".git/index"
     before = index.stat()
@@ -718,10 +718,10 @@ def test_reads_the_paths_the_index_holds(tmp_path: Path, create_repository: Crea
     assert repository.read_staged_paths(["notes.md", "untracked.md"]) == ("notes.md",)
 
 
-# A link is a mode the index records, and a worktree on a platform
-# that makes no links holds a plain file for it -- so the question is
-# put to the index rather than to the disk, and the answer is the same
-# on every machine the same commit is checked out on.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
 def test_reads_the_paths_the_index_holds_as_links(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -992,10 +992,10 @@ def test_removes_the_worktree_once_it_closes(
         location = worktree.path
 
     assert not location.exists()
-    # Git spells a path with forward slashes whatever the platform, so
-    # the porcelain is read against the POSIX spelling of the path
-    # rather than against the one the filesystem uses. Every worktree
-    # read below is against the same spelling, and for the same reason.
+    # Check that JRI removes the worktree once it closes.
+    # Check that JRI removes the worktree once it closes.
+    # Check that JRI removes the worktree once it closes.
+    # Check that JRI removes the worktree once it closes.
     assert location.as_posix() not in run_git(repository.path, "worktree", "list", "--porcelain")
 
 
@@ -1052,8 +1052,8 @@ def test_refuses_to_place_a_root_a_killed_git_never_answered_for(
     with pytest.raises(git.Error):
         git.Repository.init(nested)
 
-    # Read as `no worktree holds this`, the silence puts a second
-    # repository inside the one that is already there.
+    # Check that JRI refuses to place a root a killed git never answered for.
+    # Check that JRI refuses to place a root a killed git never answered for.
     assert not (nested / ".git").exists()
 
 
@@ -1095,8 +1095,8 @@ def test_refuses_to_answer_for_a_git_that_never_answered(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    # The shim is armed by the marker a commit window leaves, and this
-    # asks about a repository that is past every window there is.
+    # Check that JRI refuses to answer for a git that never answered.
+    # Check that JRI refuses to answer for a git that never answered.
     (repository.path / ".git" / WINDOW_MARKER).touch()
     install_a_killing_git(monkeypatch, repository.path, HEAD_QUESTION)
 
@@ -1162,11 +1162,11 @@ def test_rejects_a_commit_with_nothing_staged(tmp_path: Path, create_repository:
         repository.commit("jri: test")
 
 
-# A hunk header counts the lines its body has to hold, so the two are
-# weighed against each other and a patch whose body disagrees is
-# refused whole. Reading the body over the header instead answers a
-# hunk cut back to its context with a patch that applies and writes
-# nothing, which is an ending no caller can tell from a patch placed.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
+# This test data supports the tests below.
 @pytest.mark.parametrize("patch", MISCOUNTED_PATCHES, ids=["overcounted", "cut short"])
 def test_rejects_a_patch_whose_hunk_counts_are_wrong(
     tmp_path: Path, create_repository: CreateRepository, patch: bytes
@@ -1185,7 +1185,7 @@ def test_removes_the_worktree_when_the_body_raises(
     repository = create_repository(tmp_path / "repo")
     locations: list[Path] = []
 
-    # Wrapped so the raising block stays out of `pytest.raises`.
+    # Check that JRI removes the worktree when the body raises.
     def fail_inside_the_worktree() -> None:
         with repository.open_worktree() as worktree:
             locations.append(worktree.path)

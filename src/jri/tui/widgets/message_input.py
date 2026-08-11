@@ -24,9 +24,8 @@ class MessageInput(TextArea):
         Binding("r", "next_message", copy.REDO_MESSAGE, key_display=copy.REDO_MESSAGE_KEY, show=False, priority=True),
         Binding("t", "retry_message", copy.RETRY, key_display=copy.RETRY_KEY, show=False, priority=True),
         Binding("j", "ralph", copy.RALPH_BUTTON, key_display=copy.RALPH_KEY, show=False, priority=True),
-        # Its own action, rather than the one the text area binds ^y to,
-        # so the keymap panel gives it a row of its own instead of
-        # wrapping it under the row it would share, description-less.
+        # Use a separate action, not the text-area `^y` action. The keymap panel then shows a separate row.
+        # Otherwise it puts this binding in the shared row without a description.
         Binding("ctrl+shift+z", "redo_edit", copy.REDO, show=False),
     )
     is_ralph_ready: Reactive[bool] = Reactive(default=False, bindings=True)
@@ -72,22 +71,15 @@ class MessageInput(TextArea):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "open_shortcuts":
             return not self.is_turn_active and not self.is_shortcuts_open
-        # Escape means "leave the shortcuts" only while they are open;
-        # closed, the binding steps aside so that `esc esc` reaches the
-        # turn it stops.
+        # Escape closes shortcuts only when they are open. When closed, it lets `esc esc` reach the turn.
         if action == "close_shortcuts":
             return self.is_shortcuts_open
         if action in self.SHORTCUT_ACTIONS:
-            # While the shortcuts are open their letters belong to them,
-            # so an unavailable one does nothing instead of falling
-            # through to the text. Each action checks what it needs
-            # beforehand. Closed, the shortcuts leave their letters to
-            # the text, but the keymap panel still has to list the
-            # bindings the product is driven by, so they report
-            # themselves as unavailable rather than as absent.
+            # Open shortcuts own their letters. An unavailable action does nothing instead of adding text.
+            # Each action checks its availability. Closed shortcuts let the text area use the letters.
+            # The keymap must list all product bindings. It shows unavailable bindings instead of hiding them.
             return True if self.is_shortcuts_open else None
-        # Open, the shortcuts own the keyboard, so every other binding
-        # this box has stands down and its key closes them instead.
+        # Open shortcuts own the keyboard. All other bindings stand down. Their keys close the shortcuts.
         if self.is_shortcuts_open:
             return False
         return super().check_action(action, parameters)
@@ -153,20 +145,14 @@ class MessageInput(TextArea):
     def on_blur(self) -> None:
         self.focus()
 
-    # A turn started from the shortcuts -- or from the message the
-    # shortcuts were open over -- takes Escape for itself, so the
-    # shortcuts are gone by the time it can be stopped.
+    # A turn from shortcuts, or the message below them, owns Escape. Close shortcuts before the turn can stop.
     def watch_is_turn_active(self) -> None:
         if self.is_turn_active:
             self.is_shortcuts_open = False
 
-    # Nothing typed while the shortcuts are open may reach the draft:
-    # the reader who opened them was not typing prose. A terminal sends
-    # that typing as keys, or as one `Paste` where bracketed paste is
-    # on, and those are the two doors the text area edits through.
-    # Escape answers the shortcuts through its own binding, so it alone
-    # bubbles; anything else stops here, ahead of the text area's own
-    # handlers and of the bindings it would otherwise bubble into.
+    # Do not add input to the draft while shortcuts are open. The user opened them to use commands, not type text.
+    # A terminal sends input as keys or, with bracketed paste, as one `Paste` event.
+    # Escape uses its binding and can bubble. Stop other input before text-area handlers or bindings receive it.
     @override
     async def _on_key(self, event: events.Key) -> None:
         if self.is_shortcuts_open and event.key != "escape":

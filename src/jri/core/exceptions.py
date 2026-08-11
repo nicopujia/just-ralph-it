@@ -1,7 +1,5 @@
 class Error(RuntimeError):
-    # Inheriting `RuntimeError` keeps every JRI failure reaching the
-    # agent tool loop and the terminal UI, which both already recover
-    # from one.
+    # Inherit `RuntimeError` so JRI failures reach the agent tool loop and terminal UI, which handle this error.
     ...
 
 
@@ -23,22 +21,15 @@ class ModelError(Error): ...
 class UsageLimitError(ModelError): ...
 
 
-# The provider answered, and its answer was to refuse the request.
-# Nothing about that answer is JRI's to report or the user's to wait
-# out: the same request will be refused the same way until what JRI
-# asks with changes.
+# The provider refused the request. Retrying the same request gives the same refusal until JRI changes its request.
 class ProviderRefusalError(ModelError): ...
 
 
-# The provider gave JRI no answer it could use, and may give one
-# later: an address that could not be reached, or a fault the provider
-# reported about itself.
+# The provider gave no usable answer but can answer later. This includes an unreachable address and a provider fault.
 class ProviderUnavailableError(ModelError): ...
 
 
 class RunDetached(BaseException):
-    # Not an `Error`, and not an `Exception` either: a window leaving
-    # is not a turn ending, and every recovery JRI has is written
-    # against a failure. Anything catching one of those would report a
-    # run that is still going as a run that stopped.
+    # This is not an `Error` or an `Exception`. A closing window does not end a turn.
+    # Treating it as a failure would report a live run as stopped.
     ...

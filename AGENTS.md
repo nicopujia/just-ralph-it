@@ -9,6 +9,7 @@ After changes: `scripts/check.py`
 - Prefer cleanest long-term approach—no backwards-compat code
 - `lib` = JRI-agnostic business logic only
 - `tui` = UI only, no tests
+- Comments use ASD-STE100 Simplified Technical English
 
 ## Boundaries
 - Text JRI did not author reaches a model through `lib.prompt.render`, or whole with no structure of JRI's around it to forge

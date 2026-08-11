@@ -38,9 +38,9 @@ def test_designs_the_architecture_files() -> None:
     assert drain(build_architect(client).design(CONTEXT, Event()))[1] == ARCHITECTURE
 
 
-# A design pass is minutes of waiting, and whatever the model publishes
-# about its own reasoning belongs to the round that is open while it
-# waits rather than to the architecture it answers with.
+# A design pass can take several minutes.
+# Model reasoning belongs to the open design round.
+# It does not belong to the returned architecture.
 def test_streams_the_thinking_of_a_pass_before_the_architecture_it_designed() -> None:
     client = FakeClient(
         [],

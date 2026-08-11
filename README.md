@@ -41,9 +41,9 @@ Just Ralph It (JRI) is a software that helps you think through your software pro
 ### 1. Installation
 
 ```bash
-pip install just-ralph-it
-# or
 uv tool install just-ralph-it
+# Alternative command:
+pip install just-ralph-it
 ```
 
 ### 2. Setup
@@ -61,10 +61,10 @@ That creates `.jri/config.yaml`. Open it and follow its comments.
 ### 3. Usage
 
 ```bash
-# Run the TUI and start chatting!
+# Run the TUI to start a chat session:
 jri chat
 
-# Visualize the notes graph
+# Show the notes graph:
 jri view
 ```
 
@@ -74,9 +74,9 @@ jri view
 ## Upgrading
 
 ```bash
-pip install --upgrade just-ralph-it
-# or
 uv tool upgrade just-ralph-it
+# Alternative command:
+pip install --upgrade just-ralph-it
 ```
 
 > [!WARNING]
@@ -85,10 +85,10 @@ uv tool upgrade just-ralph-it
 ## Uninstalling
 
 ```bash
-pip uninstall just-ralph-it
-# or
 uv tool uninstall just-ralph-it
+# Alternative command:
+pip uninstall just-ralph-it
 
-# Remove it from your project
+# Remove JRI from the project:
 rm -fr /path/to/your-project/.jri
 ```

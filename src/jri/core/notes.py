@@ -14,10 +14,8 @@ type TopicId = Annotated[str, Field(pattern=r"^t\d+$")]
 type NoteId = Annotated[str, Field(pattern=r"^n\d+$")]
 type NodeId = Annotated[str, Field(pattern=r"^[nt]\d+$")]
 
-# A note is written under its topic in the file, and the viewer draws
-# that containment itself, so an edge between the two whose label only
-# names the containment restates what is already there. An edge saying
-# anything else, or reaching any other topic, is left alone.
+# A note is already under its topic in the file and viewer. Reject an edge that only restates this containment.
+# Keep all other edges.
 CONTAINMENT_LABELS = frozenset({
     "belongs in",
     "belongs to",
@@ -164,9 +162,8 @@ class Notebook:
         selected = {note_id: note for note_id, note in selected.items() if note.topic_id in allowed_topics}
         selected_ids = set(selected)
         visible_ids = selected_ids | allowed_topics
-        # Traversal walks topics as well as notes, but only notes are
-        # ever selected, so a topic-to-topic edge the walk crossed
-        # survives on `visited` alone.
+        # Traversal visits topics and notes, but selects only notes.
+        # Keep a visited topic-to-topic edge with no selected note.
         connections = [
             item
             for item in self.graph.connections
@@ -301,12 +298,9 @@ class Notebook:
         return count
 
     def restore(self, graph: Graph, *, reuse_note_ids: bool = False) -> None:
-        # The notebook owns what it holds, so the caller keeping its own
-        # copy of a checkpoint cannot reach into it afterwards.
+        # Copy the graph deeply. A caller must not change the restored notebook through its checkpoint copy.
         restored = graph.model_copy(deep=True)
-        # A note ID never comes back, so rolling the graph back keeps
-        # the highest one reached rather than handing it out twice,
-        # unless the notes it named are about to be written again.
+        # Do not reuse a note ID. Keep the highest allocated ID after restore unless the caller replays removed notes.
         if not reuse_note_ids and int(restored.next_note_id[1:]) < int(self.graph.next_note_id[1:]):
             restored.next_note_id = self.graph.next_note_id
         self._save(restored)
@@ -314,9 +308,8 @@ class Notebook:
     def render(self, topic_id: TopicId) -> str:
         return self._dump(self.graph, topic_id)
 
-    # A trashed topic is thinking the user threw away, so a document
-    # written for a model outside this conversation carries neither it,
-    # its notes, nor an edge touching either.
+    # A trashed topic is discarded user thinking.
+    # Do not include it, its notes, or their edges in a document for another model.
     @classmethod
     def exclude_trashed(cls, document: bytes) -> str:
         if not document:

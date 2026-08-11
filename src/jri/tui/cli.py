@@ -20,15 +20,10 @@ from jri.lib.providers import codex
 from . import copy
 from .app import App
 
-# What a shell reports for a process a hangup ended, which is what
-# ended this one even though it is the one taking the ending. It is
-# also exactly what a delivered SIGHUP leaves behind, so the status
-# says nothing about which of the two ended the window: the
-# `terminal_hung_up` record below is the only thing that does.
+# This is the shell status for a process ended by hangup. It is also the status after SIGHUP delivery.
+# The status does not identify which event ended the window. Only the `terminal_hung_up` record identifies it.
 HANGUP_STATUS = 129
-# The same for an interrupt, which is an ending the user asked for
-# rather than a failure to report: a traceback over it says JRI broke
-# where it did what it was told.
+# This is the shell status for an interrupt requested by the user. Do not show a traceback for the requested operation.
 INTERRUPTED_STATUS = 130
 
 logger = logging.getLogger(__name__)
@@ -44,10 +39,8 @@ def main() -> None:
     init_parser.add_argument("--yes", action="store_true", help=copy.CLI_YES_HELP)
     for name, description in (("chat", copy.CLI_CHAT_HELP), ("view", copy.CLI_VIEW_HELP)):
         subparsers.add_parser(name, help=description, description=description)
-    # What `jri chat` starts a run as, in a process of its own. It
-    # carries no `help`, so it stays out of the commands the reader is
-    # offered: nothing about it is a way to use JRI, and a run started
-    # by hand would report into a conversation that never asked.
+    # `jri chat` starts this command in a separate process. It has no `help` text, so users do not see it as a command.
+    # It is not a JRI operation. A manual run would report to a conversation that did not request it.
     subparsers.add_parser("generate")
 
     arguments = parser.parse_args()
@@ -73,10 +66,8 @@ def main() -> None:
     except PersistenceError as error:
         print(copy.PERSISTENCE_ERROR.format(error=error))
         raise SystemExit(1) from error
-    # Every stretch a command spends waiting on something other than an
-    # answer: an eviction waiting for a lock to come free, a browser
-    # being opened, a window being drawn. A question is answered where
-    # it is asked, below.
+    # This catches interrupts while a command waits for a lock, browser, or window.
+    # Each question handles its own interrupt.
     except KeyboardInterrupt as interrupt:
         raise SystemExit(INTERRUPTED_STATUS) from interrupt
 
@@ -85,12 +76,8 @@ def _initialize(*, force: bool, yes: bool) -> None:
     workspace = Workspace.find()
     config = Settings.render_config()
     if force:
-        # Asked inside the reset, so the warning and the question come
-        # after what would refuse them: a window still writing the
-        # notes and a run still going are both reported before a user
-        # is offered a deletion, rather than after they confirmed one.
-        # The project stays held while they read, so the answer is
-        # about the project as it will be when the deletion happens.
+        # Ask the question inside the reset. First report an active window or run that prevents deletion.
+        # Keep the project held while the user reads. The answer then applies to the project state at deletion.
         with workspace.open_reset() as reset:
             if not (yes or _confirm_reset(reset)):
                 print(copy.FORCE_CANCELLED)
@@ -98,9 +85,8 @@ def _initialize(*, force: bool, yes: bool) -> None:
             installation = workspace.install(config, reset=reset)
     else:
         installation = workspace.install(config)
-    # A repository is created only where the command was run: a
-    # workspace inside one already has its root, and the path a
-    # relative line would name here is `.`.
+    # Create a repository only in the command directory. A workspace in a repository already has its root.
+    # A relative path here names `.`.
     if installation.repository_created:
         print(copy.INIT_REPOSITORY)
     reset_copy = copy.INIT_RECREATED if force else copy.INIT_EXISTING
@@ -113,8 +99,7 @@ def _chat() -> None:
     settings = _load_settings()
     logs.configure(settings)
     settings.llm.validate_authentication()
-    # Asked and answered before the app exists, so the question reaches
-    # a terminal nothing else is drawing in.
+    # Ask for the project hold before the app starts. Then no other output can draw in the terminal.
     hold = Workspace.find().open_hold()
     if not hold.take() and not _take_over(hold):
         raise SystemExit(1)
@@ -133,9 +118,8 @@ def _chat() -> None:
         logging.shutdown()
 
 
-# The run itself, with no window around it. It takes the project's
-# generation lock rather than the chat's: the window that started it
-# still holds that one, and still has the notes and the session.
+# This is a run without a window. It takes the project generation lock, not the chat lock.
+# The starter window still has the chat lock, notes, and session.
 def _generate() -> None:
     settings = _load_settings()
     logs.configure(settings)
@@ -150,9 +134,7 @@ def _view() -> None:
     graph = conversation.notebook.graph
     visualization_file = conversation.workspace.visualization_file
     visualization_file.write_text(visualization.render(graph), encoding="utf-8", newline="\n")
-    # Whether a browser was started is the browser's answer to give:
-    # over SSH, on a machine with none installed, and where the only
-    # one there is would draw over this terminal, it is no.
+    # The browser determines whether it opens. It can fail over SSH, without a browser, or when it covers the terminal.
     opened = browser.open_page(visualization_file.resolve().as_uri())
     print((copy.VIEW_OPENED if opened else copy.VIEW_UNOPENED).format(file=files.shorten_path(visualization_file)))
     print(copy.VIEW_NEXT_STEPS if graph.notes else copy.VIEW_NO_NOTES)
@@ -180,8 +162,7 @@ def _describe_issue(issue: ErrorDetails) -> str:
     setting = ".".join(map(str, issue["loc"])) or "configuration"
     if issue["type"] != "extra_forbidden":
         return f"- {setting}: {issue['msg']}"
-    # A key the settings do not declare reads as a typo to the person
-    # who wrote it, not as the schema violation Pydantic reports.
+    # An undeclared setting key is probably a typo for its writer, not the Pydantic schema error.
     suggestion = Settings.suggest_setting(issue["loc"])
     return f"- {setting}: " + (
         copy.UNKNOWN_SETTING_SUGGESTION.format(setting=suggestion) if suggestion else copy.UNKNOWN_SETTING
@@ -206,16 +187,11 @@ def _take_over(hold: Hold) -> bool:
     return True
 
 
-# The terminal this window was drawing in is gone, and its own ending
-# is not one it can be asked for: the event loop blocks inside a write
-# to a terminal that will never read again, so a request to quit is a
-# message nothing would ever collect. Every ending JRI already has
-# leans on the process going -- the operating system takes the hold on
-# the project back with everything else it took, and a run is a process
-# of its own, so the next window reads its journal and ends the turn
-# from it -- and this is that ending, taken rather than waited for.
-# Getting here at all means SIGHUP did not end the window first, which
-# is the uncommon half of the cases `lib.terminal` sets out.
+# The window terminal is gone. The event loop can block while it writes to a terminal that cannot read.
+# A quit request would not return. Exit the process instead.
+# Process exit releases the project hold. The separate run continues and records itself.
+# A new window reads that record and ends the turn.
+# Reaching this point means SIGHUP did not end the window first. This is the less common case in `lib.terminal`.
 def _end_hung_up_window() -> None:
     logger.info("terminal_hung_up")
     os._exit(HANGUP_STATUS)
@@ -224,17 +200,12 @@ def _end_hung_up_window() -> None:
 def _confirm(prompt: str) -> bool:
     try:
         answer = input(prompt)
-    # A pipe with nothing in it, a runner, a terminal an editor owns
-    # and a keyboard that ends the line answer the same nothing, and a
-    # process started with no standard input at all has none to ask,
-    # which `input` reports as a broken state rather than an ending.
+    # An empty pipe, runner, editor terminal, or line-ending key provides no answer.
+    # No standard input also provides no answer. `input` reports that state as an error.
     except (EOFError, RuntimeError):
         return False
-    # An interrupt is the plainest way there is of saying anything but
-    # `y`, and both questions offer that ending: one leaves the other
-    # window running, the other deletes nothing. The terminal has
-    # already echoed `^C` beside the question, so what answers it
-    # starts on a line of its own.
+    # An interrupt is any answer except `y`. One question leaves another window running. The other removes nothing.
+    # The terminal already shows `^C` by the prompt. Print the result on a new line.
     except KeyboardInterrupt:
         print()
         return False

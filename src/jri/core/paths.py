@@ -8,66 +8,52 @@ NOTEBOOK_FILE = f"{WORKSPACE_DIR}/notebook.yaml"
 SESSION_FILE = f"{WORKSPACE_DIR}/session.json"
 VISUALIZATION_FILE = f"{WORKSPACE_DIR}/visualization.html"
 
-# The lock one chat holds a project by, carrying the pid of the process
-# holding it.
+# This lock lets one chat hold a project. It contains the holder process PID.
 LOCK_FILE = f"{WORKSPACE_DIR}/lock"
-# Taking that lock and writing down who took it are one step, held
-# apart by this: a reader that gets through here while the lock is held
-# is reading the record of the process holding it, and never one the
-# holder before it left.
+# The claim separates lock acquisition from holder recording. A reader under this claim reads the current holder record.
 CLAIM_FILE = f"{WORKSPACE_DIR}/lock.claim"
 
 GENERATION_DIR = f"{WORKSPACE_DIR}/generation"
 
 ACCEPTANCE_FILE = f"{GENERATION_DIR}/acceptance.json"
-# A rename writes the record, and a lock is held on the file that was
-# renamed away rather than on the name, so what an acceptance is held
-# by is a file no write of JRI's ever replaces.
+# A rename writes the record, but the lock remains on the renamed file. JRI never replaces an acceptance lock file.
 ACCEPTANCE_LOCK_FILE = f"{GENERATION_DIR}/acceptance.lock"
 DRAFT_FILE = f"{GENERATION_DIR}/draft.patch"
-# Everything a run writes down about itself while it lasts, appended a
-# line at a time so that a run killed between two of them leaves every
-# line before the kill readable.
+# The run appends one journal line at a time. A killed run leaves all earlier lines readable.
 JOURNAL_FILE = f"{GENERATION_DIR}/journal.jsonl"
-# The lock the runner holds for as long as it lives, which is how a
-# process that is not it finds out whether it is still there.
+# The runner holds this lock while it runs. Other processes use it to find whether the runner is still active.
 GENERATION_LOCK_FILE = f"{GENERATION_DIR}/lock"
-# A stop asked for from the process the run is not in. The runner polls
-# for it, since a signal cannot cross to a process group of its own on
-# Windows and a stop must reach the run the same way on all three.
+# This file requests a stop from another process.
+# The runner polls it because a signal cannot reach its Windows process group.
+# Use this method on all platforms.
 CANCEL_FILE = f"{GENERATION_DIR}/cancel"
-# Whatever the runner writes outside its own log -- an interpreter
-# traceback, a library writing to standard error -- so a run that died
-# before it could record anything still says something.
+# This file holds runner output outside its log, such as an interpreter traceback or standard-error output.
+# It reports a crash before journaling starts.
 RUNNER_LOG_FILE = f"{GENERATION_DIR}/runner.log"
 
 LOGS_DIR = f"{WORKSPACE_DIR}/logs"
 
 LOG_FILE = f"{LOGS_DIR}/jri.log"
-# Rotation renames the log, so what the runs of a session take turns
-# over is a file no rename ever moves out from under them.
+# Log rotation renames log files. This lock file remains in place while session runs use it.
 LOG_LOCK_FILE = f"{LOGS_DIR}/.lock"
 
 SPECS_DIR = f"{WORKSPACE_DIR}/specs"
 
-# Specification roots as the models see them, relative to `SPECS_DIR`.
+# These are specification roots as models see them, relative to `SPECS_DIR`.
 ARCHITECTURE_SPECS_ROOT = "architecture"
 FUNCTIONAL_SPECS_ROOT = "functional"
 
-# Every root a specification may stand under, for the reads that are
-# handed a path rather than the agent whose root it belongs to.
+# These are all specification roots for reads that receive a path instead of an agent root.
 SPECS_ROOTS = (ARCHITECTURE_SPECS_ROOT, FUNCTIONAL_SPECS_ROOT)
 
 ARCHITECTURE_SPECS_DIR = f"{SPECS_DIR}/{ARCHITECTURE_SPECS_ROOT}"
 FUNCTIONAL_SPECS_DIR = f"{SPECS_DIR}/{FUNCTIONAL_SPECS_ROOT}"
 
-# The specifications answer to a pattern rather than to the directory
-# holding them, so that reaching past a project's ignore rules takes
-# the Markdown JRI wrote and never what else those rules were hiding.
-# `:(glob)` is how Git spells a pattern that crosses directories.
+# Use a pattern, not the directory, so Git includes only JRI Markdown and excludes files hidden by project ignore rules.
+# `:(glob)` matches directories.
 COMMITTED_SPECS = f":(glob){SPECS_DIR}/**/*.md"
 
-# Everything JRI commits, and all a JRI commit ever holds.
+# These are all paths that JRI commits.
 COMMITTED_PATHS = (CONFIG_FILE, GITIGNORE_FILE, NOTEBOOK_FILE, COMMITTED_SPECS)
 
 RESET_PATHS = (SESSION_FILE, NOTEBOOK_FILE, VISUALIZATION_FILE, LOGS_DIR, SPECS_DIR, GENERATION_DIR)

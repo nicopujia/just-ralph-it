@@ -47,11 +47,8 @@ class Explorer(Agent):
                 "\n"
                 "Goal: Gather relevant context based on the given query.\n"
                 "\n"
-                # The filesystem named this, not JRI: a line break is a
-                # legal POSIX filename character, so as prose a
-                # directory whose name carries one writes further
-                # sections of these instructions, at the depth JRI's
-                # own sit at and ahead of them.
+                # The file system provides this name. Quote it because a POSIX directory name can contain a line break.
+                # Without quotation, this name can add prompt sections at or above the JRI instruction level.
                 f"{prompt.render(working_directory=str(directory))}\n"
                 "\n"
                 "Output:\n"
@@ -68,18 +65,13 @@ class Explorer(Agent):
                 "    - State any ambiguity explicitly when the information you need is missing."
             ),
         )
-        # A capability this run does not have is absent, not advertised
-        # and then refused: `respond` rebuilds the definitions it offers
-        # from `tools` on every call.
+        # Do not advertise a capability that this run lacks.
+        # `respond` builds tool definitions from `tools` for every call.
         if not settings.brave_search.api_key:
             self.tools = [capability for capability in self.tools if capability.name != "search_web"]
 
-    # Only the last uninterrupted stretch of text is the report: a tool
-    # call means the run was still gathering, so whatever it had said
-    # before that is working-out rather than conclusion. A thought is
-    # working-out the model itself never called an answer, so it is
-    # passed on to be read and never joins the report: the report is
-    # what the architect is handed.
+    # Use only the final continuous text as the report. Text before a tool call is intermediate work.
+    # Pass reasoning through, but do not add it to the report. The architect receives only the report.
     def report(
         self, query: str, depth: int = 0, cancelled: Event | None = None
     ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, str]:
@@ -118,11 +110,7 @@ class Explorer(Agent):
         symbol="🌐",
         replayed=False,
     )
-    # Whatever comes back is quoted. A fetch is the one output long
-    # enough for JRI to end with a sentence of its own, and a page can
-    # be written to end with that very sentence: unquoted, the two read
-    # alike, and the fetch that arrived whole was the only thing making
-    # a page safe to hand over with no structure of JRI's around it.
+    # Quote all fetched content. A page can end with text that looks like a JRI instruction.
     def fetch_web_page(self, url: str) -> str:
         logger.debug("fetch_url url=%r", url)
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
@@ -136,8 +124,7 @@ class Explorer(Agent):
                     data.extend(chunk[: self.MAX_INPUT_SIZE - len(data)])
                     if len(data) == self.MAX_INPUT_SIZE:
                         break
-        # A model can invent a URL httpx refuses to even build, and
-        # that refusal is no HTTPError.
+        # The model can provide a URL that httpx cannot create. `InvalidURL` is not an `HTTPError`.
         except (httpx.HTTPError, httpx.InvalidURL) as error:
             if isinstance(error, httpx.HTTPStatusError):
                 logger.debug(
@@ -151,14 +138,11 @@ class Explorer(Agent):
                     str(error.response.url),
                     error.response.status_code,
                 )
-                # The row this reason lands on already names the URL,
-                # and httpx words a status failure with the URL in it.
+                # The row already names the URL. httpx includes the URL in a status failure.
                 reason = f"{error.response.status_code} {error.response.reason_phrase}"
             else:
                 logger.exception("fetch_failed url=%r", url)
-                # A timeout reaches here saying nothing about itself,
-                # and a failure that asserts nothing is one neither the
-                # model nor the reader can act on.
+                # A timeout can have no message. Use its type name so the model and reader can act on the failure.
                 reason = str(error) or type(error).__name__
             raise RuntimeError(reason) from error
         response_body = data.decode(response.encoding or "utf-8", errors="replace")
@@ -182,9 +166,7 @@ class Explorer(Agent):
         symbol="📄",
         replayed=False,
     )
-    # The row a read opens is a sentence about files, so the paths
-    # reach the label as prose. Only the label dumps the arguments:
-    # the call itself is made with the list the model sent.
+    # The read row describes file paths as prose. Format only its label. Call this method with the model path list.
     def read_files(
         self,
         paths: Annotated[list[str], PlainSerializer(files.describe_paths)],
@@ -200,9 +182,7 @@ class Explorer(Agent):
             raise ValueError(f"A range that starts at line {start_line} cannot end at line {end_line}.")
         output: ResponseFunctionCallOutputItemListParam = []
         for raw_path in paths:
-            # Absolute throughout, so every path the report attributes a
-            # fact to names the file without the reader knowing the
-            # directory the run happened in.
+            # Use absolute paths so each reported fact identifies its file without the run directory.
             path = Path(raw_path).expanduser()
             if not path.is_absolute():
                 path = self.directory / path
@@ -211,16 +191,12 @@ class Explorer(Agent):
                     raise RuntimeError(f"Could not read {path}: file exceeds {self.MAX_INPUT_SIZE} bytes.")
                 data = path.read_bytes()
             except OSError as error:
-                # A path the model guessed at is a miss it recovers from
-                # by reading somewhere else, so it is reported at the
-                # weight of the event: an ERROR with a traceback per
-                # missed guess buries the failures worth finding.
+                # A guessed path is recoverable. Log it as a warning.
+                # An error traceback for each miss hides important failures.
                 logger.warning("read_failed path=%r reason=%s", path, error.strerror)
                 raise RuntimeError(f"Could not read {path}: {error.strerror}") from error
 
-            # The body is a sibling item the API concatenates onto this
-            # one, so quoting the header alone would leave a file whose
-            # contents hold a quoted header able to forge both.
+            # The API joins this header with the next body item. Quote both so file content cannot forge the header.
             output.append({"type": "input_text", "text": prompt.render(file=str(path))})
             media_type = mimetypes.guess_type(path.name)[0]
             if media_type and media_type.startswith("image/"):
@@ -240,8 +216,7 @@ class Explorer(Agent):
 
             if start_line is not None or end_line is not None:
                 lines = text.splitlines(keepends=True)
-                # A slice that begins past the last line answers with
-                # nothing, which reads as a file holding nothing.
+                # A slice after the last line returns no text and looks like an empty file.
                 if start_line is not None and start_line > len(lines):
                     raise RuntimeError(
                         f"Could not read {path}: it ends at line {len(lines)}, before line {start_line}."
@@ -259,12 +234,9 @@ class Explorer(Agent):
     )
     def run_shell(self, command: str) -> str:
         logger.debug("shell_command command=%r", command)
-        # Windows has no `/bin/sh`, and its interpreter reads a command
-        # line by rules `list2cmdline` does not write, so it is handed
-        # the line itself: `/d` drops whatever the registry would run
-        # first, and `/s` makes it strip the outer quotes and take the
-        # rest verbatim. Elsewhere a login shell gives the command the
-        # PATH the person's own terminal would.
+        # Windows has no `/bin/sh` and uses command-line rules that `list2cmdline` does not create.
+        # Give it the command line. `/d` skips the registry command. `/s` removes outer quotes and uses the rest.
+        # On other platforms, a login shell gives the command the user's terminal PATH.
         arguments = (
             f'"{os.environ.get("COMSPEC", "cmd.exe")}" /d /s /c "{command}"'
             if sys.platform == "win32"
@@ -276,9 +248,7 @@ class Explorer(Agent):
                 cwd=self.directory,
                 stdout=output_file,
                 stderr=subprocess.STDOUT,
-                # POSIX only, and ignored elsewhere: the command leads a
-                # session of its own, so everything it starts is one
-                # group to stop.
+                # On POSIX, start a separate session. The command and its processes are then one group to stop.
                 start_new_session=True,
             )
             try:
@@ -302,15 +272,11 @@ class Explorer(Agent):
 
 def _stop_process_tree(pid: int) -> None:
     if sys.platform != "win32":
-        # The pid of a session leader is its process group's, and the
-        # group outlives the leader for as long as anything it started
-        # runs, so a reaped shell still names what it left behind.
+        # A session leader PID is also its process-group ID. It identifies child processes after the shell exits.
         with contextlib.suppress(ProcessLookupError):
             os.killpg(pid, signal.SIGKILL)
         return
-    # Windows has no group to signal: `taskkill` walks the tree from
-    # the shell down, and a shell that has already exited leaves it
-    # nothing to walk, so a background process outlives the call.
+    # Windows cannot signal a process group. `taskkill` starts at the shell and misses children after the shell exits.
     executable = shutil.which("taskkill")
     if executable is not None:
         subprocess.run([executable, "/F", "/T", "/PID", str(pid)], check=False, capture_output=True)

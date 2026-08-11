@@ -509,9 +509,9 @@ def test_keeps_a_connection_that_says_more_than_where_a_note_sits(tmp_path: Path
     assert Notebook(notebook.path).graph.connections == [beyond, elsewhere]
 
 
-# A notebook written before the refusal keeps what it holds: nothing
-# rewrites it, so the file has to load and the edge has to be reachable
-# by the only tool that removes one.
+# Check the behavior in `test_loads_a_notebook_already_holding_a_containment_connection`.
+# Check the behavior in `test_loads_a_notebook_already_holding_a_containment_connection`.
+# Check the behavior in `test_loads_a_notebook_already_holding_a_containment_connection`.
 def test_loads_a_notebook_already_holding_a_containment_connection(tmp_path: Path) -> None:
     path = tmp_path / "notebook.yaml"
     path.write_text(

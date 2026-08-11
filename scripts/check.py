@@ -9,11 +9,9 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 BUILD_DIR = ".dist"
-# A contract test reaches the endpoint it is the oracle for, so a check
-# a developer runs after every change leaves it out -- an aeroplane, a
-# hotel wifi or a DNS blip must not read as broken code -- and the
-# release gate asks for it, since a release is the moment a wire shape
-# nothing checked becomes a shape every user runs.
+# A contract test connects to its reference endpoint. Do not run it after every change. An airplane,
+# hotel Wi-Fi, or DNS failure must not appear as broken code. The release gate runs the test because a
+# release changes an unchecked wire format into a format that every user can run.
 CONTRACT_MARKER = "contract"
 CONTRACT_COMMAND = ("run", "--locked", "pytest", "-q", "-m", CONTRACT_MARKER)
 UV_COMMANDS = (
@@ -47,16 +45,14 @@ MODULE_GROUPS = (
     "private class",
 )
 CLASS_GROUPS = ("constant", "nested type", "magic method", "method", "private method")
-# What each package may reach for, on top of itself.
+# Each package can import these packages and itself.
 LAYERS = {"lib": frozenset[str](), "core": frozenset({"lib"}), "tui": frozenset({"core", "lib"})}
 MAX_IMPORT_DEPTH = 3
-# The package meant to be reusable outside JRI, so its modules declare
-# what they export rather than leaving every name reachable.
+# This package can be reused outside JRI. Its modules declare exports instead of making every name reachable.
 PUBLIC_API_PACKAGE = "lib"
 TEST_SUPPORT_MODULES = frozenset({"__init__.py", "conftest.py"})
-# `uv version` reaches pyproject.toml and the lockfile; every other
-# file spelling the version out is here, with the line it spells it on,
-# so a release has one list to bump and this one to answer to.
+# `uv version` reads pyproject.toml and the lockfile. This list names every other file that contains the
+# version and the line that contains it. A release has one list to update, and this check has one list to check.
 VERSION_COPIES = {Path("src/jri/__init__.py"): '__version__ = "{version}"'}
 
 
@@ -85,8 +81,8 @@ def check_project(root: Path, *, contracts: bool) -> None:
 
 
 def read_version(root: Path) -> str:
-    # This repository is UTF-8, and a machine whose own encoding is not
-    # would read a source file holding an emoji as something else.
+    # This repository uses UTF-8. A machine with another default encoding reads a source file with an emoji as
+    # different text.
     return tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 
 
@@ -264,8 +260,8 @@ def _find_docstrings(path: Path) -> Iterator[int]:
 
 
 def _name_test_modules(relative: Path) -> Iterator[str]:
-    # A conflicting stem earns the sub-packages enclosing it as a
-    # prefix, closest first, until nothing else claims the name.
+    # When a stem conflicts, prefix it with the enclosing subpackages. Use the nearest prefix first. Continue
+    # until no other module claims the name.
     packages = relative.parts[:-1]
     for start in range(len(packages), -1, -1):
         yield f"test_{'_'.join([*packages[start:], relative.stem])}.py"

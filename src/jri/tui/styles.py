@@ -1,4 +1,4 @@
-# Alphabetical order, blank line between initial letters
+# Keep alphabetical order. Put a blank line between initial letters.
 
 INPUT_BOX_ID = "input-box"
 INTERVIEWER_ERROR_CLASSES = "interviewer-error"
@@ -23,7 +23,7 @@ TOOL_CALL_ROW_FAILED_CLASSES = "tool-call-row-failed"
 
 USER_MESSAGE_CLASSES = "user-message"
 
-# f-strings using other constants go below
+# Put f-strings that use other constants below.
 
 STYLESHEET = f"""
 Screen {{
@@ -44,8 +44,7 @@ Header {{
     height: 1fr;
 }}
 
-/* The two faces of the box the reader writes in share one space, so
-   the space is what sets its own size and the faces fill it. */
+/* The message input and panel share this space. This container sets its size. Both items fill it. */
 #{INPUT_BOX_ID} {{
     margin: 1;
     height: auto;
@@ -58,11 +57,9 @@ Header {{
     max-height: 16;
 }}
 
-/* The panel stands where the message input stood, so it is that box:
-   the border, padding and colours below are the ones the text area
-   draws for itself, which no rule of ours can reach. It covers the
-   input rather than replacing it, so the input goes on measuring the
-   space for both and a rewrapping resize moves them together. */
+/* The panel is over the message input, so it uses this input container.
+   The text area owns the border and padding below. These rules cannot change them.
+   The input still sets the size for both items. A resize rewraps and moves both items together. */
 .{RALPHING_CLASSES} {{
     layer: ralphing;
     display: none;

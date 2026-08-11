@@ -3,10 +3,9 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
-# Neither module exists on the platform the other one is for, so only
-# the platform's own is imported when this runs. A checker does not
-# narrow by platform, so it is handed both and reads the calls into
-# each of them instead of the `Any` a dynamic import would leave.
+# Each module exists only on its target platform. Import only the module
+# for the current platform. Type checkers do not narrow by platform, so
+# they import both modules and can check their calls.
 if TYPE_CHECKING:
     import fcntl
     import msvcrt
@@ -17,18 +16,16 @@ else:
 
 __all__ = ["Lock", "LockError"]
 
-# `locking` takes a range where `flock` takes the whole file, so the
-# range is the first byte of the file, and what a holder writes about
-# itself starts after it.
+# `locking` locks a range of bytes. `flock` locks the complete file. Lock
+# the first byte, then write holder data after that byte.
 LOCKED_BYTES = 1
 LOCK_FILE_PERMISSIONS = 0o600
-# A record longer than this is not one a holder of JRI's wrote, and a
-# read bounded here cannot be one the writer of a lock file grew.
+# A JRI lock holder cannot write a longer record. This limit also stops a
+# large lock file from causing a large read.
 MAX_HOLDER_LENGTH = 64
 
-# The descriptor a lock is held on lives here rather than on the lock,
-# so that a forked child can close every one it inherited without the
-# locks that took them being reachable from it.
+# Store lock descriptors here, not in each lock. A child from `fork` can
+# then close all inherited descriptors without access to their locks.
 _descriptors: "dict[Lock, int]" = {}
 
 
@@ -46,11 +43,10 @@ class Lock:
     def __exit__(self, *_: object) -> None:
         self.release()
 
-    # What the holder of this lock wrote about itself, and nothing
-    # where no holder wrote anything. The bytes the lock is taken over
-    # are the operating system's on Windows -- a handle that did not
-    # take the lock cannot read them -- so the record starts past them
-    # and stays readable while the lock is held.
+    # Return data from the lock holder, or an empty string if it wrote no
+    # data. On Windows, a handle without the lock cannot read the locked
+    # bytes. The record starts after those bytes, so it remains readable
+    # while the lock is held.
     @property
     def holder(self) -> str:
         try:
@@ -63,10 +59,9 @@ class Lock:
         finally:
             os.close(descriptor)
 
-    # The operating system drops the lock when its holder dies, so one
-    # that cannot be taken this instant is one whose holder is running.
-    # Asking is not taking: what this gets hold of it lets go of again,
-    # so a caller learns the answer without becoming the holder.
+    # The operating system releases a lock when its holder exits. A lock
+    # that cannot be taken now has a running holder. This method releases
+    # a lock that it takes, so the caller does not become its holder.
     def is_held(self) -> bool:
         if not self.take():
             return True
@@ -74,51 +69,48 @@ class Lock:
         return False
 
     def release(self) -> None:
-        # A block a forked child inherited has nothing left to release,
-        # since the descriptor it was entered on is gone from the child.
+        # A child from `fork` has no descriptor to release. It was removed
+        # when the child closed its inherited descriptors.
         descriptor = _descriptors.pop(self, None)
         if descriptor is not None:
             _release(descriptor, taken=True)
 
-    # Whether the lock was free this instant, without waiting for one
-    # that was not. A holder names itself in the same breath, so no
-    # reader of the record can be reading one a holder before it left.
+    # Return whether the lock is free now. Do not wait for a held lock.
+    # Write holder data while taking the lock. A reader cannot read data
+    # from a holder that has already released the lock.
     def take(self, holder: str = "") -> bool:
         return self._acquire(holder, wait=False)
 
     def _acquire(self, holder: str, *, wait: bool) -> bool:
         try:
-            # The file is never anything but a handle to lock and a
-            # record to read, and opening it for writing would truncate
-            # it, which Windows refuses while another process holds a
-            # lock over the bytes being dropped.
+            # The file stores only the lock and its record. Do not open it
+            # for writing, because that removes its data. Windows rejects
+            # this action while another process locks these bytes.
             descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR, LOCK_FILE_PERMISSIONS)
         except OSError as error:
             raise LockError(f"The lock file {self.path} cannot be opened.") from error
-        # A fork copies every descriptor the process has open, so this
-        # one is written down before the wait for the range and not
-        # after it: a child forked while the wait is on has it too.
+        # `fork` copies all open descriptors. Store this descriptor before
+        # the wait, because a child can start during that wait.
         _descriptors[self] = descriptor
         taken = False
         try:
             if sys.platform == "win32":
-                # `locking` covers bytes from wherever the descriptor
-                # is, and waits by retrying ten times a second apart
-                # rather than indefinitely as `flock` does.
+                # `locking` starts at the current descriptor position. It
+                # waits by trying again every tenth of a second. `flock`
+                # waits without a limit on the number of tries.
                 msvcrt.locking(descriptor, msvcrt.LK_LOCK if wait else msvcrt.LK_NBLCK, LOCKED_BYTES)
             else:
                 fcntl.flock(descriptor, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
             taken = True
         except OSError as error:
-            # A refusal is the answer a caller that would not wait
-            # asked for, and every other reason a range cannot be
-            # locked comes back the same way, so none of them is
-            # reported as a lock this process has.
+            # A caller that does not wait expects false when it cannot
+            # take the lock. All lock errors use the same result. Do not
+            # report these errors as a lock held by this process.
             if wait:
                 raise LockError(f"The lock over {self.path} cannot be taken.") from error
         finally:
-            # A descriptor no lock was taken on is a descriptor nothing
-            # will close, since only a held lock is released.
+            # Close a descriptor if it did not take the lock. Release only
+            # a held lock later.
             if not taken:
                 del _descriptors[self]
                 os.close(descriptor)
@@ -128,26 +120,25 @@ class Lock:
             record = holder.encode()
             os.lseek(descriptor, LOCKED_BYTES, os.SEEK_SET)
             written = os.write(descriptor, record)
-            # Part of a record reads as a whole one, and a name half
-            # written is a name for something else. The tail of the
-            # holder before this one reads the same way, so the file
-            # ends where this write ended either way.
+            # A partial record can seem complete, but it can name another
+            # holder. Old data after a partial record has the same problem.
+            # End the file at the completed write only.
             os.ftruncate(descriptor, LOCKED_BYTES + (written if written == len(record) else 0))
         return True
 
 
 def _drop_inherited() -> None:
-    # The lock belongs to the open file the two processes now share, so
-    # a child that unlocked would drop the lock its parent still holds.
-    # Closing takes away only this process's share of it.
+    # The parent and child share the open file that owns the lock. If the
+    # child unlocks it, it also releases the parent lock. Closing removes
+    # only the child share of the open file.
     for descriptor in _descriptors.values():
         os.close(descriptor)
     _descriptors.clear()
 
 
-# Closing drops a lock the descriptor still holds, and `locking` leaves
-# a range it was never given behind, so the two go together and only
-# where a lock was taken.
+# Closing releases a lock that the descriptor still holds. `locking` also
+# requires an unlock for its locked range. Do both only after a lock is
+# taken.
 def _release(descriptor: int, *, taken: bool) -> None:
     if taken:
         if sys.platform == "win32":
@@ -159,9 +150,8 @@ def _release(descriptor: int, *, taken: bool) -> None:
 
 
 if sys.platform != "win32":
-    # `os.open` hands back a descriptor `exec` closes, so a process
-    # `subprocess` starts never sees this one. `fork` copies it anyway,
-    # and the lock stands for as long as any copy of the open file it
-    # was taken on is open, so a forked child outliving the holder
-    # would keep a lock the holder's death was supposed to drop.
+    # `os.open` returns a descriptor that `exec` closes. A process that
+    # `subprocess` starts does not get it. `fork` copies it. The lock
+    # remains while any copy of the open file is open. A child that runs
+    # longer than its holder could otherwise keep the lock after exit.
     os.register_at_fork(after_in_child=_drop_inherited)

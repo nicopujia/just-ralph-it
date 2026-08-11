@@ -1,5 +1,2 @@
-# Every message reporting a failure quotes this, in the terminal UI and
-# in the graph viewer alike, so the address is one fact here rather than
-# a copy per message, and pyproject.toml declares the same tracker to
-# anybody who arrives from the package index instead of from a message.
+# All failure messages use this issue URL. Keep one source for the terminal UI, graph viewer, and package metadata.
 ISSUES_URL = "https://github.com/nicopujia/just-ralph-it/issues"

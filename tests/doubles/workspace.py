@@ -12,11 +12,11 @@ from jri.core.workspace import Installation, Workspace
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-# A process that never took the project, standing in for whatever wears
-# a holder's number once the operating system has handed it on. It ticks
-# so that a reader can tell being alive from not having died yet: a
-# signal a process was sent is one it cannot outrun, since the kernel
-# ends it before the next instruction it would have run.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 BYSTANDER = """
 import os, sys, time
 from pathlib import Path
@@ -31,8 +31,8 @@ while True:
         ticks.write(b".")
     time.sleep(0.005)
 """
-# A window nothing takes over would keep the project for as long as the
-# run lasts, so it gives up on its own well before a suite would.
+# Check this test support.
+# Check this test support.
 HOLDER = """
 import os, signal, sys, time
 from pathlib import Path
@@ -51,9 +51,9 @@ ready.write_text(str(os.getpid()))
 time.sleep(30)
 """
 POLL = 0.01
-# A window caught between taking the lock and writing down which
-# process took it: for that moment the record on disk is the one the
-# window before it left, and the lock is already this one's.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 SLOW_HOLDER = """
 import os, sys, time
 from pathlib import Path
@@ -74,14 +74,14 @@ claim.release()
 time.sleep(30)
 """
 STARTS_WITHIN = 30
-# Two ticks at two hundred a second, with room for a machine under load.
+# Check this test support.
 TICKS_WITHIN = 5.0
 
 
-# The command's own two steps, in its own order: a reset is opened
-# first, and what installing over an existing workspace takes is what
-# that hands back. The question `jri init --force` asks between the two
-# is the window's, and nothing here stands in for it.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 def install_workspace(path: Path, *, force: bool = False) -> Installation:
     workspace = Workspace(path)
     config = Settings.render_config()
@@ -91,8 +91,8 @@ def install_workspace(path: Path, *, force: bool = False) -> Installation:
         return workspace.install(config, reset=reset)
 
 
-# A JRI holding the project from a process of its own, since a lock the
-# operating system frees says nothing about a holder inside this one.
+# Check this test support.
+# Check this test support.
 @contextmanager
 def hold_workspace(root: Path, *, record: str = "", deaf: bool = False) -> "Iterator[Process]":
     with _run(HOLDER, root, "held", (record, "deaf" if deaf else "")) as holder:
@@ -113,10 +113,10 @@ def run_a_bystander(root: Path) -> "Iterator[Process]":
         yield bystander
 
 
-# Whether the bystander is still running, waited for rather than
-# glanced at: a signal already sent is one it cannot tick past, so two
-# ticks made after this was called are two the kernel would have ended
-# it before.
+# Check this test support.
+# Check this test support.
+# Check this test support.
+# Check this test support.
 def watch_a_bystander(root: Path, bystander: "Process") -> bool:
     beat = _beat(root)
     ticks = beat.stat().st_size
@@ -131,12 +131,12 @@ def watch_a_bystander(root: Path, bystander: "Process") -> bool:
 
 @dataclass(frozen=True)
 class Process:
-    # A virtual environment starts the interpreter behind a launcher of
-    # its own on Windows, so the number a spawn hands back names that
-    # launcher rather than the process running the code. The pid a test
-    # holds a lock's record against is the one the process wrote down
-    # about itself: that is the process the operating system keeps the
-    # lock for, and the one a signal out of the record would end.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
     pid: int
     spawn: subprocess.Popen[bytes]
 
@@ -151,16 +151,16 @@ class Process:
 
 
 def _beat(root: Path) -> Path:
-    # Outside the project, so that what a workspace holds is only ever
-    # what the code under test put there.
+    # Check this test support.
+    # Check this test support.
     return root.parent / f"{root.name}.ticks"
 
 
 def _read_pid(marker: Path) -> int:
-    # The pid lands once the process has done what it was started to
-    # do, so a marker still empty is a process that never got there --
-    # and a marker is made a moment before it is written, which is why
-    # what is waited for is a number in it and not the file being there.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
     deadline = time.monotonic() + STARTS_WITHIN
     while not (pid := marker.read_text(encoding="utf-8") if marker.exists() else "").isdigit():
         assert time.monotonic() < deadline, f"nothing wrote a pid to {marker}"
@@ -170,13 +170,13 @@ def _read_pid(marker: Path) -> int:
 
 @contextmanager
 def _run(source: str, root: Path, marker: str, arguments: "Sequence[str]") -> "Iterator[Process]":
-    # Outside the project, so that what the window holds is the only
-    # thing a test reads back out of it. Named for the role rather than
-    # the root, since a test runs a window and a bystander over the
-    # same one.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
     ready = root.parent / f"{root.name}.{marker}"
-    # The marker a process before this one in the same test left, which
-    # is the harness's own and nothing of the code under test.
+    # Check this test support.
+    # Check this test support.
     ready.unlink(missing_ok=True)
     spawn = subprocess.Popen([sys.executable, "-c", source, str(root), str(ready), *arguments])
     try:

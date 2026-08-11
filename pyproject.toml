@@ -87,9 +87,6 @@ ignore = [
     "TRY003", # allow inline exception messages
 ]
 
-[tool.ruff.lint.pycodestyle]
-max-doc-length = 72
-
 [tool.ruff.lint.pylint]
 max-args = 6 # allow `tool()` to describe a tool without an options object
 

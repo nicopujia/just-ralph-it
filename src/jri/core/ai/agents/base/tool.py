@@ -47,11 +47,10 @@ class ToolOutput:
 
 
 class Invocation:
-    # Enough of a reason to recognise on a row, cut before it wraps.
+    # Limit row detail to a recognizable reason that fits on one line.
     MAX_DETAIL_LENGTH = 120
     MAX_OUTPUT_LENGTH = 100_000
-    # JRI speaking, so it lands past the block the cut output closes:
-    # a model is told nothing inside a block is JRI talking to it.
+    # This is JRI text. Put it after the quoted output block so the model cannot treat quoted text as JRI text.
     TRUNCATION_NOTICE = "\n\n[Output truncated. Try splitting into more targeted calls.]"
 
     def __init__(
@@ -72,8 +71,7 @@ class Invocation:
             except (RuntimeError, TypeError, ValueError) as error:
                 logger.exception("stream_failed")
                 failure = prompt.render(tool_call_failed=str(error))
-                # Whatever the stream already reported is real work, so
-                # the failure joins that output instead of replacing it.
+                # Keep output that the stream already reported. Append the failure instead of replacing that output.
                 if self._output is None:
                     self._output = failure
                 elif isinstance(self._output, str):
@@ -87,10 +85,8 @@ class Invocation:
                 self._output = item.value
                 self._outcome = item.outcome
                 logger.debug("stream_output output=%r", item.value)
-            # A thought is the sub-agent thinking rather than a step of
-            # the call, so it has no row to nest and carries no depth to
-            # deepen; asking it for one would raise out of this loop and
-            # report a call that is working as failed.
+            # A thought is sub-agent reasoning, not a call step. It has no row or depth.
+            # Adding depth raises here and reports a working call as failed.
             elif isinstance(item, ai.ReasoningDelta):
                 yield item
             else:
@@ -99,8 +95,7 @@ class Invocation:
 
     @property
     def detail(self) -> str:
-        # The reason comes from the exception, never from reading the
-        # rendered output back: that output is quoted inside a fence.
+        # Get the reason from the exception, not rendered output. Rendered output is quoted in a block.
         return self._detail.partition("\n")[0][: self.MAX_DETAIL_LENGTH]
 
     @property
@@ -115,9 +110,7 @@ class Invocation:
             output: ResponseFunctionCallOutputItemListParam = []
             remaining = self.MAX_OUTPUT_LENGTH
             for item in self._output:
-                # Images and files are already bounded by the
-                # model's own input limits, so only text spends
-                # this budget.
+                # Images and files use the model input limits. Only text uses this limit.
                 if item["type"] != "input_text":
                     output.append(item)
                     continue
@@ -148,8 +141,7 @@ class Tool:
     @classmethod
     def discover(cls, owner: object) -> list[Self]:
         tools: list[Self] = []
-        # An owner inherits the tools of the classes it extends, base
-        # class first, so the whole line of ancestors is walked.
+        # An owner inherits tools from all base classes. Walk ancestors with the base class first.
         for name in dict.fromkeys(name for klass in reversed(type(owner).__mro__) for name in vars(klass)):
             func = getattr(owner, name)
             wrapped = getattr(func, "__func__", func)
@@ -183,10 +175,7 @@ class Tool:
             )
         return tools
 
-    # A row is decoration, so nothing wording one reaches for can cost
-    # the call it describes: arguments the model is free to be wrong
-    # about are dumped here, and dumping them may touch a filesystem
-    # that answers with an error.
+    # A row is display data. Label formatting must not fail the call. Invalid arguments can cause file-system errors.
     def format_label(self, label: str, arguments: str) -> str:
         try:
             payload = self.arguments_model.model_validate_json(arguments, strict=True)
@@ -242,9 +231,7 @@ class Tool:
             return
         invocation = self.invoke(arguments)
         list(invocation)
-        # `invoke` answers a failure by rendering it for the model to
-        # read, and a replay has no model: the caller is the only one
-        # who can act on work this could not do a second time.
+        # `invoke` renders failures for a model. Replay has no model, so report the failure to its caller.
         if invocation.outcome == "failed":
             raise ReplayError(invocation.detail)
 

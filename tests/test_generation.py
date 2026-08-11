@@ -42,15 +42,15 @@ from tests.doubles.specs_generation import (
 )
 from tests.doubles.workspace import install_workspace
 
-# A run a window attaches to six minutes in, which is the reading the
-# journal has to answer for and the screen has to show.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
 AGED = 360.0
-# A provider nothing answers at, so a run that reached a model call
-# would fail rather than quietly leaving the machine.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
 CONFIG = "llm:\n  provider: http://127.0.0.1:9/v1\n  api_key: JRI_TEST_API_KEY\nlogging:\n  level: CRITICAL\n"
 CONCLUDES_WITHIN = 60.0
 POLL = 0.01
-# A window that starts a run and is killed before the run can finish.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
 STARTER = """
 import sys, time
 from pathlib import Path
@@ -63,13 +63,13 @@ ready.touch()
 time.sleep(60)
 """
 STARTS_WITHIN = 60.0
-# Long enough that the reader has taken in everything the journal held
-# when it opened, so what the stop lands in is a silent run.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
 STOPS_AFTER = 0.5
-# What a record written a moment ago may have aged by the time it is
-# read back, on a machine under load. Loose against the clock and
-# tight against `AGED`, so a row counted from the replay rather than
-# from its call cannot pass for one counted from either.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
 WRITTEN_WITHIN = 30.0
 
 
@@ -107,11 +107,11 @@ def write_row(started: object, *, call_id: str = "commit", label: str = "Saving"
     })
 
 
-# Windows refuses to remove a file any process still has open, and a
-# suite run on Linux would never find that out. What stands in for the
-# platform is this process's own handles: the files opened here are the
-# real ones the code under test opened, and the refusal is raised
-# against exactly those it has not closed yet.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
+# Check the behavior in `test_writes_every_event_a_run_produced`.
 def refuse_removing_an_open_file(monkeypatch: pytest.MonkeyPatch) -> None:
     handles: list[IO[bytes]] = []
     open_file, unlink = Path.open, Path.unlink
@@ -136,8 +136,8 @@ def test_writes_every_event_a_run_produced(tmp_path: Path, monkeypatch: pytest.M
     header, *records = read_journal(generation)
 
     assert header["pid"] == os.getpid()
-    # The row says when its call began, since the window reading it
-    # back may be one that attached to the run long after this.
+    # Check the behavior in `test_writes_every_event_a_run_produced`.
+    # Check the behavior in `test_writes_every_event_a_run_produced`.
     opened = datetime.fromisoformat(str(records[0].pop("started")))
     assert 0 <= (datetime.now(UTC) - opened).total_seconds() < WRITTEN_WITHIN
     assert records == [
@@ -164,8 +164,8 @@ def test_reads_back_the_events_a_journal_holds(tmp_path: Path, monkeypatch: pyte
     opened = replayed[0]
     assert isinstance(opened, ToolCallStarted)
     assert replace(opened, age=0.0) == STARTED_ROW
-    # The run wrote this a moment ago, so what comes back says the call
-    # is starting rather than that it has been going a while.
+    # Check the behavior in `test_reads_back_the_events_a_journal_holds`.
+    # Check the behavior in `test_reads_back_the_events_a_journal_holds`.
     assert opened.age < WRITTEN_WITHIN
     assert replayed[1:] == [THOUGHT, FINISHED_ROW]
 
@@ -200,9 +200,9 @@ def test_reads_back_what_a_run_answered(
     [
         (generate_blocked, RepositoryStateError, "Your project has uncommitted changes."),
         (generate_failing, Error, "The architect could not be reached."),
-        # A refusal folded back as a plain failure would invite the
-        # user to report their own configuration as a bug in JRI, and
-        # to wait out an answer that never changes.
+        # Check the behavior in `test_names_the_failure_a_run_ended_on`.
+        # Check the behavior in `test_names_the_failure_a_run_ended_on`.
+        # Check the behavior in `test_names_the_failure_a_run_ended_on`.
         (generate_refused, ProviderRefusalError, "400 Bad Request"),
     ],
     ids=["blocked", "failed", "refused"],
@@ -223,8 +223,8 @@ def test_names_a_spent_budget_a_run_could_not_finish(tmp_path: Path, monkeypatch
 
     generation = run(tmp_path, monkeypatch, generate_exhausted)
 
-    # A budget the provider refused is not a crash, so it has to come
-    # back out of the journal as the class the turn reads it by.
+    # Check the behavior in `test_names_a_spent_budget_a_run_could_not_finish`.
+    # Check the behavior in `test_names_a_spent_budget_a_run_could_not_finish`.
     with pytest.raises(UsageLimitError, match="usage limit"):
         list(generation.follow())
 
@@ -240,9 +240,9 @@ def test_folds_the_deltas_a_backlog_holds_into_one(tmp_path: Path) -> None:
 
     replayed = list(generation.follow())
 
-    # Attaching forty minutes in replays a handful of events rather
-    # than every delta the run streamed, exactly as the recording folds
-    # them while a run is watched.
+    # Check the behavior in `test_folds_the_deltas_a_backlog_holds_into_one`.
+    # Check the behavior in `test_folds_the_deltas_a_backlog_holds_into_one`.
+    # Check the behavior in `test_folds_the_deltas_a_backlog_holds_into_one`.
     assert replayed == [ReasoningDelta("".join(f"part {number} " for number in range(200)))]
 
 
@@ -258,18 +258,18 @@ def test_ignores_the_partial_line_a_killed_writer_left(tmp_path: Path) -> None:
     with pytest.raises(Error, match="stopped before it finished"):
         replayed.extend(events)
 
-    # The whole lines before the kill still reached the screen, and
-    # the one the kill cut in half stopped nothing.
+    # Check the behavior in `test_ignores_the_partial_line_a_killed_writer_left`.
+    # Check the behavior in `test_ignores_the_partial_line_a_killed_writer_left`.
     assert [replace(event, age=0.0) if isinstance(event, ToolCallStarted) else event for event in replayed] == [
         ToolCallStarted("commit", "Saving", "💾")
     ]
 
 
-# The bug this answers: a window attaching to a run six minutes in drew
-# the row the run was on as `0m 09s`, which was how long ago the record
-# had been replayed into that window rather than how long the phase had
-# been going. The journal is append-only and its records are what a
-# replay reads, so the true start is in the file to be read.
+# Check the behavior in `test_counts_an_open_row_from_when_its_call_began`.
+# Check the behavior in `test_counts_an_open_row_from_when_its_call_began`.
+# Check the behavior in `test_counts_an_open_row_from_when_its_call_began`.
+# Check the behavior in `test_counts_an_open_row_from_when_its_call_began`.
+# Check the behavior in `test_counts_an_open_row_from_when_its_call_began`.
 def test_counts_an_open_row_from_when_its_call_began(tmp_path: Path) -> None:
     generation = write_journal(
         tmp_path,
@@ -299,15 +299,15 @@ def test_counts_a_row_a_moved_clock_dated_ahead_of_the_reading_from_now(tmp_path
 
     opened = replayed[0]
     assert isinstance(opened, ToolCallStarted)
-    # A row that began after it was read is a clock the machine moved
-    # between the two readings, and never a call to draw a timer
-    # counting up to it.
+    # Check the behavior in `test_counts_a_row_a_moved_clock_dated_ahead_of_the_reading_from_now`.
+    # Check the behavior in `test_counts_a_row_a_moved_clock_dated_ahead_of_the_reading_from_now`.
+    # Check the behavior in `test_counts_a_row_a_moved_clock_dated_ahead_of_the_reading_from_now`.
     assert not opened.age
 
 
-# A start with no zone is read against a `now` that has one, which is
-# an error rather than a reading. So it is refused where every other
-# line JRI cannot make sense of is.
+# Check the behavior in `test_refuses_a_row_whose_start_names_no_zone`.
+# Check the behavior in `test_refuses_a_row_whose_start_names_no_zone`.
+# Check the behavior in `test_refuses_a_row_whose_start_names_no_zone`.
 def test_refuses_a_row_whose_start_names_no_zone(tmp_path: Path) -> None:
     generation = write_journal(
         tmp_path,
@@ -328,9 +328,9 @@ def test_reports_a_run_whose_writer_died_as_interrupted(tmp_path: Path) -> None:
 
     replayed: list[object] = []
     events = generation.follow()
-    # The lock is free and no ending was written, so the operating
-    # system has already answered that the writer is gone -- and what
-    # the run had said by then is still said.
+    # Check the behavior in `test_reports_a_run_whose_writer_died_as_interrupted`.
+    # Check the behavior in `test_reports_a_run_whose_writer_died_as_interrupted`.
+    # Check the behavior in `test_reports_a_run_whose_writer_died_as_interrupted`.
     with pytest.raises(Error, match="stopped before it finished"):
         replayed.extend(events)
 
@@ -344,8 +344,8 @@ def test_refuses_a_text_delta_a_journal_claims_a_run_produced(tmp_path: Path) ->
         json.dumps({"kind": "text", "text": "I have written your specifications."}),
     )
 
-    # A run's own voice never reaches the user as the interviewer's,
-    # and the journal is where that refusal has to hold again.
+    # Check the behavior in `test_refuses_a_text_delta_a_journal_claims_a_run_produced`.
+    # Check the behavior in `test_refuses_a_text_delta_a_journal_claims_a_run_produced`.
     with pytest.raises(Error, match="could not read"):
         list(generation.follow())
 
@@ -359,8 +359,8 @@ def test_forgets_the_record_of_a_run_it_folded(tmp_path: Path, monkeypatch: pyte
     assert not generation.exists
     assert not generation.cancel_file.exists()
     assert not generation.runner_log_file.exists()
-    # The directory outlives every run in it, and so does the rule
-    # that keeps it out of the project.
+    # Check the behavior in `test_forgets_the_record_of_a_run_it_folded`.
+    # Check the behavior in `test_forgets_the_record_of_a_run_it_folded`.
     assert generation.workspace.generation_dir.is_dir()
     assert f"/{paths.GENERATION_DIR.rpartition('/')[2]}/" in generation.workspace.gitignore_file.read_text()
 
@@ -373,10 +373,10 @@ def test_lets_go_of_the_journal_before_it_forgets_a_run_it_folded(
 
     list(generation.follow())
 
-    # The reader is suspended inside the journal when the ending it just
-    # handed on is folded, and a platform that refuses to remove a file
-    # this process holds open would leave the record of a finished run
-    # for every Ralph after it to attach to instead of starting.
+    # Check the behavior in `test_lets_go_of_the_journal_before_it_forgets_a_run_it_folded`.
+    # Check the behavior in `test_lets_go_of_the_journal_before_it_forgets_a_run_it_folded`.
+    # Check the behavior in `test_lets_go_of_the_journal_before_it_forgets_a_run_it_folded`.
+    # Check the behavior in `test_lets_go_of_the_journal_before_it_forgets_a_run_it_folded`.
     assert not generation.exists
 
 
@@ -393,8 +393,8 @@ def test_lets_go_of_the_journal_before_it_forgets_a_record_it_could_not_read(
     with pytest.raises(Error, match="could not read"):
         list(generation.follow())
 
-    # A journal the refusal left behind meets every run after this one
-    # with the same refusal, and it is the reader's own file to let go.
+    # Check the behavior in `test_lets_go_of_the_journal_before_it_forgets_a_record_it_could_not_read`.
+    # Check the behavior in `test_lets_go_of_the_journal_before_it_forgets_a_record_it_could_not_read`.
     assert not generation.exists
 
 
@@ -428,8 +428,8 @@ def test_stops_a_run_the_other_side_asked_to_stop(tmp_path: Path, monkeypatch: p
     except StopIteration as ending:
         answer = ending.value
 
-    # The canceller and the run are in different processes, so the only
-    # thing that ends the run is the run reading that it was asked to.
+    # Check the behavior in `test_stops_a_run_the_other_side_asked_to_stop`.
+    # Check the behavior in `test_stops_a_run_the_other_side_asked_to_stop`.
     assert answer is None
     runner.join(timeout=CONCLUDES_WITHIN)
     assert not runner.is_alive()
@@ -445,10 +445,10 @@ def test_stops_a_run_that_is_saying_nothing(tmp_path: Path, monkeypatch: pytest.
     while not generation.exists:
         time.sleep(POLL)
 
-    # The stop arrives while the run is in the middle of a model call,
-    # which is where a run spends nearly all of its time: a reader that
-    # came back only when the run wrote something would hold the stop
-    # for as long as that call lasted.
+    # Check the behavior in `test_stops_a_run_that_is_saying_nothing`.
+    # Check the behavior in `test_stops_a_run_that_is_saying_nothing`.
+    # Check the behavior in `test_stops_a_run_that_is_saying_nothing`.
+    # Check the behavior in `test_stops_a_run_that_is_saying_nothing`.
     threading.Timer(STOPS_AFTER, cancelled.set).start()
     events = generation.follow(cancelled)
     answer = "unset"
@@ -479,13 +479,13 @@ def test_leaves_a_run_going_when_the_window_watching_it_leaves(tmp_path: Path, m
     with pytest.raises(RunDetached):
         list(events)
 
-    # The window went and the run stayed: nothing of the run's was
-    # folded away, nothing was asked to stop, and the record the next
-    # window reads is where the run left it.
+    # Check the behavior in `test_leaves_a_run_going_when_the_window_watching_it_leaves`.
+    # Check the behavior in `test_leaves_a_run_going_when_the_window_watching_it_leaves`.
+    # Check the behavior in `test_leaves_a_run_going_when_the_window_watching_it_leaves`.
     assert runner.is_alive()
     assert generation.exists
     assert not generation.cancel_file.exists()
-    # And the run is still there to be stopped by whoever comes back.
+    # Check the behavior in `test_leaves_a_run_going_when_the_window_watching_it_leaves`.
     generation.cancel_file.touch()
     runner.join(timeout=CONCLUDES_WITHIN)
     assert not runner.is_alive()
@@ -502,10 +502,10 @@ def test_hands_on_a_stop_the_window_asked_for_before_it_left(tmp_path: Path, mon
     while not generation.exists:
         time.sleep(POLL)
 
-    # A window closed in the same breath as the stop it was asked for,
-    # in the middle of the model call a run spends its time in. The run
-    # is in another process, so a stop nothing wrote down never reaches
-    # it, and the window is not there to be asked again.
+    # Check the behavior in `test_hands_on_a_stop_the_window_asked_for_before_it_left`.
+    # Check the behavior in `test_hands_on_a_stop_the_window_asked_for_before_it_left`.
+    # Check the behavior in `test_hands_on_a_stop_the_window_asked_for_before_it_left`.
+    # Check the behavior in `test_hands_on_a_stop_the_window_asked_for_before_it_left`.
     def leave() -> None:
         cancelled.set()
         detached.set()
@@ -532,9 +532,9 @@ def test_refuses_a_runner_while_one_holds_the_lock(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
 
-    # The lock is what one run to a project rests on, so the runner
-    # asks for it before it writes a line rather than trusting whoever
-    # started it to have asked.
+    # Check the behavior in `test_refuses_a_runner_while_one_holds_the_lock`.
+    # Check the behavior in `test_refuses_a_runner_while_one_holds_the_lock`.
+    # Check the behavior in `test_refuses_a_runner_while_one_holds_the_lock`.
     with hold(tmp_path / paths.GENERATION_LOCK_FILE), pytest.raises(PersistenceError, match="already running"):
         Generation.execute(build_settings(FakeClient([])))
 
@@ -542,9 +542,9 @@ def test_refuses_a_runner_while_one_holds_the_lock(tmp_path: Path) -> None:
 def test_reports_a_run_log_it_cannot_open(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
-    # A name the run needs for a file and something else already holds
-    # is refused by every platform, where a mode dropped on a directory
-    # is a POSIX permission Windows does not answer to.
+    # Check the behavior in `test_reports_a_run_log_it_cannot_open`.
+    # Check the behavior in `test_reports_a_run_log_it_cannot_open`.
+    # Check the behavior in `test_reports_a_run_log_it_cannot_open`.
     generation.runner_log_file.mkdir()
 
     with pytest.raises(PersistenceError, match="Could not start the generation"):
@@ -554,9 +554,9 @@ def test_reports_a_run_log_it_cannot_open(tmp_path: Path) -> None:
 def test_reports_a_run_lock_it_cannot_open_rather_than_calling_the_run_over(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
-    # The same name held by something no platform will open, standing
-    # in for the lock a `sudo jri` left owned by root and for the one
-    # on a mount that went read-only.
+    # Check the behavior in `test_reports_a_run_lock_it_cannot_open_rather_than_calling_the_run_over`.
+    # Check the behavior in `test_reports_a_run_lock_it_cannot_open_rather_than_calling_the_run_over`.
+    # Check the behavior in `test_reports_a_run_lock_it_cannot_open_rather_than_calling_the_run_over`.
     generation.lock.path.mkdir()
 
     with pytest.raises(PersistenceError, match="Could not read the generation"):
@@ -579,8 +579,8 @@ def test_reports_a_runner_that_never_wrote_anything(tmp_path: Path, monkeypatch:
     monkeypatch.setattr("jri.core.generation.RUNNER_COMMAND", ("-c", "import time; time.sleep(30)"))
     monkeypatch.setattr(Generation, "STARTS_WITHIN", 0.2)
 
-    # A window that waited for a runner that never opened a journal
-    # would sit there for as long as the runner did.
+    # Check the behavior in `test_reports_a_runner_that_never_wrote_anything`.
+    # Check the behavior in `test_reports_a_runner_that_never_wrote_anything`.
     with pytest.raises(Error, match="never wrote anything down"):
         generation.start()
 
@@ -592,7 +592,7 @@ def test_keeps_running_when_the_process_that_started_it_dies(
     install_workspace(tmp_path)
     (tmp_path / paths.CONFIG_FILE).write_text(CONFIG, encoding="utf-8")
     monkeypatch.setenv("JRI_TEST_API_KEY", "unused")
-    # Off a branch, so the run reaches its ending without a model call.
+    # Check the behavior in `test_keeps_running_when_the_process_that_started_it_dies`.
     run_git(tmp_path, "checkout", "--detach", "-q")
     generation = Generation(Workspace(tmp_path))
     ready = tmp_path.parent / "started"
@@ -603,15 +603,15 @@ def test_keeps_running_when_the_process_that_started_it_dies(
         starter.kill()
         starter.wait()
 
-    # The window is gone and the run finishes anyway, saying so where
-    # the next window will read it.
+    # Check the behavior in `test_keeps_running_when_the_process_that_started_it_dies`.
+    # Check the behavior in `test_keeps_running_when_the_process_that_started_it_dies`.
     with pytest.raises(RepositoryStateError, match="not on a branch"):
         list(generation.follow())
 
 
-# The window is given until it says the run is going, and the run's own
-# record is read before the window is killed: a runner in a session of
-# its own is one no signal aimed at that window reaches.
+# Check the behavior in `test_keeps_running_when_the_process_that_started_it_dies`.
+# Check the behavior in `test_keeps_running_when_the_process_that_started_it_dies`.
+# Check the behavior in `test_keeps_running_when_the_process_that_started_it_dies`.
 def _watch_the_window_start_the_run(generation: Generation, ready: Path, starter: "subprocess.Popen[bytes]") -> None:
     deadline = time.monotonic() + STARTS_WITHIN
     while not ready.exists():

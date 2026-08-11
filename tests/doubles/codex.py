@@ -40,9 +40,9 @@ def respond(status_code: int, body: "dict[str, Any] | str") -> httpx.Response:
 
 
 def retry_after_rejection(auth: codex.Auth, on_first_request: Callable[[], None]) -> None:
-    # Drives the httpx retry handshake by hand, so a failure surfaces
-    # unwrapped: the callback stands in for a sibling process rewriting
-    # auth.json while the first attempt is still in flight.
+    # Check this test support.
+    # Check this test support.
+    # Check this test support.
     flow = auth.sync_auth_flow(httpx.Request("POST", "https://chatgpt.com/backend-api/codex/responses"))
     request = next(flow)
     on_first_request()
@@ -70,8 +70,8 @@ def build_client(
     )
 
     def handle(request: httpx.Request) -> httpx.Response:
-        # A retried request is the very same object, re-headed in
-        # place, so snapshot it before the next attempt rewrites it.
+        # Check this test support.
+        # Check this test support.
         requests.append(httpx.Request(request.method, request.url, headers=request.headers, content=request.content))
         if len(requests) == 1 and on_first_request is not None:
             on_first_request()

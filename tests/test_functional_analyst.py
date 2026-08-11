@@ -41,8 +41,8 @@ def test_writes_the_specification_files() -> None:
     assert write(build_analyst(client), CONTEXT)[1] == SPECIFICATIONS
 
 
-# The analyst spends minutes on a call, and what it publishes while it
-# works belongs to the round the run has open, not to its answer.
+# Check the behavior in `test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote`.
+# Check the behavior in `test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote`.
 def test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote() -> None:
     client = FakeClient(
         [],
@@ -77,9 +77,9 @@ def test_asks_for_a_first_draft_from_the_notebook_alone() -> None:
     assert "Architect feedback:" not in request
 
 
-# The analyst is asked to change the specifications it is shown, so
-# there is no second copy of them for a file it leaves out to fall back
-# to, and no draft named as rejected when it is the one being kept.
+# Check the behavior in `test_revises_the_specifications_as_they_stand_against_the_architect_feedback`.
+# Check the behavior in `test_revises_the_specifications_as_they_stand_against_the_architect_feedback`.
+# Check the behavior in `test_revises_the_specifications_as_they_stand_against_the_architect_feedback`.
 def test_revises_the_specifications_as_they_stand_against_the_architect_feedback() -> None:
     client = FakeClient([], parsed=[functional_analyst.Output(result=SPECIFICATIONS)])
     context = CONTEXT.model_copy(
@@ -95,10 +95,10 @@ def test_revises_the_specifications_as_they_stand_against_the_architect_feedback
     assert "Accepted functional specifications:" not in request
 
 
-# A model copies the tail of the rule it followed into the
-# specification it writes, so every rule that can return `ambiguities`
-# states the delegation gate itself: a qualifier standing elsewhere in
-# the prompt does not travel with the copy.
+# Check the behavior in `test_gates_every_escalation_on_what_the_notebook_delegated`.
+# Check the behavior in `test_gates_every_escalation_on_what_the_notebook_delegated`.
+# Check the behavior in `test_gates_every_escalation_on_what_the_notebook_delegated`.
+# Check the behavior in `test_gates_every_escalation_on_what_the_notebook_delegated`.
 def test_gates_every_escalation_on_what_the_notebook_delegated() -> None:
     prompt = build_analyst(FakeClient([])).runner.prompt.replace("\n      ", " ")
 

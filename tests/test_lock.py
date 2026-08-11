@@ -25,8 +25,8 @@ def test_waits_for_the_lock_a_holder_has_not_dropped_yet(tmp_path: Path) -> None
 
     with hold(path) as holder:
         started = time.monotonic()
-        # The holder is killed rather than asked to let go, so what the
-        # wait ends on is the operating system and nothing of JRI's.
+        # Kill the holder instead of asking it to release the lock.
+        # The operating system, not JRI, ends the wait.
         threading.Timer(HELD_FOR, holder.kill).start()
         taken = take(path)
         waited = time.monotonic() - started
@@ -48,9 +48,9 @@ def test_frees_the_lock_a_killed_holder_left_to_a_process_it_forked(tmp_path: Pa
 
     assert inherited, "the forked process died before it could hold on to the lock"
     assert taken
-    # The forked process outlives the holder either way, so a wait that
-    # ended early is the child having dropped a lock that was not its
-    # own to drop, and a wait that never ends is the child keeping one.
+    # The child process outlives the holder in both cases.
+    # An early wait means that the child released a lock it did not own.
+    # A wait that does not end means that the child keeps the lock.
     assert waited >= HELD_FOR
 
 
@@ -95,7 +95,7 @@ def test_reports_no_holder_for_a_lock_a_killed_holder_left(tmp_path: Path) -> No
 
 def test_reports_no_holder_for_a_lock_nothing_ever_took(tmp_path: Path) -> None:
     assert not Lock(tmp_path / "lock").is_held()
-    # Asking is not taking, so the lock is still there to be had.
+    # Checking a lock does not take the lock.
     assert take(tmp_path / "lock")
 
 
@@ -127,8 +127,8 @@ def test_hands_back_the_record_the_holder_wrote(tmp_path: Path) -> None:
 
     assert lock.take("12345")
 
-    # Read through a handle of its own while the lock stands, which is
-    # what a second process reading it has.
+    # Read through an independent handle while the lock is held.
+    # This is how a second process reads the lock record.
     assert Lock(path).holder == "12345"
     lock.release()
 

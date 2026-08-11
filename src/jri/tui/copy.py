@@ -1,7 +1,7 @@
 from jri.core.ai import Interviewer
 from jri.core.support import ISSUES_URL
 
-# Alphabetical order, blank line between initial letters
+# Keep alphabetical order. Put a blank line between initial letters.
 
 AUTH_ERROR = "Authentication failed: {error}"
 

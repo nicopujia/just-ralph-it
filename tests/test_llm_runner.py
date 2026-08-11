@@ -50,13 +50,13 @@ if TYPE_CHECKING:
 
     from tests.doubles.openai import Round
 
-# The depths a prompt line is written at: a heading at the margin, a
-# bullet under it, and the continuation of a bullet that wrapped.
+# These are the valid indentation depths for prompt lines.
+# They represent a heading, a list item, and its continuation.
 PROMPT_INDENTS = (0, 4, 6)
-# Ruff bounds a source line at 120 columns, and a prompt line spends
-# four of them on the indentation of the shallowest block that can
-# hold it, two on its quotes and two on the `\n` it ends with, so a
-# line wider than this is two literals that ran together.
+# Ruff limits a source line to 120 columns.
+# A prompt line uses four columns for the shallowest indentation.
+# It also uses four columns for quotes and its final `\n`.
+# A wider prompt line joins two source literals.
 PROMPT_MAX_WIDTH = 112
 PROMPT_SECTION = re.compile(r"[A-Z][A-Za-z ]*:")
 
@@ -72,9 +72,9 @@ def build_runner(parsed: object) -> LLMRunner:
     return LLMRunner(client=cast("OpenAI", FakeClient([], parsed=[parsed])), model="test")
 
 
-# A parsed call reaches its caller as a stream of the model's thinking
-# whose return value is the output, so nothing reads that output
-# without having read every thought the call published first.
+# A parsed call sends model reasoning as a stream.
+# Its return value is the parsed output.
+# Read all reasoning before reading that output.
 def drain(parse: Generator[ReasoningDelta, None, "Output | None"]) -> tuple[list[ReasoningDelta], "Output | None"]:
     thoughts: list[ReasoningDelta] = []
     while True:
@@ -94,9 +94,9 @@ def build_streaming_runner(*rounds: "Round | OpenAIError") -> LLMRunner:
 
 def build_agents(path: Path) -> list[Explorer | Interviewer]:
     settings = build_settings(FakeClient([]), search_api_key="BRAVE_SEARCH_API_KEY")
-    # The Explorer writes its working directory into its prompt, so a
-    # directory of this machine's would leave the width of one line to
-    # whatever `tmp_path` happens to be.
+    # Explorer puts its working directory in the prompt.
+    # A local temporary directory would make line widths variable.
+    # Use `/jri` so the test has a fixed path width.
     return [Interviewer(settings, Notebook(path / "notebook.yaml")), Explorer(settings, Path("/jri"))]
 
 
@@ -110,9 +110,9 @@ def build_prompts(path: Path) -> dict[str, str]:
     }
 
 
-# Each line with the ones it stands between, and `None` where the
-# prompt begins or ends, so a rule about what a line sits under tells
-# the top of a document from a line sitting under a blank one.
+# Return each line with its adjacent lines.
+# Use `None` for the start and end of the prompt.
+# This distinguishes a document header from text after a blank line.
 def read_prompt_lines(path: Path) -> Iterator[tuple[str, str | None, str, str | None]]:
     for name, text in build_prompts(path).items():
         lines = text.split("\n")
@@ -242,11 +242,11 @@ def test_streams_the_reasoning_of_a_parsed_call(event_type: str) -> None:
     assert output == Output(answer="ready")
 
 
-# Whether a call publishes any reasoning at all is the provider's to
-# decide, and the same prompt at the same effort has answered with
-# hundreds of deltas one day and none the next. A call that publishes
-# none is the ordinary one, and it answers exactly as a talkative one
-# does: the rows are what say a run is working.
+# The provider decides whether it sends reasoning.
+# The same prompt can send many deltas or no deltas.
+# No reasoning is the normal result for a call.
+# It returns the same output as a call with reasoning.
+# Rows show that the run is active.
 def test_streams_nothing_for_a_parsed_call_that_published_no_reasoning() -> None:
     runner = build_runner(response(reply('{"answer": "ready"}')))
 
@@ -262,15 +262,15 @@ def test_stops_a_parse_the_user_left_mid_thought() -> None:
 
     thoughts, output = drain(runner.parse([], Output, cancelled))
 
-    # What the model had already published stays read, and the call
-    # still answers with nothing: half a structured output is none.
+    # Keep all reasoning that the model already sent.
+    # A partial structured output has no valid result.
     assert thoughts == [ReasoningDelta("Weighing "), ReasoningDelta("the options.")]
     assert output is None
 
 
-# A retry would publish a second chain of thought under the one row
-# this call has, so a call the reader has already begun reading fails
-# on what it reached rather than starting over.
+# A retry would send a second reasoning chain to one row.
+# Do not retry after the reader receives reasoning.
+# Report the error from the response that the reader received.
 def test_does_not_retry_a_call_whose_thinking_reached_the_user(waits: list[float]) -> None:
     client = FakeClient([], parsed=[interrupted_thinking("Weighing the options."), Output(answer="ready")])
     runner = LLMRunner(client=cast("OpenAI", client), model="test")
@@ -282,8 +282,8 @@ def test_does_not_retry_a_call_whose_thinking_reached_the_user(waits: list[float
     assert len(client.responses.options) == 1
 
 
-# What a call spent is stated once, as the response completes, and a
-# parsed call had no way of reporting it until it streamed.
+# The provider reports usage when the response completes.
+# A parsed call cannot report usage before it streams.
 def test_logs_the_context_a_call_spent(caplog: pytest.LogCaptureFixture) -> None:
     parsing = build_runner(response(reply('{"answer": "ready"}'), input_tokens=4321))
     replying = build_streaming_runner(response(reply("How often does it deploy?"), input_tokens=1234))
@@ -348,9 +348,9 @@ def test_sends_temperature_only_when_configured(temperature: float | None) -> No
     assert client.responses.options[-1]["temperature"] == (omit if temperature is None else temperature)
 
 
-# `max` is a level the provider serves and the pinned provider library
-# does not list, so a run that drops it on the way out would leave the
-# setting accepted and inert.
+# The provider supports the `max` effort level.
+# The pinned provider library does not list this level.
+# Send it so the accepted setting has an effect.
 @pytest.mark.parametrize("effort", ["xhigh", "max"], ids=["listed", "unlisted"])
 def test_sends_the_reasoning_effort_it_was_given(effort: ReasoningEffort) -> None:
     client = FakeClient([], parsed=[Output(answer="ready")])
@@ -400,9 +400,9 @@ def test_waits_longer_after_each_rate_limit_left_unexplained(waits: list[float])
 def test_reports_a_rate_limit_that_outlasts_the_retries(waits: list[float]) -> None:
     runner = build_streaming_runner(*[rate_limited()] * LLMRunner.MAX_ATTEMPTS)
 
-    # A provider still rate limiting after every attempt is the
-    # provider's side rather than a fault of JRI's, whatever the
-    # message ends up framed by.
+    # A rate limit after all attempts is a provider condition.
+    # It is not a JRI fault.
+    # Keep the provider message format independent of this fact.
     with pytest.raises(ProviderUnavailableError, match="Rate limit reached"):
         list(runner.respond([]).events)
 
@@ -410,8 +410,8 @@ def test_reports_a_rate_limit_that_outlasts_the_retries(waits: list[float]) -> N
 
 
 def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None:
-    # The reply behind it is what a retry would have reached, so the
-    # refusal standing is what says no attempt was spent on it.
+    # The next response is what a retry would return.
+    # The refusal proves that no retry occurred.
     runner = build_streaming_runner(
         rejection("Unsupported value: 'minimal' is not supported with `gpt-5.6-sol`."), streamed_reply("ready")
     )
@@ -419,10 +419,10 @@ def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None
     with pytest.raises(ProviderRefusalError) as refusal:
         list(runner.respond([]).events)
 
-    # The request that will be refused identically however often it is
-    # asked for is told apart by class, and what the provider said is
-    # its own sentence in a block of JRI's rather than the dictionary
-    # Python prints it inside.
+    # This request gives the same refusal on every attempt.
+    # Use its exception class to identify that condition.
+    # Put the provider message in a JRI code block.
+    # Do not use the Python dictionary representation.
     assert str(refusal.value) == (
         f"The provider at {BASE_URL}/ answered 400 Bad Request, saying:\n"
         "```\nUnsupported value: 'minimal' is not supported with `gpt-5.6-sol`.\n```"
@@ -430,9 +430,9 @@ def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None
     assert waits == []
 
 
-# `Connection error.` names neither what JRI was trying to reach nor
-# what happened when it tried, and both are what the user needs to
-# tell an address they mistyped from one that is merely down.
+# `Connection error.` gives no target address.
+# It also gives no connection failure detail.
+# Users need both details to diagnose the address.
 def test_names_the_address_it_could_not_reach(waits: list[float]) -> None:
     dropped = disconnection(httpx.ConnectError("[Errno -2] Name or service not known"))
     runner = build_streaming_runner(*[dropped] * LLMRunner.MAX_ATTEMPTS)
@@ -444,9 +444,9 @@ def test_names_the_address_it_could_not_reach(waits: list[float]) -> None:
     assert len(waits) == LLMRunner.MAX_ATTEMPTS - 1
 
 
-# A gateway between JRI and the provider answers for itself, in
-# whatever it writes rather than in the provider's shape, and the
-# status and that body are what a user debugging one has to go on.
+# A gateway can reply instead of the provider.
+# Its reply does not use the provider response format.
+# Show its status and body for user diagnosis.
 def test_passes_on_a_body_that_says_nothing_of_itself(waits: list[float]) -> None:
     outage = bad_gateway("<html><body><h1>502 Bad Gateway</h1></body></html>")
     runner = build_streaming_runner(*[outage] * LLMRunner.MAX_ATTEMPTS)

@@ -21,10 +21,8 @@ __all__ = [
     "find_root",
 ]
 
-# The endings `rev-parse` gives the question of which worktree holds a
-# path: nought carrying the answer, and the 128 a fatal ends at, which
-# is where every path no worktree holds arrives -- one outside every
-# repository, one in a bare one, one that is not there at all.
+# `rev-parse` returns 0 if a worktree contains the path. It returns fatal code 128 if no worktree contains it.
+# The path can be outside a repository, in a bare repository, or absent.
 ROOT_ANSWERS = frozenset({0, 128})
 
 logger = logging.getLogger(__name__)
@@ -58,21 +56,15 @@ class Status:
     original_path: str | None = None
 
 
-# Git's guard against two commands writing one file at once, and the
-# only shape it ever has: the file's own name with `.lock` after it,
-# made where the file lives, written into and renamed over the file. So
-# a command that dies in between leaves one standing, and every later
-# command that wants that file refuses. `directories` are where a
-# repository's own locks live and `written` the files its commands
-# write, which is what tells a lock that stops one from a lock that
-# does not.
+# Git uses a `.lock` file to stop two commands from writing the same file. Git creates `<file>.lock` beside
+# the file, writes it, then renames it over the file. If the command stops first, the lock remains. Later
+# commands that need the file fail. `directories` lists repository-lock directories. `written` identifies files
+# that repository commands write. This lets the code separate blocking locks from unrelated locks.
 @dataclass(frozen=True)
 class Locks:
     SUFFIX: ClassVar[str] = ".lock"
-    # Where a lock says nothing about a command of this repository's:
-    # `gc` and `maintenance` lock the object store, which nothing run
-    # here ever waits for, and every other worktree keeps its own
-    # directory, which its own `Repository` answers for.
+    # Do not scan locks in these directories. `gc` and `maintenance` lock the object store, but this code does not
+    # wait for them. Each worktree has its own directory. Its `Repository` handles its locks.
     UNGUARDED: ClassVar[frozenset[str]] = frozenset({"objects", "worktrees"})
 
     directories: tuple[Path, ...]
@@ -92,18 +84,13 @@ class Locks:
         locks = (Path(f"{path}{self.SUFFIX}") for path in self.written)
         return tuple(lock for lock in locks if lock.exists())
 
-    # What stops these commands, stands now and did not stand then,
-    # and nothing else: a lock already standing is whosever it already
-    # was, and a lock over a file these commands never write is one
-    # nothing here can name the holder of -- a second command's, for
-    # all this can tell, whose own process is still going to use it.
+    # Remove only blocking locks that appear after the command starts. An earlier lock, or a lock for a file that
+    # these commands do not write, can belong to another active command. Do not remove that lock.
     def release(self, standing: Collection[Path]) -> None:
         self._remove(frozenset(self.blocking) - frozenset(standing))
 
-    # Every lock that stops these commands, whenever it was taken. Only
-    # a caller holding a reason no command of this repository's can be
-    # running may ask for it, since there is no `then` here to tell a
-    # lock a dead command left from one a live command holds.
+    # Remove all blocking locks, without considering creation time. Call this only when no command in this
+    # repository can run. This code cannot separate a stale lock from a lock that an active command holds.
     def clear(self) -> None:
         self._remove(self.blocking)
 
@@ -113,47 +100,33 @@ class Locks:
             try:
                 path.unlink(missing_ok=True)
             except OSError:
-                # Windows refuses to unlink a file another process
-                # holds open, which is a lock that is being held.
+                # Windows cannot unlink a file that another process has opened. This file is an active lock.
                 logger.exception("git_lock_release_failed path=%s", path)
             else:
                 logger.info("git_lock_released path=%s", path)
 
 
 class Repository:
-    # The endings Git gives a question its own ending answers: nought
-    # for yes, one for no, and nothing else -- `--quiet` is what puts a
-    # refusal here rather than at the 128 a fatal ends with.
+    # Git question commands return 0 for yes and 1 for no. They return no other code. `--quiet` gives a failure
+    # here instead of fatal code 128.
     ANSWERS: ClassVar[frozenset[int]] = frozenset({0, 1})
-    # The signals Git is asked to stop at. `sigchain_push_common` gives
-    # all of them one handler, which takes away every lock the command
-    # holds and only then lets the default action end the process, so a
-    # death by one of these is reported as a signal over a command that
-    # left nothing of its own. Read off the numbers this platform has,
-    # since Windows names two of the five.
+    # Git handles these signals. `sigchain_push_common` sets one handler to remove all command locks before the
+    # default signal action ends the process. A listed signal then leaves no command locks. Use the available values
+    # because Windows defines only two of the five signal names.
     HANDLED_SIGNALS: ClassVar[frozenset[int]] = frozenset(
         member for member in signal.Signals if member.name in {"SIGHUP", "SIGINT", "SIGPIPE", "SIGQUIT", "SIGTERM"}
     )
-    # The commands whose Git takes the index lock before it writes
-    # anything and keeps it to its last write whatever else the line
-    # asked of them. From the moment it has that lock the lock is its
-    # own -- Git makes the file with `O_EXCL`, and nothing takes it
-    # away from the Git holding it -- but the span before that moment
-    # is not covered, and no state read here tells the two apart, which
-    # is written out under `_held_the_index`. Every read and every
-    # `worktree` takes it at no point at all. `apply` and `commit` hold
-    # it over part of what they are asked for and over the rest not at
-    # all, which is the reading `_held_the_index` makes of the line.
+    # These commands cause Git to lock the index before its first write. Git keeps the lock until its last write.
+    # When Git gets the lock, only that Git owns it. Git creates it with `O_EXCL`. No other Git removes it. This
+    # code cannot identify a lock that exists before then. See `_held_the_index`. Read commands and `worktree` never
+    # take this lock. `apply` and `commit` take it for part of their operations, as `_held_the_index` defines.
     INDEX_HOLDERS: ClassVar[frozenset[str]] = frozenset({"add", "checkout", "reset"})
-    # The mode Git records a symbolic link under, in the index and in
-    # every tree written from it.
+    # Git records symbolic links with this mode in the index and in each tree that it writes.
     LINK_MODE: ClassVar[str] = "120000"
-    # What HEAD holds in front of the ref it stands for, where it
-    # stands for one rather than for a commit of its own.
+    # This prefix identifies a HEAD that refers to a ref, not to a direct commit.
     SYMBOLIC_HEAD: ClassVar[str] = "ref: "
-    # Where a commit of named paths composes the index it goes on to
-    # copy over the project's own, up to the number of the Git that
-    # writes it: no two Gits ever compose the same one.
+    # Git uses this temporary index while a named-path commit builds the project index. Its name includes the Git
+    # process ID. Thus, two Git processes do not build the same index.
     TEMPORARY_INDEX: ClassVar[str] = "next-index-"
 
     def __init__(self, path: Path | str, executable: str = "git") -> None:
@@ -178,13 +151,10 @@ class Repository:
         _check_root_answered(result, candidate)
         if result.returncode:
             raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Not a Git worktree: {candidate}")
-        # Git answers the three in the order they were asked for, and
-        # the directory holding the repository is not `.git` under the
-        # worktree wherever a link, a `GIT_DIR` or a second worktree
-        # puts it somewhere else. A second worktree has a directory of
-        # its own for what is only its -- its index, its HEAD -- and
-        # shares the first one's for what every worktree has in common,
-        # which Git answers for relative to where it was asked.
+        # Git returns these three values in request order. The repository directory in a worktree is not always
+        # `.git`. A link, `GIT_DIR`, or a linked worktree can put it elsewhere. Each linked worktree has its own
+        # directory for private data, such as its index and HEAD. Each linked worktree shares common data with the
+        # first worktree. Git returns the common directory relative to the command directory.
         top_level, git_directory, common_directory = os.fsdecode(result.stdout).splitlines()
         self.path = Path(top_level).resolve()
         self._git_directory = Path(git_directory).resolve()
@@ -202,17 +172,11 @@ class Repository:
             candidate.mkdir(parents=True, exist_ok=True)
         except OSError as error:
             raise NotRepositoryError(f"Cannot initialize Git: {candidate}") from error
-        # Every other command here runs inside `_run`, which knows what
-        # stood before it and takes away only what it left. `init` runs
-        # before there is a repository to snapshot, and the lock it has
-        # to get past belongs to a run that is already gone. What says
-        # so is the refusal above: a lock guards one command of a
-        # repository's against another, and Git will not call this path
-        # a repository, so no command of one is running here. `init`
-        # writes the config and then HEAD, each under its own lock, and
-        # a kill between the two leaves one standing that stops every
-        # `init` after it -- over a `.git` no `Repository` can be built
-        # on to report it.
+        # Other commands use `_run`. It records existing locks and removes only locks that its command left. `init`
+        # runs before a repository exists. Each lock that it removes was left by a stopped run. `find_root` rejects
+        # this path as a repository. Locks protect commands in one repository, so no command in this repository runs
+        # here. `init` writes config and then HEAD with separate locks. A stop between the writes leaves a lock that
+        # stops later `init` calls. No `Repository` can be created for that `.git` directory to report the lock.
         directory = candidate / ".git"
         Locks((directory,), (directory / "config", directory / "HEAD")).clear()
         result = subprocess.run(
@@ -222,17 +186,11 @@ class Repository:
             raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Cannot initialize Git: {candidate}")
         return cls(candidate, executable)
 
-    # The files every command run here writes, so the only locks that
-    # ever stop one: the index, and the two refs a commit moves. An
-    # unborn branch counts, since HEAD names the branch a first commit
-    # would land on before that commit exists. Where HEAD points is
-    # read off the file Git keeps it in rather than asked of Git, since
-    # this is asked either side of every command run here and asking
-    # would run one of its own. A commit writes more files than these
-    # three -- it locks `AUTO_MERGE` and `packed-refs` as well -- and
-    # neither belongs here: with either standing stale a commit prints
-    # its error and still ends at nought, so neither is a lock that
-    # stops one.
+    # These locks can stop commands here: the index lock and the two ref locks that a commit moves. An unborn
+    # branch counts because HEAD names the first commit target before that commit exists. Read the HEAD target from
+    # its file, not from Git. This code does this before and after each command, and a Git query runs another command.
+    # A commit also locks `AUTO_MERGE` and `packed-refs`, but exclude them. A stale lock for either prints an error
+    # while the commit exits 0. Thus, neither lock stops a command.
     @property
     def locks(self) -> Locks:
         written = [self._git_directory / "index", self._git_directory / "HEAD"]
@@ -248,8 +206,7 @@ class Repository:
         return bool(self._run("ls-files", "--unmerged", "-z").stdout)
 
     def is_on_branch(self) -> bool:
-        # An unborn branch counts: HEAD names it before any commit
-        # exists, and that is where a first commit would land.
+        # Include an unborn branch. HEAD names the first commit target before that commit exists.
         return not self._ask("symbolic-ref", "--quiet", "HEAD").returncode
 
     def read_head(self) -> str:
@@ -276,13 +233,9 @@ class Repository:
             position += 1
         return tuple(entries)
 
-    # `--ignore-missing` is what leaves Git's own ending as the answer:
-    # a revision naming nothing -- an unborn HEAD -- reaches no commit
-    # and Git still ends at nought, so nought is Git having looked and
-    # the empty answer is what it found. Without it that case is a
-    # fatal, and telling that fatal from every other one means asking a
-    # second question first, whose `no` a killed Git gives just as
-    # readily as a Git that looked.
+    # `--ignore-missing` keeps the Git exit status as the answer. An unborn HEAD has no commit, but Git exits 0.
+    # Thus, empty output means Git searched and found no match. Without this option, this case is fatal. To separate
+    # it from another fatal error, this code needs another query. A stopped Git can give no answer to that query.
     def find_commit(self, text: str, revision: str = "HEAD") -> str | None:
         arguments = (
             "log",
@@ -311,20 +264,14 @@ class Repository:
             command.extend(["--", *paths])
         return self._run(*command).stdout
 
-    # Every path the index holds under these pathspecs, or, where
-    # `linked` asks for them, only the ones it holds as symbolic links.
-    # A link is a mode the index records rather than a shape the
-    # worktree has to have: where the platform makes none -- a Windows
-    # without the privilege for one -- a checkout writes such an entry
-    # out as a plain file holding the target's text, and `git add` over
-    # that file records the link straight back, so the mode outlives
-    # every worktree that cannot show it. The index answers rather than
-    # a commit, because the index is what the next commit is written
-    # from.
+    # Return index paths for these pathspecs. If `linked` is true, return only paths with an index mode for a
+    # symbolic link. A symbolic link is an index mode, not a worktree shape. On a system that cannot create links,
+    # such as Windows without the required privilege, checkout writes a plain file with target text. `git add`
+    # restores the symbolic-link mode. The mode remains in worktrees that cannot show a link. Query the index, not
+    # a commit, because the next commit uses the index.
     def read_staged_paths(self, paths: Sequence[str] = (), *, linked: bool = False) -> tuple[str, ...]:
-        # `<mode> SP <object> SP <stage> TAB <path>`, and only `-z`
-        # leaves the path as the bytes it is rather than as a quoted
-        # rendering of them.
+        # The format is `<mode> SP <object> SP <stage> TAB <path>`. Only `-z` keeps path bytes, not a quoted
+        # representation.
         output = self._run("ls-files", "--stage", "-z", "--", *paths).stdout
         records = (os.fsdecode(record).split(" ", 2) for record in output.split(b"\0") if record)
         entries = ((mode, rest.partition("\t")[2]) for mode, _, rest in records)
@@ -350,9 +297,8 @@ class Repository:
                 repository.stage((".",))
                 yield repository
                 return
-            # A killed process cannot clean up after itself, so drop
-            # the entries it left behind. Git only reclaims an entry
-            # once its directory is gone from disk.
+            # A stopped process cannot remove its worktree entries. Remove them now. Git reclaims an entry only after
+            # its directory is removed from disk.
             self._run("worktree", "prune", check=False)
             self._run("worktree", "add", "--detach", str(location), revision)
             try:
@@ -374,13 +320,10 @@ class Repository:
     ) -> None:
         arguments = ["apply"]
         if zero_context:
-            # Lift the two pins Git puts on a hunk with too little
-            # context to be placed by: one holds a hunk without
-            # trailing context against the end of its file, the other
-            # holds a hunk whose header names line 1 against the start.
-            # What places a hunk without them is the lines it quotes,
-            # which still have to be in the file, at the occurrence
-            # nearest the line its own header names.
+            # `--unidiff-zero` removes two Git location limits for a hunk with too little context. One limit requires
+            # a hunk with no trailing context to be at the end of its file. The other requires a hunk with line 1 in
+            # its header to be at the start of its file. Git then locates the hunk from its quoted lines. These lines
+            # must still occur nearest the line in the hunk header.
             arguments.append("--unidiff-zero")
         if index:
             arguments.append("--index")
@@ -408,9 +351,8 @@ class Repository:
 
     def commit(self, message: str, trailers: Sequence[str] = (), *, paths: Sequence[str] = ()) -> str:
         body = f"{message}\n\n{'\n'.join(trailers)}\n" if trailers else f"{message}\n"
-        # Named paths are read from the worktree and written to the
-        # index alone, so a commit of them carries nothing else and
-        # disturbs nothing else that is staged or modified.
+        # Git reads named paths from the worktree and writes only the index. A commit for these paths includes no
+        # other staged or modified data, and it changes none.
         arguments = ["commit", "--file=-"]
         if paths:
             arguments.extend(["--", *paths])
@@ -420,19 +362,14 @@ class Repository:
     def _run(
         self, *arguments: str, stdin: bytes | None = None, check: bool = True
     ) -> subprocess.CompletedProcess[bytes]:
-        # A read of Git's takes the index lock to write the index it
-        # refreshed on the way, and a read killed inside that leaves the
-        # lock standing over a repository nothing was changing. This
-        # drops the write and nothing else: a command that has to have
-        # the lock, like a commit, still takes it.
+        # A Git read can lock the index while it refreshes the index. If the read stops, the lock remains although the
+        # repository did not change. `--no-optional-locks` prevents only this write. A command that needs the index
+        # lock, such as a commit, still takes it.
         command = [
             str(self.executable),
             "--no-optional-locks",
-            # A commit hands the repository to a `git maintenance` of
-            # Git's own that outlives it, holds the object store behind
-            # it and repacks everything the caller has. That is work
-            # nothing here asked for, and a lock the command that ended
-            # cannot answer for.
+            # A commit can start Git `maintenance` after it exits. It locks the object store and repacks caller data.
+            # This work was not requested. It lasts after the command ends, so the command cannot report its lock.
             "-c",
             "maintenance.auto=false",
             "-C",
@@ -441,9 +378,8 @@ class Repository:
         ]
         locks = self.locks
         standing = locks.standing
-        # Started rather than run whole, so the pid is in hand: the one
-        # file below that says which process wrote it says so in its
-        # name, and the process it names is this one's own child.
+        # Start the process, not only run it, to get its process ID. The temporary index file below includes its
+        # creator process ID. The creator is this process's child.
         with subprocess.Popen(
             command,
             stdin=subprocess.PIPE if stdin is not None else None,
@@ -452,34 +388,18 @@ class Repository:
         ) as process:
             output, errors = process.communicate(stdin)
         result = subprocess.CompletedProcess(command, process.returncode, output, errors)
-        # Git takes its own locks away as a command of its ends, by an
-        # exit handler for the ending it chose and by the one handler
-        # `HANDLED_SIGNALS` names, which runs before the default action
-        # the kernel then reports the death as. So a status below
-        # nought is not on its own a command that left something: only
-        # one naming a signal Git never handled is. Such a process is
-        # reaped by the time this reads, which is what makes a lock it
-        # left a lock nothing is holding. What that death answers for
-        # is the files this command's own Git could have been holding,
-        # and only the ones it did not find already locked. The index a
-        # commit of named paths composes is its own Git's outright: the
-        # lock over it carries the number of the Git that made it, and
-        # that Git is the child this started. The project's index goes
-        # with it only under a command that had the lock over it. HEAD
-        # and the branch go with nothing at all: the one command here
-        # that moves them takes their locks in the reference
-        # transaction it ends with and holds them at no point ahead of
-        # it, so they stand free through every hook a commit runs, and
-        # an ending says nothing about which side of that line the
-        # death landed on. Under anything else those files are free for
-        # the whole span, so a lock over one is a second command's,
-        # whose own process is still there to rename it over what it
-        # guards, and naming it is all this may do -- what a lock left
-        # standing costs the run that meets it is a refusal, and what
-        # taking it away costs the commit holding it is that commit. On
-        # Windows no signal reaches the exit code, so a lock a killed
-        # Git left stands until Git's own refusal names it, which is
-        # the side to be wrong on for the same reason.
+        # Git removes locks when it exits normally. It also removes locks before the default signal action in
+        # `HANDLED_SIGNALS` ends the process. A negative exit code can indicate a remaining lock only for a signal
+        # that Git does not handle. `communicate` has reaped the process, so a lock that it left is not active. Remove
+        # only files that this Git command could own and that were not locked before it started. A named-path commit
+        # has a temporary index whose name includes the child Git process ID. That lock belongs to this Git. Include
+        # the project index only if `_held_the_index` says that the command held it. Do not remove HEAD or branch
+        # locks. Only a commit updates them in its final reference transaction. It holds neither lock before then, so
+        # both are free while commit hooks run. A stopped process does not show if it stopped before or after this
+        # transaction. All other commands leave these files free, so their locks belong to another command that can
+        # still rename its lock over the file. Leave that lock. A later command fails, but removal can damage that
+        # commit. On Windows, exit codes do not report signals. Leave locks from stopped Git processes until Git
+        # reports a lock error. The same safety rule applies.
         if result.returncode < 0 and -result.returncode not in self.HANDLED_SIGNALS:
             index, *_ = locks.written
             written = [self._git_directory / f"{self.TEMPORARY_INDEX}{process.pid}"]
@@ -490,35 +410,21 @@ class Repository:
             self._raise(result)
         return result
 
-    # Whether this command's own Git held the lock over the project's
-    # index from before its first write of it to its last. Read off the
-    # line rather than off the caller that built it, since the line is
-    # what Git answered to. An `apply` held it where it was asked for
-    # the index. A commit held it where it names the paths it is of,
-    # which it composes an index of its own from and copies over the
-    # project's at the very end; a commit of everything already staged
-    # writes the index it refreshed under that lock and renames it over
-    # the file inside `prepare_index`, ahead of the first hook, so every
-    # hook and every reference transaction after it stands where the
-    # index is free and a second command has that whole span to take it
-    # in. What none of this covers is the span between the process
-    # starting and Git reaching for the lock at all: Git runs the
-    # loader and reads its configuration first, and on a small
-    # repository that is most of the command -- 80% of an `add`, 88% of
-    # a `reset`, 89% of a `checkout` and 69% of a commit of named
-    # paths, measured under Git 2.54 on Linux. A death in there leaves
-    # the same status and the same silence a death after it leaves, so
-    # a lock a second command took inside that span reads here as this
-    # Git's own and is taken away from a process still going to rename
-    # it over the index. Nothing tells the two apart: the index lock
-    # names no maker, unlike `next-index-<pid>`, and its size, its
-    # content and the ending read the same either side of the line. The
-    # only answer that stops guessing is to release the index lock
-    # never, which gives up every recovery from an acceptance killed
-    # mid-staging -- the whole of what the release is for -- to close a
-    # crossing that needs a second Git to take the lock inside that one
-    # span. That trade is not made here, and it is written down so that
-    # whoever makes it is holding both ends of it.
+    # Return whether this Git command held the project index lock. It can hold it before its first index write,
+    # through its last. Use command arguments, not the caller, because Git gets these arguments. `apply` holds the
+    # lock when it uses the index. A named-path commit builds a temporary index. It copies it over the project index
+    # at the end. A commit for staged content updates the project index in `prepare_index` before its first hook.
+    # Later hooks and reference transactions run when the project index is unlocked. This does not cover time from
+    # process start until Git requests the index lock. Git first loads and reads configuration. In a small repository,
+    # this interval is most of each command. It is 80% of `add`, 88% of `reset`, and 89% of `checkout`. It is 69% of
+    # a named-path commit. These values were measured with Git 2.54 on Linux. A stop in this time has the same exit
+    # code and output as a stop after Git gets the lock. Another command can then take the lock. This code can read
+    # the lock as this Git lock. It can remove it before another command renames it over the index. Unlike
+    # `next-index-<pid>`, the index lock has no creator process ID. Its size, content, and exit state are the same on
+    # either side. The only way to remove this uncertainty is to never remove index locks. That prevents recovery
+    # after a process stops during staging. This cleanup provides that recovery, but creates a race if another Git
+    # process takes the lock in this interval. This code accepts that trade-off. Keep this comment so changes
+    # consider both effects.
     def _held_the_index(self, arguments: Sequence[str]) -> bool:
         if arguments[0] in self.INDEX_HOLDERS:
             return True
@@ -526,26 +432,19 @@ class Repository:
             return "--index" in arguments
         return arguments[0] == "commit" and "--" in arguments
 
-    # An ending Git chose is an answer; an ending chosen for it is not.
-    # A signal lands where neither Git's exit handler nor its signal
-    # handlers reach -- an out-of-memory kill, a `pkill git`, a hook of
-    # the project's whose Git is killed -- and leaves the same silence
-    # and the same non-zero status a `no` leaves. Read as `no`, that
-    # silence is a state nothing looked at: a repository holding no
-    # commit, a HEAD on no branch, a branch whose lock nothing guards.
+    # An exit that Git selects is an answer. An external stop is not an answer. A signal can bypass Git exit and
+    # signal handlers. Examples include an out-of-memory kill, `pkill git`, or a killed project hook. A signal can
+    # give no output and a nonzero exit code, like a negative answer. Treating it as no would assert unchecked state:
+    # a repository with no commit, a HEAD on no branch, or a branch with no lock.
     def _ask(self, *arguments: str) -> subprocess.CompletedProcess[bytes]:
         result = self._run(*arguments, check=False)
         if result.returncode not in self.ANSWERS:
             self._raise(result)
         return result
 
-    # The branch HEAD stands for. Git keeps HEAD in one file, whose
-    # whole content is the marker and the name of the ref it points
-    # at; a detached HEAD holds an object id there instead and stands
-    # for no branch. A HEAD nothing can read stands for none either,
-    # and what a repository in that state is, `is_on_branch` asks Git:
-    # a lock this cannot name is one `blocking` reports rather than one
-    # a release takes away.
+    # Return the ref that a symbolic HEAD names. The HEAD file contains the marker and ref name. A detached HEAD
+    # contains an object ID and names no branch. An unreadable HEAD also names no branch. `is_on_branch` asks Git
+    # for the state. `blocking` reports a lock that this method cannot identify. `release` does not remove that lock.
     def _read_branch(self) -> str | None:
         try:
             head = os.fsdecode((self._git_directory / "HEAD").read_bytes()).strip()
@@ -559,14 +458,9 @@ class Repository:
         raise Error(message or "Git command failed.")
 
 
-# Where the regress stops. A Git killed at this question leaves the
-# same silence and the same not-nought a path outside every worktree
-# leaves, and asking a second Git which of the two it was only moves
-# the silence one process along: the causes are aimed at no single
-# process, so the Git that would confirm dies as readily as the Git
-# that was asked. What tells them apart without asking anything is the
-# ending already in hand -- not Git's word but the kernel's report of
-# how Git ended -- weighed against the endings this question has.
+# This is the final check. If Git stops during this query, it gives no output and a nonzero exit code, like a
+# path outside every worktree. Another Git query only moves the uncertainty because the cause can stop either
+# process. Use the available kernel exit code and expected codes to separate the cases.
 def _check_root_answered(result: subprocess.CompletedProcess[bytes], path: Path) -> None:
     if result.returncode in ROOT_ANSWERS:
         return

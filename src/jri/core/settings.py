@@ -14,11 +14,8 @@ from . import paths
 from .workspace import Workspace
 
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-# JRI's own list rather than the provider library's, whose values come
-# and go with its version and lag the levels a provider already
-# serves. Which of them a model offers is the model's to answer, and
-# it answers by rejecting the request, so this documents the
-# vocabulary rather than promising any of it works.
+# Use JRI reasoning-effort values, not the provider-library list. The provider decides whether a model supports a value.
+# This type documents values. It does not promise support.
 type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
@@ -174,9 +171,7 @@ class Settings(BaseModel):
         unknown = str(path[-1])
         matches = difflib.get_close_matches(unknown, candidates, n=1)
         if not matches:
-            # An abbreviation is too short to score as similar to the
-            # name it stands for, however plainly it points at one, so
-            # it is worth a suggestion while it points at only one.
+            # A short abbreviation can fail similarity matching. Suggest it only when it matches one setting prefix.
             prefixed = [name for name in candidates if name.startswith(unknown)]
             matches = prefixed if len(prefixed) == 1 else []
         return ".".join([*map(str, path[:-1]), *matches]) if matches else None
@@ -223,8 +218,7 @@ def _render_settings(model: type[BaseModel], values: BaseModel | None, level: in
 
 
 def _reject_setting(path: tuple[str, ...], message: str) -> ValidationError:
-    # A validation across settings still fails one of them, so it is
-    # reported against that setting rather than against the whole file.
+    # A cross-setting validation error still belongs to one setting. Report it at that setting, not the whole file.
     return ValidationError.from_exception_data(
         Settings.__name__,
         [

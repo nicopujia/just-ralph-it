@@ -19,8 +19,7 @@ from .repository import Repository
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-# A pid is a 32-bit number on both platforms, so a record naming
-# anything larger names no process and is not a record JRI wrote.
+# A PID is a 32-bit number on both platforms. A larger value identifies no process and is not a JRI record.
 MAX_PID = 2**31 - 1
 
 logger = logging.getLogger(__name__)
@@ -93,61 +92,42 @@ class Workspace:
     def draft_file(self) -> Path:
         return self.root / paths.DRAFT_FILE
 
-    # A draft states what it is a delta onto, and every run that picks
-    # one up puts that claim to Git before believing it, so a draft
-    # nothing can take away is refused rather than obeyed. That is why
-    # this reports a removal it could not make instead of raising one:
-    # a run stopped over a file JRI itself wrote would have no way out
-    # but the user deleting it.
+    # A draft states its base. Each resumed run validates that claim with Git before it uses the draft.
+    # Refuse a draft that cannot be removed. Report a failed removal instead of raising it.
+    # Otherwise, a stopped run could force the user to delete a file that JRI created.
     def drop_draft(self) -> None:
         try:
             self.draft_file.unlink(missing_ok=True)
         except OSError:
             logger.exception("draft_removal_failed path=%r", self.draft_file)
 
-    # One chat writes the notes, the conversation and the run, so one
-    # chat at a time has the project. Neither file is ever deleted:
-    # they are the two a live window may be holding this instant.
+    # One chat writes the notes, conversation, and run. Only one chat can hold the project.
+    # Never delete these files because a live window can hold either one.
     def open_hold(self) -> "Hold":
         self.directory.mkdir(exist_ok=True, parents=True)
-        # Rooted and named one by one, so the rules answer for these
-        # two files and for nothing a specification tree happens to
-        # hold under the same names.
+        # Use rooted, explicit names.
+        # These rules apply only to these files, not same-named files in a specification tree.
         self._ignore(*(f"/{Path(path).name}" for path in (paths.LOCK_FILE, paths.CLAIM_FILE)))
         return Hold(self)
 
-    # What a run writes down while it works, and never what it commits.
+    # This directory holds run data while it works. It never holds committed data.
     def open_generation_dir(self) -> Path:
         self.generation_dir.mkdir(exist_ok=True, parents=True)
-        # Rooted at the workspace and closed by a slash, so the rule
-        # answers for this directory and for no `generation` a
-        # specification tree happens to hold.
+        # Root this rule at the workspace and end it with a slash.
+        # It matches this directory, not `generation` in a specification tree.
         self._ignore(f"/{self.generation_dir.name}/")
         return self.generation_dir
 
-    # A reset that nothing is standing in the way of, and the
-    # permission to go through with one. Both refusals are read before
-    # the caller is handed anything, so a command that warns about what
-    # `--force` deletes warns only where JRI would go through with it,
-    # rather than asking for an answer it then has nothing to do with.
-    #
-    # A reset empties what two live processes are writing, and neither
-    # answers for the other: the window that has the project writes the
-    # notes, the conversation and the logs, and a run in a process of
-    # its own writes the run directory, which outlives the window that
-    # started it. So the project is taken the way a chat takes it, and
-    # the run is asked about through the lock it holds for as long as it
-    # lives. The run is the worse of the two to lose: a runner whose
-    # lock went with the directory leaves the next Ralph reading no run
-    # in flight and starting a second one beside it, each on an inode
-    # the other cannot see.
-    #
-    # The project is held for as long as the caller keeps this, which
-    # is what makes asking late an answer about now rather than about
-    # then: a second window is refused the project meanwhile, and a run
-    # is only ever started by a window that has the project, so neither
-    # answer can turn from no to yes under a question. A run that ends
-    # while one is on screen only leaves less to lose than was said.
+    # Return a reset only after every refusal check passes. Check both conditions before return.
+    # A `--force` warning then appears only when JRI can perform the reset.
+
+    # A reset can remove data written by two live processes. The window writes notes, session, and logs.
+    # A separate runner writes the run directory. Take the project hold and check the runner lock.
+    # Removing that directory from a live runner would let the next run start beside it on a separate inode.
+
+    # Hold the project while the caller owns this reset.
+    # Another window cannot start, and a runner starts only under this hold.
+    # The checks cannot change from no to yes while held. A run that ends then only reduces data at risk.
     @contextmanager
     def open_reset(self) -> "Generator[Reset]":
         generation_lock = self.root / paths.GENERATION_LOCK_FILE
@@ -159,9 +139,8 @@ class Workspace:
                 "Close that window, then try again."
             )
         try:
-            # A lock file that is not there is a lock nothing holds, and
-            # taking one to ask with would put the run directory back a
-            # moment before this empties it.
+            # A missing lock file has no holder.
+            # Taking it to check would recreate the run directory before this reset removes it.
             if generation_lock.exists() and Lock(generation_lock).is_held():
                 raise PersistenceError(
                     "A Just Ralph It run is still going in this project, in a process of its own. A reset takes "
@@ -172,11 +151,10 @@ class Workspace:
         finally:
             hold.release()
 
-    # The rendered configuration comes in rather than being read from
-    # `Settings`, so locating a workspace never depends on loading one.
-    # Starting over takes a `Reset`, which only `open_reset` hands out
-    # and only under the hold: what empties a project is never a flag a
-    # caller can set without having asked the project about it first.
+    # Receive rendered configuration instead of loading `Settings`.
+    # Finding a workspace never depends on configuration loading.
+    # A reset requires a `Reset` from `open_reset` under the project hold.
+    # A caller cannot request deletion with a flag alone.
     def install(self, config: str, *, reset: "Reset | None" = None) -> "Installation":
         repository_created = git.find_root(self.root) is None
         Repository.init(self.root)
@@ -191,18 +169,15 @@ class Workspace:
 
         self._ignore(*(path.name for path in (self.session_file, self.logs_dir, self.visualization_file)))
 
-        # The ignore file a project brought along is not JRI's to
-        # rewrite, so only a repository JRI creates gets one, and what
-        # it holds is what keeps those patterns out of the first commit
-        # the user makes.
+        # A project-provided ignore file is not JRI-owned. Create one only with a new repository.
+        # Its patterns stay out of the user's first commit.
         if repository_created and not self.project_gitignore_file.exists():
             self.project_gitignore_file.write_text(
                 f"{'\n'.join(self.PROJECT_IGNORES)}\n", encoding="utf-8", newline="\n"
             )
         return Installation(self, created=created, repository_created=repository_created)
 
-    # Everything `--force` replaces, whether it is there or not, which
-    # is the workspace's own list rather than a caller's.
+    # These are all paths that `--force` replaces, whether they exist or not. The workspace owns this list.
     @property
     def _reset_paths(self) -> tuple[Path, ...]:
         return tuple(self.root / path for path in paths.RESET_PATHS)
@@ -214,12 +189,9 @@ class Workspace:
             else:
                 path.unlink(missing_ok=True)
 
-    # Read back and topped up on every call, since a rule checked for
-    # its existence alone is one nothing puts back once something has
-    # replaced it. The file is the one JRI commits, so Git holds what
-    # it says and reports a line going missing -- where a rule sitting
-    # in the directory it hides ignores itself, and takes its own
-    # absence with it.
+    # Read and add rules on every call. An existing file can lose a rule after replacement.
+    # JRI commits this file, so Git reports a missing rule.
+    # A rule inside the hidden directory would hide its own absence.
     def _ignore(self, *patterns: str) -> None:
         content = self.gitignore_file.read_text(encoding="utf-8") if self.gitignore_file.exists() else ""
         missing = [pattern for pattern in patterns if pattern not in content.splitlines()]
@@ -236,24 +208,19 @@ class Installation:
     repository_created: bool
 
 
-# A reset JRI would go through with, and what it replaces as that
-# stood when the refusals were read. Only `Workspace.open_reset` hands
-# one out, and only for as long as it holds the project, so a caller
-# holding one has both refusals behind it and the state they answered
-# about still standing.
+# This is a reset that JRI can perform and the paths it replaces at check time.
+# Only `Workspace.open_reset` creates it under the project hold. Its caller has passed both refusal checks.
 @dataclass(frozen=True)
 class Reset:
     paths: tuple[Path, ...]
 
 
 class Hold:
-    # The claim is held for the two system calls that take the lock and
-    # name the taker, so one still standing after this is one nothing
-    # here can wait out.
+    # Hold the claim across lock acquisition and holder recording.
+    # A claim held longer than this cannot be waited out here.
     CLAIMED_WITHIN = 1.0
-    # A window that stopped answering still holds the project, so what
-    # a takeover waits for is the operating system freeing the lock of
-    # a process that is gone.
+    # A nonresponsive window can still hold the project.
+    # A takeover waits for the operating system to release a dead process lock.
     FREED_WITHIN = 5.0
     POLL = 0.05
 
@@ -262,11 +229,9 @@ class Hold:
         self.claim = Lock(workspace.root / paths.CLAIM_FILE)
         self.holder: int | None = None
 
-    # Whether this process has the project now, and where it does not,
-    # the pid of the JRI that has it. The lock is what says the holder
-    # is running, since the operating system frees it when its holder
-    # dies; the record inside it is what says which process that is,
-    # and it was written under the claim this reads it under.
+    # This states whether this process holds the project. When it does not, it records the holding JRI PID.
+    # The lock proves that the holder is running because the operating system releases it at exit.
+    # The lock record identifies the process and is read under its claim.
     def take(self) -> bool:
         if not self._claim():
             raise PersistenceError(
@@ -290,32 +255,23 @@ class Hold:
         logger.info("hold_refused holder=%d", self.holder)
         return False
 
-    # The other window is killed rather than asked to close, since one
-    # that stopped answering would never hear the asking. What says it
-    # ended is the lock coming free -- the operating system's answer
-    # about the process -- and never the signal being sent.
+    # Kill the other window instead of asking it to close. A nonresponsive window cannot process the request.
+    # A free lock, not a sent signal, proves that the operating system ended the process.
     def evict(self) -> bool:
         signalled: int | None = None
         deadline = time.monotonic() + self.FREED_WITHIN
-        # What is signalled is the pid the refusal in the condition
-        # above just read under the claim, and never the one the `take`
-        # before the question read: the answer took however long the
-        # user took, a pid is handed on the moment its process ends, and
-        # the number a window that let the project go leaves behind
-        # belongs to whoever wears it next. So there is one process this
-        # can end, and it is the one holding the project this instant.
+        # Signal the PID read under the current claim, not a PID read before the user chose eviction.
+        # A PID can be reused when its process exits. Signal only the process holding the project now.
         while not self.take():
             holder = self.holder
             if signalled is None and holder is not None:
                 logger.info("hold_eviction_started holder=%d", holder)
                 try:
-                    # One process and never a group: what that window
-                    # started is in a session of its own, and the
-                    # terminal the user is sitting in is in this one.
+                    # Signal one process, not its group.
+                    # Its runner uses another session, and the user terminal uses this session.
                     os.kill(holder, signal.SIGTERM)
                 except OSError:
-                    # A window that ended between that read and this is
-                    # a window this has nothing left to end.
+                    # A window can exit between the lock read and this signal. It then requires no further termination.
                     logger.exception("hold_kill_failed holder=%d", holder)
                 signalled = holder
             if time.monotonic() >= deadline:

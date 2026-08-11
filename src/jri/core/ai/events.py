@@ -23,17 +23,12 @@ class ToolCallStarted:
     label: str
     symbol: str
     depth: int = 0
-    # How long the call had already been going when this event was
-    # made, which is nothing at all for one starting now. A run lives
-    # in a process of its own and a window may attach to it minutes
-    # in, replaying what the run wrote down: the row that window draws
-    # counts from when the call began and not from when the record
-    # reached the screen.
+    # Store the call age when this event occurs. A later window can replay events from another process.
+    # The row age starts when the call starts, not when the event reaches the window.
     age: float = 0.0
 
 
-# A call that finished says how it went, so no default lets a row be
-# closed without answering that.
+# A finished call must state its outcome. Do not use a default outcome for a closed row.
 @dataclass(frozen=True)
 class ToolCallFinished:
     call_id: str
@@ -43,9 +38,8 @@ class ToolCallFinished:
     depth: int = 0
 
 
-# The last event of every turn, and the one an agent, a tool or a
-# workflow cannot yield: they are typed `AgentEvent`, which does not
-# hold it, so only the conversation declares a turn over.
+# This is the final event of a turn. Agents, tools, and workflows cannot yield it because it is not an `AgentEvent`.
+# Only the conversation can declare that a turn is complete.
 @dataclass(frozen=True)
 class TurnFinished:
     ending: Ending

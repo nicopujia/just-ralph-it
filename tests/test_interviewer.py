@@ -83,9 +83,9 @@ def test_quotes_the_pinned_project_excerpt_a_note_tries_to_break_out_of(forged_f
     document = quoted.removesuffix(fence)
     assert set(fence) == {"`"}
     assert quoted.endswith(f"\n{fence}")
-    # A fence of a length of JRI's own choosing is one a note can hold
-    # too, so the block ends at a run longer than any the excerpt
-    # carries or the order below one closes reads as JRI speaking.
+    # A note can contain a fence of any fixed length.
+    # Use a fence longer than every fence in the excerpt.
+    # Then the closing fence cannot look like JRI text.
     assert len(fence) > max(len(run) for run in re.findall(r"`+", document))
     assert safe_load(document) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": note}}],
@@ -285,8 +285,8 @@ def test_reports_an_exploration_that_found_nothing_as_empty(tmp_path: Path) -> N
     invocation = explore.invoke('{"query": "cats"}')
     list(invocation)
 
-    # An empty output closed the row with the success symbol while
-    # handing the model nothing to read.
+    # Empty output closes the row as successful.
+    # It must still give the model a clear empty result.
     assert invocation.outcome == "empty"
     assert invocation.output == "Exploration produced no report."
 

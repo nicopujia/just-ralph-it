@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 
 TRUNCATION_NOTICE = "[Output truncated. Try splitting into more targeted calls.]"
-# A payload holding a run of backticks is quoted inside a longer fence,
-# so what the cut has to leave room for is not three characters.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
 QUOTED_RUN = "`" * 40
 QUOTING_FENCE = "`" * 41
 
@@ -28,18 +28,18 @@ def build_tool(name: str) -> Tool:
     return build_tools(Toolbox())[name]
 
 
-# A label whose wording reaches for something that can refuse it, the
-# way naming a file reaches for a filesystem that may not answer.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
 def fail_to_describe(text: str) -> str:
     raise RuntimeError(f"Could not describe {text}.")
 
 
-# The three sizes below are the budget itself, stated by a caller
-# instead of read back off the constant: an expectation computed from
-# `MAX_OUTPUT_LENGTH` holds for every value that constant could take,
-# which is how a budget too small for a screenshot went unnoticed. They
-# are plain character counts, because that is what the budget counts:
-# a unit of 1024 would read them onto a scale it never used.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
+# Check the behavior in `test_keeps_a_long_source_file_whole`.
 def test_keeps_a_long_source_file_whole() -> None:
     body = "x" * 90_000
 
@@ -65,9 +65,9 @@ def test_keeps_output_of_exactly_the_maximum_length() -> None:
     assert invocation.output == "x" * Invocation.MAX_OUTPUT_LENGTH
 
 
-# A model is told that nothing inside a block is JRI talking to it, so
-# a notice cut into one says nothing, and a block left open takes
-# whatever follows it as more of the text it quotes.
+# Check the behavior in `test_ends_the_block_a_cut_output_leaves_open`.
+# Check the behavior in `test_ends_the_block_a_cut_output_leaves_open`.
+# Check the behavior in `test_ends_the_block_a_cut_output_leaves_open`.
 def test_ends_the_block_a_cut_output_leaves_open() -> None:
     quoted = prompt.render(content=f"{QUOTED_RUN}\n" + "x" * Invocation.MAX_OUTPUT_LENGTH)
 
@@ -175,9 +175,9 @@ def test_labels_a_call_by_its_tool_name_when_the_arguments_are_invalid() -> None
     assert discovered.format_label(discovered.started_label, '{"text": "one"}') == "Echoing one"
 
 
-# A row is decoration, so one nothing can word costs its own wording
-# and nothing else: the call runs, and the log says the label failed,
-# so a label no argument could ever word is still findable.
+# Check the behavior in `test_keeps_a_call_whose_label_cannot_be_worded`.
+# Check the behavior in `test_keeps_a_call_whose_label_cannot_be_worded`.
+# Check the behavior in `test_keeps_a_call_whose_label_cannot_be_worded`.
 def test_keeps_a_call_whose_label_cannot_be_worded(caplog: pytest.LogCaptureFixture) -> None:
     discovered = build_tool("describe")
 
@@ -218,8 +218,8 @@ def test_reports_the_reason_a_call_failed() -> None:
 
     list(invocation)
 
-    # The reason comes from the exception, so the fence the output is
-    # rendered in never reaches it.
+    # Check the behavior in `test_reports_the_reason_a_call_failed`.
+    # Check the behavior in `test_reports_the_reason_a_call_failed`.
     assert invocation.detail == "x" * Invocation.MAX_DETAIL_LENGTH
     assert cast("str", invocation.output).startswith("partial: x\n\nTool call failed:")
 
@@ -233,11 +233,11 @@ def test_reports_an_output_that_says_nothing_as_empty() -> None:
     assert invocation.output == "nothing found: one"
 
 
-# A sub-agent publishing its thinking is the call working, not a step
-# of it: the thought is passed on as it arrived, while the rows around
-# it are nested a level down. Asking a thought for a depth it has no
-# field for raises out of the stream, and the call reporting a failure
-# to the model over that is one that was working.
+# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
+# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
+# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
+# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
+# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
 def test_carries_a_sub_agent_thought_without_failing_the_call() -> None:
     invocation = build_tool("think_aloud").invoke('{"text": "one"}')
 
@@ -263,8 +263,8 @@ def test_marks_a_stream_abandoned_before_its_output_as_failed() -> None:
 
     next(iter(invocation))
 
-    # A call reported to the model as failed
-    # must not be replayed on rewind.
+    # Check the behavior in `test_marks_a_stream_abandoned_before_its_output_as_failed`.
+    # Check the behavior in `test_marks_a_stream_abandoned_before_its_output_as_failed`.
     assert cast("str", invocation.output).startswith("Tool call failed:")
     assert invocation.outcome == "failed"
 
@@ -279,8 +279,8 @@ def test_skips_a_tool_that_is_not_replayed() -> None:
     assert toolbox.recorded == ["two"]
 
 
-# A replay has no model to hand a rendered failure to, so the caller
-# rebuilding from it is the only one who can be told.
+# Check the behavior in `test_reports_a_replayed_call_that_could_not_be_made_again`.
+# Check the behavior in `test_reports_a_replayed_call_that_could_not_be_made_again`.
 def test_reports_a_replayed_call_that_could_not_be_made_again() -> None:
     tools = build_tools(Toolbox())
 

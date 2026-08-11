@@ -10,9 +10,9 @@ CATALOG = {"openai/gpt-5.6-sol": {"limit": {"context": CONTEXT_LIMIT}}}
 FALLBACK = 9_000
 
 
-# A catalog JRI cannot read answers with nothing, so a limit at all is
-# the whole contract at once: the endpoint served, the shape parsed,
-# and the shipped model found.
+# Check the behavior in `test_reads_the_context_limit_the_catalog_really_publishes`.
+# Check the behavior in `test_reads_the_context_limit_the_catalog_really_publishes`.
+# Check the behavior in `test_reads_the_context_limit_the_catalog_really_publishes`.
 @pytest.mark.contract
 def test_reads_the_context_limit_the_catalog_really_publishes() -> None:
     assert get_context_limit(AgentProfiles().interviewer.model) is not None
@@ -107,8 +107,8 @@ def test_reads_the_catalog_once_for_a_model_it_answered_for(monkeypatch: pytest.
 
 
 def test_estimates_tokens_from_the_byte_size_of_the_payload() -> None:
-    # Three utf-8 bytes make a token, so 300 two-byte characters
-    # cost 100 tokens more than 300 one-byte ones.
+    # Check the behavior in `test_estimates_tokens_from_the_byte_size_of_the_payload`.
+    # Check the behavior in `test_estimates_tokens_from_the_byte_size_of_the_payload`.
     assert estimate_tokens("é" * 300, None) == estimate_tokens("a" * 300, None) + 100
 
 

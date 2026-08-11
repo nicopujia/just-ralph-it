@@ -20,9 +20,7 @@ class Interviewer(Agent):
     FALLBACK_CONTEXT_LIMIT = 100_000
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to build?"
-    # Interviewer needs to know that it's part of JRI because it
-    # directly interacts with the user, opposed to the rest of
-    # the agents.
+    # The interviewer must identify JRI because it interacts directly with the user. Other agents do not.
     PROMPT = (
         "Role: Interviewer of the Just Ralph It (JRI) system, a software system to build any software system.\n"
         "\n"
@@ -159,9 +157,7 @@ class Interviewer(Agent):
         if not report:
             yield ToolOutput("Exploration produced no report.", "empty")
             return
-        # A report is written by a model that read the web, and one long
-        # enough gets a sentence of JRI's after it, so it is quoted for
-        # the same reason the pages behind it are.
+        # A model creates this report from web content. Quote it because JRI text can follow a long report.
         yield ToolOutput(prompt.render(exploration_report=report))
 
     @tool(
@@ -214,8 +210,7 @@ class Interviewer(Agent):
         notes, connections = self.notebook.read(query or ReadQuery())
         if not notes:
             return "No notes found."
-        # An edge reads exactly as it does in the pinned excerpt, so
-        # the model meets one shape wherever it meets the notebook.
+        # Render each edge as in the pinned excerpt. The model must see one format throughout the notebook.
         return prompt.render(
             notes={note.id: note.text for note in notes},
             connections=[f"{item.source_id} {item.label} {item.target_id}" for item in connections] or None,

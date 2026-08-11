@@ -3,32 +3,29 @@ import webbrowser
 __all__ = ["open_page"]
 
 
-# Whether a browser was started on the page, and never whether the
-# browser drew it: what a controller answers for is the process it
-# spawned. The browser is the preferred one and no other, where
-# `webbrowser.open` walks the whole order until something answers yes:
-# a fall-through picks a browser nothing looked at, and looking is the
-# whole of what this adds.
+# Return true only if the preferred browser starts for this page.
+# Do not report that the browser displays the page. `webbrowser.open`
+# can start other browsers after a failure. This function uses only the
+# preferred browser, because it only starts that browser.
 def open_page(uri: str) -> bool:
     try:
         browser = webbrowser.get()
-    # No browser this platform knows how to start, which is the answer
-    # over SSH and on a machine with none installed.
+    # Return false if this platform has no browser that it can start. This
+    # can occur through SSH or on a system with no installed browser.
     except webbrowser.Error:
         return False
     return False if _takes_the_terminal(browser) else browser.open(uri)
 
 
-# A browser JRI must not start, because starting it is handing over the
-# terminal the command was run in: it inherits the standard streams and
-# is waited for, so the caller's next line lands after the user has
-# quit it. A console browser is also the one that can make least of the
-# page, which fetches mermaid and draws the graph in JavaScript.
+# Do not start a browser that uses the terminal. It gets the standard
+# streams and waits until it exits. The output from the next caller then
+# appears only after the user exits the browser. A console browser also
+# cannot completely display this page, which loads Mermaid and makes the
+# graph with JavaScript.
 #
-# `GenericBrowser` is the class that waits, and `BackgroundBrowser` the
-# subclass that does not. `UnixBrowser` says it of itself: `background`
-# false is how the console browsers it covers are spelled, and it is
-# what decides whether the spawn is given this process's streams.
+# `GenericBrowser` waits. `BackgroundBrowser` does not wait.
+# `UnixBrowser.background` is false for its console browsers. This value
+# controls whether the new process gets this process's standard streams.
 def _takes_the_terminal(browser: webbrowser.BaseBrowser) -> bool:
     if isinstance(browser, webbrowser.BackgroundBrowser):
         return False

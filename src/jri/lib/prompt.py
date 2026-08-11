@@ -4,23 +4,21 @@ from yaml import safe_dump
 
 __all__ = ["quote", "render", "truncate"]
 
-# A block ends at a fence of its own length, and that fence is longer
-# than any backtick run the text holds, so nothing the text says can
-# close the block quoting it, nor the blocks enclosing that one.
+# A block ends with a fence of the same length. This fence is longer than
+# each backtick run in the text. The text cannot close this block or a
+# block that contains it.
 FENCE = "`"
-# The characters CommonMark opens a fence with, the most spaces it
-# lets one be indented by, and the breaks it ends a line on: a fence
-# read by any other rule closes a block the text had left open, or
-# leaves open one the text had closed.
+# CommonMark uses these fence characters, this maximum indentation, and
+# these line breaks. Other rules can close a block that the text keeps
+# open or keep open a block that the text closes.
 FENCE_CHARACTERS = frozenset({FENCE, "~"})
 MARKDOWN_LINE_BREAK = re.compile(r"\r\n|[\r\n]")
 MAX_FENCE_INDENTATION = 3
 MIN_FENCE_LENGTH = 3
 STRUCTURE_INDENTATION = "  "
-# The breaks the serializer writes raw, escaping every other one, and
-# after which it writes its own indentation: the block's indentation
-# goes there too, or a line a value's own break opens sits at the depth
-# an entry does and reads as one.
+# The serializer writes these line breaks without an escape and then adds
+# its indentation. Add the block indentation too. Otherwise, a value line
+# can have the indentation of an entry and parse as an entry.
 YAML_LINE_BREAK = re.compile(r"[\n\x85\u2028\u2029]")
 
 
@@ -39,9 +37,8 @@ def render(**blocks: str | list[str] | dict[str, str] | None) -> str:
         if isinstance(value, str):
             rendered.append(f"{title}:\n{quote(value)}")
         else:
-            # A set quotes itself through the serializer the notebook
-            # already writes with, so no item can forge a sibling and
-            # no fence has to stand between them.
+            # Convert structured data to YAML. An item cannot create a
+            # sibling item, so no Markdown fence is required.
             dumped = safe_dump(value, sort_keys=False, allow_unicode=True, width=10**9)
             indented = YAML_LINE_BREAK.sub(f"\\g<0>{STRUCTURE_INDENTATION}", dumped.removesuffix("\n"))
             rendered.append(f"{title}:\n{STRUCTURE_INDENTATION}{indented}")
@@ -53,9 +50,8 @@ def truncate(text: str, length: int) -> str:
         return text
     cut = length
     closing = _close_block(text[:cut])
-    # The fence a cut has to end with is part of the budget rather
-    # than an addition to it, and a shorter cut can end in a block of
-    # another fence, so the room it takes is measured at every cut.
+    # Include the closing fence in the length limit. A shorter cut can end
+    # in a block with a different fence, so check its length at each cut.
     while cut and cut + len(closing) > length:
         cut = max(0, length - len(closing))
         closing = _close_block(text[:cut])
@@ -75,26 +71,22 @@ def _close_block(text: str) -> str:
         indentation = len(line) - len(margin)
         rest = margin[run:]
         if not fence:
-            # An indented fence met with no block open either opens one
-            # of the document's or closes one a list item or a quote
-            # opened at the indentation it holds its content at, and
-            # the line alone does not say which. Nothing past a line
-            # that reads both ways can be closed: a fence ending a cut
-            # where the text had closed its block opens a block, which
-            # is the very thing ending a cut is meant to spare the
-            # sentence that follows.
+            # With no open block, an indented fence can open a document
+            # block or close a list or quote block. The line alone does
+            # not identify its use. Do not close text after a line with
+            # more than one meaning. A closing fence at a cut can otherwise
+            # open a block and change the text that follows.
             if indentation:
                 return ""
-            # A backtick fence carries no backtick in the info string it
-            # opens with -- and the half a run a cut leaves behind opens
-            # a block, nothing telling a reader it is half of anything.
+            # A backtick fence cannot have a backtick in its info string.
+            # A partial run at a cut can open a block and does not show
+            # that it is part of a longer run.
             if character == FENCE and FENCE in rest:
                 continue
             fence = character * run
-        # A block ends at a run of its own character, its own length or
-        # longer, indented no further than a fence may be and followed
-        # by nothing but spaces and tabs, so one block is open at a time
-        # whatever the runs inside it look like.
+        # A block ends with its fence character, at least its fence
+        # length, valid fence indentation, and only spaces or tabs after
+        # it. This keeps only one block open at a time.
         elif (
             indentation <= MAX_FENCE_INDENTATION
             and character == fence[0]

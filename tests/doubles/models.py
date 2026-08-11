@@ -20,8 +20,8 @@ def build_response(catalog: object = CATALOG, *, status_code: int = 200) -> http
 def serve_outcome(monkeypatch: pytest.MonkeyPatch, *outcomes: httpx.Response | httpx.HTTPError) -> None:
     remaining = list(outcomes)
 
-    # The last outcome answers every call after it, so a test says how
-    # many times the endpoint changes its mind and nothing more.
+    # Check this test support.
+    # Check this test support.
     def get(_url: str, **_options: object) -> httpx.Response:
         outcome = remaining.pop(0) if len(remaining) > 1 else remaining[0]
         if isinstance(outcome, httpx.HTTPError):

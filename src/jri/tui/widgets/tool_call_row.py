@@ -9,7 +9,7 @@ from jri.tui import copy, styles
 
 class ToolCallRow(Static):
     SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-    # Below this, the elapsed time is noise rather than reassurance.
+    # Do not show elapsed time below this value. It is noise, not useful information.
     MIN_ELAPSED_SECONDS = 3
 
     def __init__(
@@ -44,10 +44,8 @@ class ToolCallRow(Static):
         if self.spinner_timer is not None:
             self.spinner_timer.stop()
 
-    # A run lives in a process of its own, so the window drawing this
-    # row may have attached to it long after the call began. What the
-    # record says about that is how far back the count starts, and a
-    # call that began here is aged by nothing.
+    # A run has its own process. This window can attach after the call starts.
+    # Use the saved age as the start offset. A call started in this window has no offset.
     def age_by(self, age: float) -> None:
         self.started_at -= age
 
@@ -85,9 +83,8 @@ class ToolCallRow(Static):
         self.update(content)
 
 
-# Every outcome is answered here and nowhere else, so no call site ever
-# picks a symbol, and one left unanswered is a return type this function
-# cannot satisfy.
+# Handle every outcome here. Call sites do not select a symbol.
+# An unhandled outcome does not satisfy the return type.
 def _describe_outcome(outcome: Outcome | None, symbol: str, label: str, detail: str) -> tuple[str, str]:
     match outcome:
         case None:

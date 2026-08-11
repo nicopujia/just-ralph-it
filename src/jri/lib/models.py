@@ -29,10 +29,8 @@ def get_context_limit(model: str, fallback: int | None = None) -> int | None:
     return fallback if limit is None else limit
 
 
-# The answer worth keeping is the catalog's own: a fallback belongs to
-# the caller that offered it. And `cache` keeps what a call returned,
-# never what it raised, so a catalog JRI could not read is read again
-# on the next call instead of answering for the rest of the process.
+# Cache only the catalog value. The caller owns the fallback. `cache` does not store exceptions. JRI retries a
+# failed catalog read on the next call.
 @cache
 def read_context_limit(model: str) -> int | None:
     catalog = _fetch_catalog()
