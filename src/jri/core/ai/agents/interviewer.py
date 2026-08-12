@@ -20,7 +20,7 @@ class Interviewer(Agent):
     CONTEXT_THRESHOLD = 0.4
     FALLBACK_CONTEXT_LIMIT = 100_000
     MIN_CONTEXT_TURNS = 10
-    FIRST_MESSAGE = "What do you want to build?"
+    FIRST_MESSAGE = "What do you want to make?"
     EXCERPT_SCOPE = (
         "The project excerpt below lists every topic, but holds the notes of the active topic and the overview "
         "alone; read the rest with `read_notes`."
