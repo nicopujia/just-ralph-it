@@ -48,6 +48,19 @@ def test_generates_a_settings_file_that_round_trips_through_the_model(tmp_path: 
     }
 
 
+def test_generates_a_settings_file_with_no_comments_that_round_trips(tmp_path: Path) -> None:
+    text = Settings.render(comments=False)
+    write_settings_text(tmp_path, text)
+
+    settings = Settings.load()
+
+    assert settings.model_dump() == Settings().model_dump()
+    assert "#" not in text
+    # An unset setting has no value to keep, and no comment to name it.
+    assert "brave_search" not in text
+    assert "temperature" not in text
+
+
 def test_documents_every_setting_it_generates() -> None:
     lines = Settings.render().splitlines()
 

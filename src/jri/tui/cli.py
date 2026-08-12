@@ -37,6 +37,7 @@ def main() -> None:
     init_parser = subparsers.add_parser("init", help=copy.CLI_INIT_HELP, description=copy.CLI_INIT_HELP)
     init_parser.add_argument("--force", action="store_true", help=copy.CLI_FORCE_HELP)
     init_parser.add_argument("--yes", action="store_true", help=copy.CLI_YES_HELP)
+    init_parser.add_argument("--no-comments", action="store_true", help=copy.CLI_NO_COMMENTS_HELP)
     for name, description in (("chat", copy.CLI_CHAT_HELP), ("view", copy.CLI_VIEW_HELP)):
         subparsers.add_parser(name, help=description, description=description)
     # `jri chat` starts this command in a separate process. It has no `help` text, so users do not see it as a command.
@@ -49,7 +50,7 @@ def main() -> None:
         return
 
     handlers = {
-        "init": lambda: _initialize(force=arguments.force, yes=arguments.yes),
+        "init": lambda: _initialize(force=arguments.force, yes=arguments.yes, comments=not arguments.no_comments),
         "chat": _chat,
         "view": _view,
         "generate": _generate,
@@ -72,9 +73,9 @@ def main() -> None:
         raise SystemExit(INTERRUPTED_STATUS) from interrupt
 
 
-def _initialize(*, force: bool, yes: bool) -> None:
+def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
     workspace = Workspace.find()
-    settings = Settings.render()
+    settings = Settings.render(comments=comments)
     if force:
         # Ask the question inside the reset. First report an active window or run that prevents deletion.
         # Keep the project held while the user reads. The answer then applies to the project state at deletion.

@@ -165,9 +165,12 @@ class Settings(BaseModel):
         return cls.model_validate({} if settings is None else settings)
 
     @classmethod
-    def render(cls) -> str:
+    def render(cls, *, comments: bool = True) -> str:
+        body = _render_settings(cls, None, 0, comments=comments)
+        if not comments:
+            return "\n".join([*body, ""])
         intro = [f"# {line}" for line in textwrap.wrap(INTRO, COMMENT_WIDTH)]
-        return "\n".join([*intro, "", *_render_settings(cls, None, 0), ""])
+        return "\n".join([*intro, "", *body, ""])
 
     @classmethod
     def suggest_setting(cls, path: tuple[int | str, ...]) -> str | None:
@@ -207,28 +210,37 @@ class Settings(BaseModel):
         return self
 
 
-def _render_settings(model: type[BaseModel], values: BaseModel | None, level: int) -> list[str]:
+def _render_settings(model: type[BaseModel], values: BaseModel | None, level: int, *, comments: bool) -> list[str]:
     indent = "  " * level
     entries: list[list[str]] = []
     for name, field in model.model_fields.items():
         comment: list[str] = []
-        for paragraph in (field.description or "").split("\n\n"):
+        for paragraph in (field.description or "").split("\n\n") if comments else ():
             if comment:
                 comment.append(f"{indent}#")
             comment.extend(f"{indent}# {line}" for line in textwrap.wrap(paragraph, COMMENT_WIDTH - len(indent)))
         value = getattr(values, name) if values is not None else field.default
         annotation = field.annotation
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            body = _render_settings(annotation, value if isinstance(value, BaseModel) else None, level + 1)
-            unset = all(line.lstrip().startswith("#") for line in body if line)
+            body = _render_settings(
+                annotation, value if isinstance(value, BaseModel) else None, level + 1, comments=comments
+            )
+            unset = not body or all(line.lstrip().startswith("#") for line in body if line)
+            # A file with no comments holds only the settings that have a value. An unset section has none.
+            if unset and not comments:
+                continue
             entries.append([*comment, f"{indent}# {name}:" if unset else f"{indent}{name}:", *body])
             continue
         unset = value is None
+        if unset and not comments:
+            continue
         if unset:
             value = field.examples[0] if field.examples else None
         setting = yaml.safe_dump({name: value}, sort_keys=False, allow_unicode=True, width=10**9).strip()
         entries.append([*comment, f"{indent}# {setting}" if unset else f"{indent}{setting}"])
 
+    if not comments:
+        return [line for entry in entries for line in entry]
     lines = [line for entry in entries for line in ("", *entry)]
     return lines[1:]
 

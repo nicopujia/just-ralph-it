@@ -15,6 +15,7 @@ CLI_FORCE_HELP = (
     "the logs, the generated specifications, and what the last Just Ralph It run left behind."
 )
 CLI_INIT_HELP = "Set the project up with the default JRI settings."
+CLI_NO_COMMENTS_HELP = "Write the settings file with no comments and only the settings that have a value."
 CLI_VERSION_HELP = "Show the JRI version and exit."
 CLI_VIEW_HELP = "Visualize the notes graph."
 CLI_YES_HELP = "Answer yes to the confirmation --force asks for."
