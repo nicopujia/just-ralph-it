@@ -398,12 +398,10 @@ def build_client(
     return FakeClient(
         [streamed_reply("Repository report"), response(reply("Specifications ready."))],
         parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Specifications(
-                    outcome="specifications",
-                    files=[functional_analyst.File(path=path, content=content) for path, content in functional.items()],
-                    deleted_paths=list(functional_deleted),
-                )
+            functional_analyst.Specifications(
+                files=[functional_analyst.File(path=path, content=content) for path, content in functional.items()],
+                deleted_paths=list(functional_deleted),
+                unresolved=[],
             ),
             architect.Output(
                 result=architect.Architecture(

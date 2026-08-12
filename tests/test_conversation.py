@@ -545,11 +545,7 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     ambiguity = "Choose whether output is JSON or plain text."
     client = FakeClient(
         [streamed_reply("Understood."), streamed_reply("Should the output be JSON or plain text?")],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=[ambiguity])
-            )
-        ],
+        parsed=[functional_analyst.Specifications(files=[], deleted_paths=[], unresolved=[ambiguity])],
     )
     conversation = build_conversation(client)
     list(conversation.chat("Build a reporting CLI."))

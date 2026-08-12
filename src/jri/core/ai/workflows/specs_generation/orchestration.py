@@ -17,7 +17,7 @@ from . import architect, functional_analyst
 # This stream reports opened and closed rows and model reasoning. It excludes `TextDelta`.
 # Only the interviewer sends replies to the user.
 type Progress = ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished
-type SpecsResult = functional_analyst.Ambiguities | Unchanged | str
+type SpecsResult = Ambiguities | Unchanged | str
 
 MAX_CYCLES = 10
 
@@ -54,10 +54,12 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             functional_result = yield from analyst.write(functional_context, cancelled)
             if functional_result is None:
                 return None
-            if isinstance(functional_result, functional_analyst.Ambiguities):
-                logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
+            # A pass with questions and no file has nothing to save. Ask them, and leave the project as it stands.
+            # A pass with neither is a pass that did nothing. `Specs.write` refuses it below.
+            if functional_result.unresolved and not (functional_result.files or functional_result.deleted_paths):
+                logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.unresolved))
                 yield ai.ToolCallFinished(f"functional-{cycle}", "Found project details to clarify", "done")
-                return functional_result
+                return Ambiguities(list(functional_result.unresolved))
             yield ai.ToolCallFinished(f"functional-{cycle}", _describe_written(cycle), "done")
 
             specs.write(
@@ -70,6 +72,17 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             if not functional:
                 raise SpecsError("Functional specifications cannot be empty.")
             specs.save_draft(staging, baseline)
+
+            # The pass wrote what the notebook settles and left the rest to the user.
+            # Stop after the draft, so the run the answers start continues from this work.
+            # Ask before the study and the design, which cannot settle a question that only the user answers.
+            if functional_result.unresolved:
+                logger.info("specs_unresolved cycle=%d count=%d", cycle, len(functional_result.unresolved))
+                yield ai.ToolCallStarted("clarify", "Checking the project details to clarify", "❓")
+                yield ai.ToolCallFinished(
+                    "clarify", _describe_clarifications(len(functional_result.unresolved)), "done"
+                )
+                return Ambiguities(list(functional_result.unresolved))
 
             if explorer_report is None:
                 yield ai.ToolCallStarted("explorer", "Studying your existing project", "🔎")
@@ -145,6 +158,13 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             return commit
 
 
+# These are the behavioral decisions that only the user can take. The run stops, and the interviewer asks them.
+# A run can carry these and still leave its specifications in the draft, so this marks no lost work.
+@dataclass(frozen=True)
+class Ambiguities:
+    ambiguities: list[str]
+
+
 # This marks a generation that wrote specifications already in the project.
 # It made no commit because no commit was needed.
 @dataclass(frozen=True)
@@ -185,8 +205,15 @@ def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Rep
                 tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
             )
         ),
-        current_specs=specs.render(specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)),
+        # Give a first pass no specification tree at all. It writes the specifications that the project has none of.
+        current_specs=specs.render(existing) if (existing := specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)) else None,
     )
+
+
+def _describe_clarifications(details: int) -> str:
+    if details == 1:
+        return "Found 1 project detail to clarify"
+    return f"Found {details} project details to clarify"
 
 
 def _describe_picked_up(files: int) -> str:

@@ -197,7 +197,7 @@ class Generation:
                 return Conclusion(kind="conclusion", ending="committed", commit=result)
             case specs_generation.Unchanged():
                 return Conclusion(kind="conclusion", ending="unchanged")
-            case specs_generation.functional_analyst.Ambiguities():
+            case specs_generation.Ambiguities():
                 return Conclusion(kind="conclusion", ending="ambiguities", ambiguities=tuple(result.ambiguities))
 
     def start(self) -> None:
@@ -350,9 +350,7 @@ def _answer(conclusion: Conclusion) -> "specs_generation.SpecsResult | None":
         case "unchanged":
             return specs_generation.Unchanged()
         case "ambiguities":
-            return specs_generation.functional_analyst.Ambiguities(
-                outcome="ambiguities", ambiguities=list(conclusion.ambiguities)
-            )
+            return specs_generation.Ambiguities(list(conclusion.ambiguities))
         case "stopped":
             return None
         case "exhausted":

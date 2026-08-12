@@ -1,6 +1,5 @@
 from collections.abc import Generator
 from threading import Event
-from typing import Literal
 
 from openai.types.responses import ResponseInputParam
 from pydantic import BaseModel
@@ -9,8 +8,6 @@ from jri.core import paths
 from jri.core.ai import LLMRunner, ReasoningDelta, prompts
 from jri.core.settings import Settings
 from jri.lib import prompt
-
-type Result = Ambiguities | Specifications
 
 
 class File(BaseModel):
@@ -21,26 +18,24 @@ class File(BaseModel):
 class Input(BaseModel):
     notebook: str
     notebook_diff: str
-    current_specs: str
+    # A first pass writes the specifications that the project has none of. It receives no tree and no rules for one.
+    current_specs: str | None = None
     architect_feedback: list[str] | None = None
 
 
-class Ambiguities(BaseModel):
-    outcome: Literal["ambiguities"]
-    ambiguities: list[str]
-
-
+# This is one pass over the notebook. It carries the specifications it settles and the decisions it cannot take.
+# A pass that carries no file states why under `unresolved`. Those two facts are not alternatives:
+# a pass that must ask the user still keeps the files it could write.
 class Specifications(BaseModel):
-    outcome: Literal["specifications"]
     files: list[File]
     deleted_paths: list[str]
-
-
-class Output(BaseModel):
-    result: Ambiguities | Specifications
+    unresolved: list[str]
 
 
 class FunctionalAnalyst:
+    EXISTING_PROMPT = prompts.read("functional_analyst_existing")
+    FEEDBACK_PROMPT = prompts.read("functional_analyst_feedback")
+
     def __init__(self, settings: Settings) -> None:
         profile = settings.agents.functional_analyst
         self.runner = LLMRunner(
@@ -51,13 +46,24 @@ class FunctionalAnalyst:
             prompt=prompts.read("functional_analyst", functional_specs_root=paths.FUNCTIONAL_SPECS_ROOT),
         )
 
-    def write(self, context: Input, cancelled: Event) -> Generator[ReasoningDelta, None, Result | None]:
-        output = yield from self.runner.parse(self._build_input(context), Output, cancelled)
-        return None if output is None else output.result
+    # Send each set of rules only with the input it speaks about.
+    # A first pass has no specification tree, and a pass with no feedback has no round to answer.
+    def write(self, context: Input, cancelled: Event) -> Generator[ReasoningDelta, None, Specifications | None]:
+        instructions = [self.runner.prompt]
+        if context.current_specs is not None:
+            instructions.append(self.EXISTING_PROMPT)
+        if context.architect_feedback:
+            instructions.append(self.FEEDBACK_PROMPT)
+        return (
+            yield from self.runner.parse(
+                self._build_input(context, "\n\n".join(instructions)), Specifications, cancelled
+            )
+        )
 
-    def _build_input(self, context: Input) -> ResponseInputParam:
+    @staticmethod
+    def _build_input(context: Input, instructions: str) -> ResponseInputParam:
         return [
-            {"role": "system", "content": self.runner.prompt},
+            {"role": "system", "content": instructions},
             {
                 "role": "user",
                 "content": prompt.render(

@@ -35,10 +35,9 @@ from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
 
 type Progress = ReasoningDelta | Row
-type Result = functional_analyst.Ambiguities | specs_generation.Unchanged | str | None
+type Result = specs_generation.Ambiguities | specs_generation.Unchanged | str | None
 type Row = ToolCallStarted | ToolCallFinished
 
-AMBIGUITIES = functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
 # A null byte makes Git treat the file as binary, and `git apply` cannot diff a binary file. A resumed draft
 # carrying one must be refused before Git ever sees it.
@@ -117,14 +116,12 @@ def commit_specs() -> None:
 
 
 def written_specs(
-    files: Mapping[str, str] = FUNCTIONAL_FILES, deleted: Sequence[str] = ()
-) -> functional_analyst.Output:
-    return functional_analyst.Output(
-        result=functional_analyst.Specifications(
-            outcome="specifications",
-            files=[functional_analyst.File(path=path, content=content) for path, content in files.items()],
-            deleted_paths=list(deleted),
-        )
+    files: Mapping[str, str] = FUNCTIONAL_FILES, deleted: Sequence[str] = (), unresolved: Sequence[str] = ()
+) -> functional_analyst.Specifications:
+    return functional_analyst.Specifications(
+        files=[functional_analyst.File(path=path, content=content) for path, content in files.items()],
+        deleted_paths=list(deleted),
+        unresolved=list(unresolved),
     )
 
 
@@ -148,7 +145,7 @@ def reported_issues(*issues: str) -> architect.Output:
     return architect.Output(result=architect.Issues(outcome="functional_specification_issues", issues=list(issues)))
 
 
-def build_thinking_call(output: functional_analyst.Output | architect.Output, text: str) -> list[object]:
+def build_thinking_call(output: functional_analyst.Specifications | architect.Output, text: str) -> list[object]:
     return [thought(text), *response(reply(output.model_dump_json()))]
 
 
@@ -192,18 +189,77 @@ def test_returns_ambiguities_without_committing(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     head = run_git(tmp_path, "rev-parse", "HEAD")
-    ambiguities = functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
-    client = FakeClient([], parsed=[functional_analyst.Output(result=ambiguities)])
+    client = FakeClient([], parsed=[written_specs({}, unresolved=["JSON or plain text?"])])
 
     rows, result = generate(client)
 
-    assert result == ambiguities
+    assert result == specs_generation.Ambiguities(["JSON or plain text?"])
     assert read_rows(rows) == [
         ("ToolCallStarted", "functional-1", "Writing functional specifications from your project notes"),
         ("ToolCallFinished", "functional-1", "Found project details to clarify"),
     ]
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
+
+
+# A pass that settles part of the notebook keeps that part. Only the details it could not settle reach the user.
+@pytest.mark.parametrize(
+    ("unresolved", "label"),
+    [
+        (["JSON or plain text?"], "Found 1 project detail to clarify"),
+        (["JSON or plain text?", "Which currency?"], "Found 2 project details to clarify"),
+    ],
+    ids=["one", "several"],
+)
+def test_asks_for_the_details_a_pass_could_not_settle_from_the_notebook(
+    unresolved: list[str], label: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    head = run_git(tmp_path, "rev-parse", "HEAD")
+    client = FakeClient([], parsed=[written_specs(unresolved=unresolved)])
+
+    rows, result = generate(client)
+
+    assert result == specs_generation.Ambiguities(unresolved)
+    assert read_rows(rows) == [
+        ("ToolCallStarted", "functional-1", "Writing functional specifications from your project notes"),
+        ("ToolCallFinished", "functional-1", "Wrote functional specifications from your project notes"),
+        ("ToolCallStarted", "clarify", "Checking the project details to clarify"),
+        ("ToolCallFinished", "clarify", label),
+    ]
+    assert run_git(tmp_path, "rev-parse", "HEAD") == head
+    assert not (tmp_path / paths.SPECS_DIR).exists()
+
+
+# The draft is what makes the answers continue this work instead of starting it again.
+def test_keeps_the_specifications_a_pass_wrote_before_it_asked(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient([], parsed=[written_specs(unresolved=["JSON or plain text?"])])
+
+    generate(client)
+
+    assert "+# Behavior" in (tmp_path / paths.DRAFT_FILE).read_text()
+
+
+def test_resumes_the_specifications_a_pass_wrote_before_it_asked(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    generate(FakeClient([], parsed=[written_specs(unresolved=["JSON or plain text?"])]))
+    client = FakeClient(
+        [streamed_reply("Repository report")], parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture()]
+    )
+
+    rows, result = generate(client)
+
+    assert isinstance(result, str)
+    assert read_rows(rows)[:2] == [
+        ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
+        ("ToolCallFinished", "resume", "Picked up a draft of 1 specification file"),
+    ]
+    assert FUNCTIONAL_FILES["functional/behavior.md"] in read_prompts(client)[1]
 
 
 def test_writes_specifications_from_the_topics_the_user_kept(
@@ -476,9 +532,7 @@ def test_finishes_the_open_round_when_ambiguities_appear(tmp_path: Path, create_
         parsed=[
             written_specs(),
             reported_issues("Unclear export.", "Missing errors."),
-            functional_analyst.Output(
-                result=functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
-            ),
+            written_specs({}, unresolved=["JSON or plain text?"]),
         ],
     )
 
@@ -618,7 +672,10 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
 
 @pytest.mark.parametrize(
     "queue_tail",
-    [[functional_analyst.Output(result=AMBIGUITIES)], [written_specs(), designed_architecture(FUNCTIONAL_FILES)]],
+    [
+        [written_specs({}, unresolved=["JSON or plain text?"])],
+        [written_specs(), designed_architecture(FUNCTIONAL_FILES)],
+    ],
     ids=["ambiguities", "failure"],
 )
 def test_keeps_the_draft_a_run_that_reached_no_commit_wrote(
@@ -939,6 +996,17 @@ def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: C
     client = FakeClient([response(reply(""))], parsed=[written_specs()])
 
     with pytest.raises(SpecsError, match="produced no report"):
+        generate(client)
+
+
+# A pass carries the files it settled and the questions it could not. Carrying neither is a pass that did nothing.
+def test_refuses_an_analyst_that_writes_no_file_and_asks_nothing(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient([], parsed=[written_specs({})])
+
+    with pytest.raises(SpecsError, match="must change at least one file"):
         generate(client)
 
 

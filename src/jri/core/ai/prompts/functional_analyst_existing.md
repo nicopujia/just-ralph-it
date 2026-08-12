@@ -1,0 +1,2 @@
+<!-- JRI appends this to the analyst instructions only on a pass that receives a specification tree. -->
+The project already holds functional specifications. A file you leave out keeps the content it currently has, and a file you remove is named under `deleted_paths`. These specifications can predate the user's latest notes, so remove what the notebook no longer supports, rather than only editing what it changes.
