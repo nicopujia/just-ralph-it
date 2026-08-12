@@ -198,7 +198,7 @@ class Specs:
             except UnicodeDecodeError as error:
                 raise SpecsError(f"Specifications are UTF-8 text, and `{name}` is not.") from error
             # The model names the file and writes its body. Quote the name for the same reason as the body.
-            # An unquoted name with a line break can create a second `File:` entry inside JRI text.
+            # An unquoted name with a line break can create a second `file` block inside JRI text.
             rendered.append(prompt.render(file=name, content=body))
         return "\n\n".join(rendered) or "(empty)"
 

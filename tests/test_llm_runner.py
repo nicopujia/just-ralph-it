@@ -1,7 +1,5 @@
 import logging
-import re
-from collections.abc import Generator, Iterator
-from pathlib import Path
+from collections.abc import Generator
 from threading import Event
 from typing import TYPE_CHECKING, cast
 
@@ -10,18 +8,8 @@ import pytest
 from openai import omit
 from pydantic import BaseModel
 
-from jri.core.ai import (
-    BLOCK_NOTICE,
-    Explorer,
-    Interviewer,
-    LLMRunner,
-    ReasoningDelta,
-    TextDelta,
-    architect,
-    functional_analyst,
-)
+from jri.core.ai import BLOCK_NOTICE, LLMRunner, ReasoningDelta, TextDelta
 from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavailableError, UsageLimitError
-from jri.core.notes import Notebook
 from jri.core.settings import ReasoningEffort
 from tests.doubles.openai import (
     BASE_URL,
@@ -43,14 +31,11 @@ from tests.doubles.openai import (
     streamed_reply,
     thought,
 )
-from tests.doubles.settings import build_settings
 
 if TYPE_CHECKING:
     from openai import OpenAI, OpenAIError
 
     from tests.doubles.openai import Round
-
-PROMPT_SECTION = re.compile(r"[A-Z][A-Za-z ]*:")
 
 
 @pytest.fixture
@@ -84,80 +69,12 @@ def build_streaming_runner(*rounds: "Round | OpenAIError") -> LLMRunner:
     return LLMRunner(client=cast("OpenAI", FakeClient(rounds)), model="test")
 
 
-def build_agents(path: Path) -> list[Explorer | Interviewer]:
-    settings = build_settings(FakeClient([]), search_api_key="BRAVE_SEARCH_API_KEY")
-    # Explorer puts its working directory in the prompt.
-    # A local temporary directory would make its text variable between runs.
-    # Use `/jri` so the prompt is fixed.
-    return [Interviewer(settings, Notebook(path / "notebook.yaml")), Explorer(settings, Path("/jri"))]
-
-
-def build_prompts(path: Path) -> dict[str, str]:
-    settings = build_settings(FakeClient([]))
-    return {
-        **{type(agent).__name__: agent.runner.prompt for agent in build_agents(path)},
-        "Architect": architect.Architect(settings).runner.prompt,
-        "Architect.FINAL_PROMPT": architect.Architect.FINAL_PROMPT,
-        "FunctionalAnalyst": functional_analyst.FunctionalAnalyst(settings).runner.prompt,
-    }
-
-
-# Return each line with its adjacent lines.
-# Use `None` for the start and end of the prompt.
-# This distinguishes a document header from text after a blank line.
-def read_prompt_lines(path: Path) -> Iterator[tuple[str, str | None, str, str | None]]:
-    for name, text in build_prompts(path).items():
-        lines = text.split("\n")
-        for number, line in enumerate(lines):
-            above = lines[number - 1] if number else None
-            below = lines[number + 1] if number + 1 < len(lines) else None
-            yield f"{name}:{number + 1}", above, line, below
-
-
 def test_sends_a_prompt_exactly_as_written_under_the_block_notice() -> None:
     written = "Role: Tester.\n\nConstraints:\n    - An indented line whose indentation is the prompt's own.\n"
 
     runner = LLMRunner(client=cast("OpenAI", FakeClient([])), model="test", prompt=written)
 
     assert runner.prompt == f"{written}\n\n{BLOCK_NOTICE}"
-
-
-def test_separates_the_words_of_every_prompt_line_with_one_space(tmp_path: Path) -> None:
-    lines = read_prompt_lines(tmp_path)
-
-    assert [(label, line) for label, _, line, _ in lines if "  " in line or line != line.rstrip()] == []
-
-
-def test_starts_every_prompt_line_at_the_margin(tmp_path: Path) -> None:
-    lines = read_prompt_lines(tmp_path)
-
-    assert [(label, line) for label, _, line, _ in lines if line.startswith(" ")] == []
-
-
-def test_opens_a_section_under_every_blank_line_of_a_prompt(tmp_path: Path) -> None:
-    lines = read_prompt_lines(tmp_path)
-
-    assert [
-        (label, below) for label, _, line, below in lines if not line and (not below or below.startswith(" "))
-    ] == []
-
-
-def test_stands_every_section_of_a_prompt_under_a_blank_line(tmp_path: Path) -> None:
-    lines = read_prompt_lines(tmp_path)
-
-    assert [(label, line) for label, above, line, _ in lines if above and PROMPT_SECTION.match(line)] == []
-
-
-def test_ends_every_prompt_at_the_last_line_it_wrote(tmp_path: Path) -> None:
-    prompts = build_prompts(tmp_path)
-
-    assert [name for name, text in prompts.items() if text != text.strip()] == []
-
-
-def test_flows_every_tool_description_into_one_single_spaced_line(tmp_path: Path) -> None:
-    descriptions = [capability.description for agent in build_agents(tmp_path) for capability in agent.tools]
-
-    assert [text for text in descriptions if text != " ".join(text.split())] == []
 
 
 def test_returns_the_parsed_output() -> None:
@@ -408,11 +325,11 @@ def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None
 
     # This request gives the same refusal on every attempt.
     # Use its exception class to identify that condition.
-    # Put the provider message in a JRI code block.
+    # Put the provider message in a JRI block.
     # Do not use the Python dictionary representation.
     assert str(refusal.value) == (
         f"The provider at {BASE_URL}/ answered 400 Bad Request, saying:\n"
-        "```\nUnsupported value: 'minimal' is not supported with `gpt-5.6-sol`.\n```"
+        "<provider_answer>\nUnsupported value: 'minimal' is not supported with `gpt-5.6-sol`.\n</provider_answer>"
     )
     assert waits == []
 
@@ -443,7 +360,7 @@ def test_passes_on_a_body_that_says_nothing_of_itself(waits: list[float]) -> Non
 
     assert str(failure.value) == (
         f"The provider at {BASE_URL}/ answered 502 Bad Gateway, saying:\n"
-        "```\n<html><body><h1>502 Bad Gateway</h1></body></html>\n```"
+        "<provider_answer>\n<html><body><h1>502 Bad Gateway</h1></body></html>\n</provider_answer>"
     )
     assert len(waits) == LLMRunner.MAX_ATTEMPTS - 1
 

@@ -21,6 +21,10 @@ class Interviewer(Agent):
     FALLBACK_CONTEXT_LIMIT = 100_000
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to build?"
+    EXCERPT_SCOPE = (
+        "The project excerpt below lists every topic, but holds the notes of the active topic and the overview "
+        "alone; read the rest with `read_notes`."
+    )
 
     def __init__(self, settings: Settings, notebook: Notebook) -> None:
         self.settings = settings
@@ -42,8 +46,9 @@ class Interviewer(Agent):
     def get_context(self) -> ResponseInputParam:
         pinned: ResponseInputItemParam = {
             "role": "system",
-            "content": prompt.render(
-                current_topic=self.active_topic_id, project_excerpt=self.notebook.render(self.active_topic_id)
+            "content": (
+                f"{self.EXCERPT_SCOPE}\n\nCurrent topic: {self.active_topic_id}\n\n"
+                f"{prompt.render(project_excerpt=self.notebook.render(self.active_topic_id))}"
             ),
         }
         turns: list[ResponseInputParam] = []
@@ -62,12 +67,13 @@ class Interviewer(Agent):
 
     @tool(
         (
-            "Offer the user the Just Ralph It control, without starting Ralphing. The offer covers the notes as "
-            "this turn leaves them, and stands until they change."
+            "Offer the user the Just Ralph It control, without starting Ralphing. "
+            "Call it when you and the user agree the definition is complete, and explain that this displays a button "
+            "and that only the user can begin Ralphing by clicking it or pressing Ctrl+X, J."
         ),
-        started_label="Offering Just Ralph It",
-        finished_label="Offered Just Ralph It",
-        symbol="✨",
+        started_label="Offering you to just Ralph it",
+        finished_label="Offered you to just Ralph it",
+        symbol="🪏",
     )
     def offer_ralphing(self) -> str:
         self.offered_ralphing = True
@@ -93,7 +99,10 @@ class Interviewer(Agent):
         yield ToolOutput(prompt.render(exploration_report=report))
 
     @tool(
-        "Turn to a project topic by its name or ID, creating it when it does not exist.",
+        (
+            "Turn to a project topic by its name or ID, creating it when it does not exist."
+            "Capture unresolved unknowns as notes before switching away from a topic."
+        ),
         started_label="Switching to {topic}",
         finished_label="Switched to {topic}",
         symbol="📑",
@@ -149,7 +158,11 @@ class Interviewer(Agent):
         )
 
     @tool(
-        "Capture one or more independently meaningful notes under the active topic.",
+        (
+            "Capture one or more independently meaningful ideas under the active topic. "
+            "Switch to the relevant topic before capturing notes that belong to it. "
+            "Check whether an existing note already covers the idea, and edit that one instead."
+        ),
         started_label="Taking notes",
         finished_label="Took notes",
         symbol="📝",
@@ -178,7 +191,12 @@ class Interviewer(Agent):
         return f"Deleted notes: {', '.join(self.notebook.delete(note_ids))}."
 
     @tool(
-        "Create directed, labeled semantic connections between notes and/or topics.",
+        (
+            "Create directed, labeled semantic connections between notes and/or topics, "
+            "useful to express relationships and/or hierarchy between them. "
+            "Connect a note and a topic only when the label states something that placement does not, "
+            "as the note already sits under its topic."
+        ),
         started_label="Organizing notes",
         finished_label="Organized notes",
         symbol="🖇️",

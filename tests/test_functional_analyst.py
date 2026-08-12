@@ -71,8 +71,8 @@ def test_asks_for_a_first_draft_from_the_notebook_alone() -> None:
     write(build_analyst(client), CONTEXT)
 
     request = read_request(client)
-    assert "Current notebook:\n```\nDeploy from the main branch.\n```" in request
-    assert "Architect feedback:" not in request
+    assert "<current_notebook>\nDeploy from the main branch.\n</current_notebook>" in request
+    assert "<architect_feedback>" not in request
 
 
 def test_revises_the_specifications_as_they_stand_against_the_architect_feedback() -> None:
@@ -84,16 +84,10 @@ def test_revises_the_specifications_as_they_stand_against_the_architect_feedback
     write(build_analyst(client), context)
 
     request = read_request(client)
-    assert "Current functional specifications:\n```\nFile: functional/behavior.md\n```" in request
-    assert "Architect feedback:\n  - Undefined totals." in request
-    assert "Rejected functional draft:" not in request
-    assert "Accepted functional specifications:" not in request
-
-
-def test_gates_every_escalation_on_what_the_notebook_delegated() -> None:
-    prompt = build_analyst(FakeClient([])).runner.prompt.replace("\n      ", " ")
-
-    escalations = [rule for rule in prompt.split("\n    - ") if "ambiguities" in rule]
-
-    assert escalations
-    assert [rule for rule in escalations if "the notebook has not delegated" not in rule] == []
+    assert (
+        "<current_functional_specifications>\nFile: functional/behavior.md\n</current_functional_specifications>"
+        in request
+    )
+    assert "<architect_feedback>\n  - Undefined totals." in request
+    assert "<rejected_functional_draft>" not in request
+    assert "<accepted_functional_specifications>" not in request

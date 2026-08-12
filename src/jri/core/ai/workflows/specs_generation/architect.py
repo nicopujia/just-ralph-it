@@ -50,7 +50,9 @@ class Architect:
             model=profile.model,
             reasoning_effort=profile.reasoning_effort,
             temperature=profile.temperature,
-            prompt=prompts.read("architect", architecture_specs_root=paths.ARCHITECTURE_SPECS_ROOT),
+            prompt=prompts.read(
+                "architect", architecture_specs_root=paths.ARCHITECTURE_SPECS_ROOT, workspace_dir=paths.WORKSPACE_DIR
+            ),
         )
 
     def design(self, context: Input, cancelled: Event) -> Generator[ReasoningDelta, None, Result | None]:

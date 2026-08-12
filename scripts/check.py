@@ -77,6 +77,7 @@ def check_project(root: Path, *, contracts: bool) -> None:
     check_test_layout(package, tests)
     check_deferred_annotations(source, tests)
     check_docstrings(source, tests, scripts)
+    check_prompt_style(package / "core" / "ai" / "prompts")
     run_uv_commands(root, contracts=contracts)
 
 
@@ -215,6 +216,21 @@ def check_docstrings(*roots: Path) -> None:
         raise RuntimeError(
             "Docstrings are not written here; carry the what in a name, a type or a test, and the why in a `#` "
             "comment:\n" + "\n".join(written)
+        )
+
+
+# A model reads an indented line as a code block and a wide gap as a column. Both say something the prompt
+# does not mean. This is authoring style, so a check reports it where a formatter would, not a test.
+def check_prompt_style(prompts: Path) -> None:
+    stray = [
+        f"{path}:{number}: {line!r}"
+        for path in sorted(prompts.glob("*.md"))
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if line.startswith(" ") or "  " in line or line != line.rstrip()
+    ]
+    if stray:
+        raise RuntimeError(
+            "A prompt line starts at the margin and separates its words with one space:\n" + "\n".join(stray)
         )
 
 

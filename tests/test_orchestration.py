@@ -160,6 +160,15 @@ def read_prompts(client: FakeClient) -> list[str]:
     ]
 
 
+# The explorer is the only agent that runs a shell, so the call carrying that tool carries its instructions.
+def read_explorer_prompt(client: FakeClient) -> str:
+    for options in client.responses.options:
+        tools = cast("list[dict[str, str]]", options.get("tools", ()))
+        if any(capability["name"] == "run_shell" for capability in tools):
+            return str(cast("list[dict[str, object]]", options["input"])[0]["content"])
+    raise AssertionError("The explorer was never called.")
+
+
 def read_tool_outputs(client: FakeClient) -> list[str]:
     answered: list[str] = []
     for context in client.responses.inputs:
@@ -234,7 +243,7 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
     _, result = generate(client)
 
     assert isinstance(result, str)
-    diff = next(prompt for prompt in read_prompts(client) if "Notebook diff from accepted baseline:" in prompt)
+    diff = next(prompt for prompt in read_prompts(client) if "<notebook_diff_from_accepted_baseline>" in prompt)
     assert "Export the data as CSV." in diff
     assert "Build a rocket instead." not in diff
 
@@ -256,7 +265,7 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     prompts = read_prompts(client)
     assert any("Ship a web app." in prompt for prompt in prompts)
     assert not any("nonsense" in prompt for prompt in prompts)
-    diff = next(prompt for prompt in prompts if "Notebook diff from accepted baseline:" in prompt)
+    diff = next(prompt for prompt in prompts if "<notebook_diff_from_accepted_baseline>" in prompt)
     # An unparsable accepted notebook falls back to an empty baseline instead of failing the run. The hunk header
     # starting at line 0 confirms the diff was built against nothing, not against the unreadable "nonsense" bytes.
     assert "@@ -0,0 +1," in diff
@@ -505,9 +514,11 @@ def test_names_the_issues_the_round_it_opens_answers(tmp_path: Path, create_repo
         "3 issues found. Rewriting the functional specifications (round 2)",
         "1 issues found. Rewriting the functional specifications (round 3)",
     ]
-    revisions = [prompt for prompt in read_prompts(client) if "Architect feedback:" in prompt]
-    assert revisions[0].endswith("Architect feedback:\n  - Undefined totals.\n  - Unclear export.\n  - Missing errors.")
-    assert revisions[1].endswith("Architect feedback:\n  - Missing errors.")
+    revisions = [prompt for prompt in read_prompts(client) if "<architect_feedback>" in prompt]
+    assert revisions[0].endswith(
+        "<architect_feedback>\n  - Undefined totals.\n  - Unclear export.\n  - Missing errors.\n</architect_feedback>"
+    )
+    assert revisions[1].endswith("<architect_feedback>\n  - Missing errors.\n</architect_feedback>")
 
 
 def test_sends_the_architect_issues_back_to_the_functional_analyst(
@@ -526,10 +537,10 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
 
     generate(client)
 
-    revision = next(prompt for prompt in read_prompts(client) if "Architect feedback:" in prompt)
+    revision = next(prompt for prompt in read_prompts(client) if "<architect_feedback>" in prompt)
     assert "functional/behavior.md" in revision
     assert "# Behavior" in revision
-    assert "Architect feedback:\n  - Undefined totals.\n  - Unclear export." in revision
+    assert "<architect_feedback>\n  - Undefined totals.\n  - Unclear export." in revision
     assert "Rejected functional draft:" not in revision
 
 
@@ -578,7 +589,7 @@ def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_reposito
     _, result = generate(client)
 
     assert isinstance(result, str)
-    polish = next(prompt for prompt in read_prompts(client) if "Architect feedback:" in prompt)
+    polish = next(prompt for prompt in read_prompts(client) if "<architect_feedback>" in prompt)
     assert "functional/exports.md" in polish
     assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").read_text() == "# Exports\n"
     assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == (
@@ -600,7 +611,7 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     generate(client)
 
     first = read_prompts(client)[1]
-    assert "Current functional specifications:" in first
+    assert "<current_functional_specifications>" in first
     assert FUNCTIONAL_FILES["functional/behavior.md"] in first
     assert UPDATED_FUNCTIONAL_FILES["functional/behavior.md"] not in first
 
@@ -825,8 +836,8 @@ def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
 
     generate(client)
 
-    report = next(prompt for prompt in read_prompts(client) if "Repository analysis report:" in prompt)
-    assert report.endswith("Repository analysis report:\n```\nFinal report\n```")
+    report = next(prompt for prompt in read_prompts(client) if "<repository_analysis_report>" in prompt)
+    assert report.endswith("<repository_analysis_report>\nFinal report\n</repository_analysis_report>")
 
 
 def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
@@ -842,8 +853,8 @@ def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
 
     assert isinstance(result, str)
     assert ReasoningDelta("Weighing which files to read.") in events
-    report = next(prompt for prompt in read_prompts(client) if "Repository analysis report:" in prompt)
-    assert report.endswith("Repository analysis report:\n```\nRepository report\n```")
+    report = next(prompt for prompt in read_prompts(client) if "<repository_analysis_report>" in prompt)
+    assert report.endswith("<repository_analysis_report>\nRepository report\n</repository_analysis_report>")
     assert "Weighing which files to read." not in report
 
 
@@ -878,11 +889,11 @@ def test_studies_the_project_as_it_stands_on_disk(
 
     generate(client)
 
-    tree = next(prompt for prompt in read_prompts(client) if "Tracked repository tree:" in prompt)
+    tree = next(prompt for prompt in read_prompts(client) if "<tracked_repository_tree>" in prompt)
     assert "src/app.py" in tree
     assert paths.NOTEBOOK_FILE in tree
-    instructions = next(prompt for prompt in read_prompts(client) if "Role: Explorer." in prompt)
-    directory = Path(instructions.split("Working directory:\n```\n")[1].split("\n```\n")[0])
+    instructions = read_explorer_prompt(client)
+    directory = Path(instructions.split("<working_directory>\n")[1].split("\n</working_directory>")[0])
     # The explorer works in a disposable copy of the repository, not the project directory itself, so its own
     # reported working directory must never resolve back to the real project path.
     assert not directory.is_relative_to(tmp_path.resolve())
@@ -901,7 +912,7 @@ def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Pa
 
     # `README.md` is never committed here. Listing worktree files, not only the tracked tree, catches a file the
     # user has not committed yet.
-    tree = next(prompt for prompt in read_prompts(client) if "Tracked repository tree:" in prompt)
+    tree = next(prompt for prompt in read_prompts(client) if "<tracked_repository_tree>" in prompt)
     assert "README.md" in tree
 
 
@@ -917,8 +928,8 @@ def test_reports_a_file_name_holding_a_newline_as_one_tracked_path(
 
     generate(client)
 
-    tree = next(prompt for prompt in read_prompts(client) if "Tracked repository tree:" in prompt)
-    listed = safe_load(tree.partition("Tracked repository tree:\n")[2].partition("\n\nRepository analysis report:")[0])
+    tree = next(prompt for prompt in read_prompts(client) if "<tracked_repository_tree>" in prompt)
+    listed = safe_load(tree.partition("<tracked_repository_tree>\n")[2].partition("\n</tracked_repository_tree>")[0])
     assert "notes.md\nsecret.md" in listed
     assert "secret.md" not in listed
 

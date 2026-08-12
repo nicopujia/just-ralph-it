@@ -362,7 +362,7 @@ class Conversation:
         # A history item is permanent. It states what happened, not what to do next.
         # The prompt owns actions that persist.
         if isinstance(result, str):
-            workflow_result = f"Specification generation succeeded in Git commit {result}."
+            workflow_result = "Specification generation succeeded."
         elif isinstance(result, specs_generation.Unchanged):
             workflow_result = (
                 "Specification generation changed nothing: the specifications the project already holds are the "

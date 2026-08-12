@@ -205,10 +205,10 @@ class LLMRunner:
         if not isinstance(error, APIStatusError):
             return ModelError(str(error))
         # Quote provider text instead of presenting it as JRI text.
-        # A protected block cannot be closed by a response body.
+        # A response body cannot close the block that holds it.
         answer = (
             f"The provider at {self.client.base_url} answered {_name_status(error.status_code)}, saying:\n"
-            f"{prompt.quote(_read_body(error))}"
+            f"{prompt.quote(_read_body(error), 'provider_answer')}"
         )
         if error.code in EXHAUSTION_CODES:
             return UsageLimitError(answer)
