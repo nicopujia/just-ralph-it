@@ -7,6 +7,10 @@ __all__ = ["quote", "render", "truncate"]
 # A block ends with the tag that opened it. This tag is absent from the
 # text. The text cannot close this block or a block that contains it.
 TAG = re.compile(r"<([a-z][a-z0-9_]*(?:-[0-9]+)?)>")
+# A text takes a tag when it holds one of the two delimiters of that
+# tag. A suffix of more than nine digits gives a number that a text
+# cannot make JRI count to, so a tag with such a suffix stays free.
+TAG_SUFFIX = r"(?:-([0-9]{1,9}))?"
 STRUCTURE_INDENTATION = "  "
 # The serializer writes these line breaks without an escape and then adds
 # its indentation. Add the block indentation too. Otherwise, a value line
@@ -15,13 +19,16 @@ YAML_LINE_BREAK = re.compile(r"[\n\x85\u2028\u2029]")
 
 
 def quote(text: str, name: str) -> str:
-    tag = name
+    # Read the taken tags in one pass. A search of the text for each tag
+    # lets the text take one more tag for each search and make the time
+    # grow with the square of the length.
+    taken = {int(match[1] or 0) for match in re.finditer(rf"</?{name}{TAG_SUFFIX}>", text)}
     index = 0
-    # Take a tag that the text does not hold a marker of. The text has a
-    # limited length, so a tag with no marker in it is always available.
-    while f"<{tag}" in text or f"</{tag}" in text:
+    # Take a tag that the text does not hold a delimiter of. The text has
+    # a limited length, so a free tag is always available.
+    while index in taken:
         index += 1
-        tag = f"{name}-{index}"
+    tag = f"{name}-{index}" if index else name
     return f"<{tag}>\n{text}\n</{tag}>"
 
 

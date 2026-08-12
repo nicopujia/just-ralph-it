@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from yaml import safe_load
 
@@ -33,6 +35,11 @@ HOSTILE_TEXTS = {
     "one line": "A single line.",
 }
 LINE_BREAKS = "\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029"
+# A text can hold one tag for each tag JRI can try. A search of the text
+# for each tag makes the time grow with the square of the length: this
+# many tags then take more than a minute. One pass takes 0.02 seconds.
+TAKEN_TAGS = 100_000
+MAX_QUOTE_SECONDS = 5
 
 
 def read_tag(rendered: str) -> str:
@@ -41,14 +48,14 @@ def read_tag(rendered: str) -> str:
 
 def read_block(rendered: str) -> str:
     # Only the closing tag ends the block.
-    # JRI must use a tag that the text holds no marker of.
+    # JRI must use a tag that the text holds no delimiter of.
     tag = read_tag(rendered)
     lines = rendered.removeprefix(f"<{tag}>\n").split("\n")
     closings = [index for index, line in enumerate(lines) if line == f"</{tag}>"]
     assert closings == [len(lines) - 1]
     body = "\n".join(lines[: closings[0]])
-    assert f"<{tag}" not in body
-    assert f"</{tag}" not in body
+    assert f"<{tag}>" not in body
+    assert f"</{tag}>" not in body
     return body
 
 
@@ -63,6 +70,17 @@ def test_quotes_a_rendered_block_inside_a_different_tag() -> None:
     outer = prompt.render(text=inner)
 
     assert read_tag(outer) != read_tag(inner)
+
+
+def test_takes_a_free_tag_from_a_text_that_holds_every_tag_before_it() -> None:
+    ladder = "\n".join(f"</{BLOCK_NAME}-{index}>" for index in range(TAKEN_TAGS))
+
+    start = time.perf_counter()
+    rendered = prompt.render(text=ladder)
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < MAX_QUOTE_SECONDS
+    assert read_block(rendered) == ladder
 
 
 def test_ends_the_block_a_cut_leaves_open() -> None:
