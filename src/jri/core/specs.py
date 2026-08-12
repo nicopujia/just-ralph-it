@@ -631,7 +631,7 @@ class Specs:
         # Each can report a link that the other cannot, especially Windows `120000` entries.
         # Use file-system paths for the file-system check and Git paths for the Git check.
         committed = (
-            self.workspace.config_file,
+            self.workspace.settings_file,
             self.workspace.gitignore_file,
             self.workspace.notebook_file,
             *(self.workspace.root / paths.SPECS_DIR).rglob("*.md"),

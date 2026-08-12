@@ -41,8 +41,8 @@ class Workspace:
         return self.root / paths.WORKSPACE_DIR
 
     @property
-    def config_file(self) -> Path:
-        return self.root / paths.CONFIG_FILE
+    def settings_file(self) -> Path:
+        return self.root / paths.SETTINGS_FILE
 
     @property
     def gitignore_file(self) -> Path:
@@ -147,23 +147,23 @@ class Workspace:
                     "the run directory away from it, and the run after that would start beside it rather than "
                     "after it, so nothing was deleted. Run `jri chat` to watch it or stop it, then try again."
                 )
-            yield Reset(tuple(path for path in (self.config_file, *self._reset_paths) if path.exists()))
+            yield Reset(tuple(path for path in (self.settings_file, *self._reset_paths) if path.exists()))
         finally:
             hold.release()
 
-    # Receive rendered configuration instead of loading `Settings`.
-    # Finding a workspace never depends on configuration loading.
+    # Receive rendered settings instead of loading `Settings`.
+    # Finding a workspace never depends on settings loading.
     # A reset requires a `Reset` from `open_reset` under the project hold.
     # A caller cannot request deletion with a flag alone.
-    def install(self, config: str, *, reset: "Reset | None" = None) -> "Installation":
+    def install(self, settings: str, *, reset: "Reset | None" = None) -> "Installation":
         repository_created = git.find_root(self.root) is None
         Repository.init(self.root)
-        created = not self.config_file.exists()
+        created = not self.settings_file.exists()
         if reset is not None:
             self._clear()
         self.directory.mkdir(exist_ok=True, parents=True)
         if created or reset is not None:
-            self.config_file.write_text(config, encoding="utf-8", newline="\n")
+            self.settings_file.write_text(settings, encoding="utf-8", newline="\n")
         Notebook(self.notebook_file)
         self.logs_dir.mkdir(exist_ok=True)
 

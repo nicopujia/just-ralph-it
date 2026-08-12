@@ -45,7 +45,6 @@ from tests.doubles.workspace import install_workspace
 # A large age, well past WRITTEN_WITHIN, so a call that has been open
 # a while cannot be mistaken for one that just opened.
 AGED = 360.0
-CONFIG = "llm:\n  provider: http://127.0.0.1:9/v1\n  api_key: JRI_TEST_API_KEY\nlogging:\n  level: CRITICAL\n"
 CONCLUDES_WITHIN = 60.0
 POLL = 0.01
 STARTER = """
@@ -59,6 +58,7 @@ Generation(Workspace(root)).start()
 ready.touch()
 time.sleep(60)
 """
+SETTINGS = "llm:\n  provider: http://127.0.0.1:9/v1\n  api_key: JRI_TEST_API_KEY\nlogging:\n  level: CRITICAL\n"
 STARTS_WITHIN = 60.0
 STOPS_AFTER = 0.5
 WRITTEN_WITHIN = 30.0
@@ -515,7 +515,7 @@ def test_keeps_running_when_the_process_that_started_it_dies(
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
-    (tmp_path / paths.CONFIG_FILE).write_text(CONFIG, encoding="utf-8")
+    (tmp_path / paths.SETTINGS_FILE).write_text(SETTINGS, encoding="utf-8")
     monkeypatch.setenv("JRI_TEST_API_KEY", "unused")
     # Detach HEAD. This is the one test that runs the real generation
     # workflow, not a double, so make it fail fast and offline on a git

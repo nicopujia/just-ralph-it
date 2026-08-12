@@ -11,22 +11,22 @@ CANCEL_TURN_KEY = "esc esc"
 CANCEL_TURN_STARTED = "Stopping response…"
 CLI_CHAT_HELP = "Chat with the interviewer in the terminal UI."
 CLI_FORCE_HELP = (
-    "Re-create the JRI workspace: write the configuration file again and delete the conversation, the notes, "
+    "Re-create the JRI workspace: write the settings file again and delete the conversation, the notes, "
     "the logs, the generated specifications, and what the last Just Ralph It run left behind."
 )
-CLI_INIT_HELP = "Set the project up with the default JRI configuration."
+CLI_INIT_HELP = "Set the project up with the default JRI settings."
 CLI_VERSION_HELP = "Show the JRI version and exit."
 CLI_VIEW_HELP = "Visualize the notes graph."
 CLI_YES_HELP = "Answer yes to the confirmation --force asks for."
 CLOSE_SHORTCUTS = "Close"
 CLOSE_SHORTCUTS_KEY = "Esc"
 COMMAND_PALETTE = "Command palette"
-CONFIG_ERROR = """Invalid configuration.
-Set or fix these settings in .jri/config.yaml:
+SETTINGS_ERROR = """Invalid settings.
+Set or fix these settings in .jri/settings.yaml:
 
 {errors}
 
-All commands, including `jri view`, use this configuration.
+All commands, including `jri view`, use these settings.
 """
 
 FORCE_CANCELLED = "Nothing was deleted."
@@ -40,11 +40,11 @@ GIT_ERROR = "Git failed: {error}"
 
 HIDE_THINKING_BLOCKS = "Hide thinking blocks"
 
-INIT_CREATED = "Created a JRI workspace at {directory}, with its configuration, notebook, logs, and Git ignores."
+INIT_CREATED = "Created a JRI workspace at {directory}, with its settings, notebook, logs, and Git ignores."
 INIT_EXISTING = "A JRI workspace already exists at {directory}."
-INIT_NEXT_STEPS = "Open {config_file} and follow its comments, then run `jri chat`."
+INIT_NEXT_STEPS = "Open {settings_file} and follow its comments, then run `jri chat`."
 INIT_RECREATED = (
-    "Re-created the JRI workspace at {directory}, replacing its configuration, notes, conversation, logs, "
+    "Re-created the JRI workspace at {directory}, replacing its settings, notes, conversation, logs, "
     "specifications, and the record of the last Just Ralph It run."
 )
 INIT_REPOSITORY = "Initialized a Git repository here."
@@ -105,13 +105,13 @@ TURN_NO_RESPONSE = "_No response received._"
 TURN_REFUSED = (
     "{error}\n\n"
     "The provider refused the request rather than failing at it, so asking for it again changes nothing on its own. "
-    "What JRI asks with is in .jri/config.yaml: llm.provider, llm.api_key, and each agent's model, reasoning effort "
+    "What JRI asks with is in .jri/settings.yaml: llm.provider, llm.api_key, and each agent's model, reasoning effort "
     "and temperature. Change what needs changing there, then start JRI again."
 )
 TURN_STOPPED = "_Response stopped._"
 TURN_UNAVAILABLE = (
     "{error}\n\n"
-    "llm.provider in .jri/config.yaml decides the address JRI sends to. Check that it is the one you meant and that "
+    "llm.provider in .jri/settings.yaml decides the address JRI sends to. Check that it is the one you meant and that "
     "this machine can reach it, then try again."
 )
 

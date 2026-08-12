@@ -21,7 +21,7 @@ type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
 APPLICATION_NAME = "jri"
 COMMENT_WIDTH = 100
-CONFIG_INTRO = (
+INTRO = (
     "Welcome to JRI! You can use this file now, with no changes. The values below are the defaults JRI uses. "
     "The commented lines are optional settings: remove the # to turn one on."
 )
@@ -86,7 +86,7 @@ class LLM(BaseModel):
             'Set this to "openai-subscription" to reuse a ChatGPT subscription through the Codex CLI. Or set this '
             "to the base URL of an OpenAI-compatible provider, for example https://api.openai.com/v1\n\n"
             "The subscription option needs the Codex CLI (https://learn.chatgpt.com/docs/codex/cli). "
-            'Set `cli_auth_credentials_store = "file"` in ~/.codex/config.toml. Then run `codex login`.'
+            'Set `cli_auth_credentials_store = "file"` in ~/.codex/settings.toml. Then run `codex login`.'
         ),
     )
     api_key: str | None = Field(
@@ -159,12 +159,12 @@ class Settings(BaseModel):
 
     @classmethod
     def load(cls) -> Self:
-        config = yaml.safe_load(Workspace.find().config_file.read_text(encoding="utf-8"))
-        return cls.model_validate({} if config is None else config)
+        settings = yaml.safe_load(Workspace.find().settings_file.read_text(encoding="utf-8"))
+        return cls.model_validate({} if settings is None else settings)
 
     @classmethod
-    def render_config(cls) -> str:
-        intro = [f"# {line}" for line in textwrap.wrap(CONFIG_INTRO, COMMENT_WIDTH)]
+    def render(cls) -> str:
+        intro = [f"# {line}" for line in textwrap.wrap(INTRO, COMMENT_WIDTH)]
         return "\n".join([*intro, "", *_render_settings(cls, None, 0), ""])
 
     @classmethod

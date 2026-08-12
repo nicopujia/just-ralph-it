@@ -36,8 +36,8 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
 
     assert installation == Installation(Workspace(tmp_path), created=True, repository_created=True)
     assert installation.workspace.directory == tmp_path / paths.WORKSPACE_DIR
-    assert installation.workspace.config_file == tmp_path / paths.CONFIG_FILE
-    assert (tmp_path / paths.CONFIG_FILE).read_text() == Settings.render_config()
+    assert installation.workspace.settings_file == tmp_path / paths.SETTINGS_FILE
+    assert (tmp_path / paths.SETTINGS_FILE).read_text() == Settings.render()
     assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "session.json\nlogs\nvisualization.html\n"
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
@@ -60,7 +60,7 @@ def test_leaves_the_project_uncommitted_when_it_creates_the_repository(tmp_path:
     assert {item.path for item in repository.read_status()} == {
         paths.PROJECT_GITIGNORE_FILE,
         paths.GITIGNORE_FILE,
-        paths.CONFIG_FILE,
+        paths.SETTINGS_FILE,
         paths.NOTEBOOK_FILE,
         "main.py",
     }
@@ -133,7 +133,7 @@ def test_initializes_a_workspace_inside_an_existing_repository(
 
     assert not installation.repository_created
     assert repository.read_head() == git.Repository(nested).read_head()
-    assert (nested / paths.CONFIG_FILE).exists()
+    assert (nested / paths.SETTINGS_FILE).exists()
 
 
 def test_creates_the_working_directory_when_it_is_missing(tmp_path: Path) -> None:
@@ -143,20 +143,20 @@ def test_creates_the_working_directory_when_it_is_missing(tmp_path: Path) -> Non
 
     assert installation.repository_created
     assert installation.workspace.directory == missing / paths.WORKSPACE_DIR
-    assert (missing / paths.CONFIG_FILE).exists()
+    assert (missing / paths.SETTINGS_FILE).exists()
     assert git.find_root(missing) == missing.resolve()
 
 
 def test_preserves_an_existing_workspace_when_initializing_again(tmp_path: Path) -> None:
     (tmp_path / paths.WORKSPACE_DIR).mkdir()
-    (tmp_path / paths.CONFIG_FILE).write_text("custom config\n")
+    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n")
     (tmp_path / paths.GITIGNORE_FILE).write_text("custom-cache\nlogs")
 
     install_workspace(tmp_path)
     installation = install_workspace(tmp_path)
 
     assert not installation.created
-    assert (tmp_path / paths.CONFIG_FILE).read_text() == "custom config\n"
+    assert (tmp_path / paths.SETTINGS_FILE).read_text() == "custom settings\n"
     assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
 
 
@@ -167,13 +167,13 @@ def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path)
         "next_note_id": "n2",
     }
     install_workspace(tmp_path)
-    (tmp_path / paths.CONFIG_FILE).write_text("custom config\n")
+    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n")
     (tmp_path / paths.NOTEBOOK_FILE).write_text(yaml.safe_dump(notebook))
 
     installation = install_workspace(tmp_path, force=True)
 
     assert not installation.created
-    assert (tmp_path / paths.CONFIG_FILE).read_text() == Settings.render_config()
+    assert (tmp_path / paths.SETTINGS_FILE).read_text() == Settings.render()
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
         "connections": [],
@@ -184,8 +184,8 @@ def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path)
 def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     base_dir = tmp_path / ".jri"
     base_dir.mkdir()
-    config = base_dir / "config.yaml"
-    config.write_text("custom config")
+    settings_file = base_dir / "settings.yaml"
+    settings_file.write_text("custom settings_file")
     (base_dir / ".gitignore").write_text("custom-cache\n")
     (base_dir / "notebook.yaml").write_text(": invalid yaml")
     (base_dir / "session.json").write_text("not json")
@@ -204,7 +204,7 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
         ("t1", "Project overview")
     ]
     assert conversation.workspace.notebook_file == base_dir / "notebook.yaml"
-    assert config.read_text() == Settings.render_config()
+    assert settings_file.read_text() == Settings.render()
     assert not conversation.workspace.session_file.exists()
     assert not (base_dir / "visualization.html").exists()
     assert not (base_dir / "specs").exists()
@@ -336,7 +336,7 @@ def test_names_what_a_reset_replaces_and_nothing_it_would_leave(tmp_path: Path) 
 
     with workspace.open_reset() as reset:
         assert set(reset.paths) == {
-            workspace.config_file,
+            workspace.settings_file,
             workspace.notebook_file,
             workspace.logs_dir,
             workspace.generation_dir,

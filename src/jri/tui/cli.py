@@ -74,7 +74,7 @@ def main() -> None:
 
 def _initialize(*, force: bool, yes: bool) -> None:
     workspace = Workspace.find()
-    config = Settings.render_config()
+    settings = Settings.render()
     if force:
         # Ask the question inside the reset. First report an active window or run that prevents deletion.
         # Keep the project held while the user reads. The answer then applies to the project state at deletion.
@@ -82,9 +82,9 @@ def _initialize(*, force: bool, yes: bool) -> None:
             if not (yes or _confirm_reset(reset)):
                 print(copy.FORCE_CANCELLED)
                 raise SystemExit(1)
-            installation = workspace.install(config, reset=reset)
+            installation = workspace.install(settings, reset=reset)
     else:
-        installation = workspace.install(config)
+        installation = workspace.install(settings)
     # Create a repository only in the command directory. A workspace in a repository already has its root.
     # A relative path here names `.`.
     if installation.repository_created:
@@ -92,7 +92,7 @@ def _initialize(*, force: bool, yes: bool) -> None:
     reset_copy = copy.INIT_RECREATED if force else copy.INIT_EXISTING
     directory = files.shorten_path(workspace.directory)
     print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=directory))
-    print(copy.INIT_NEXT_STEPS.format(config_file=files.shorten_path(workspace.config_file)))
+    print(copy.INIT_NEXT_STEPS.format(settings_file=files.shorten_path(workspace.settings_file)))
 
 
 def _chat() -> None:
@@ -142,7 +142,7 @@ def _view() -> None:
 
 def _load_settings() -> Settings:
     workspace = Workspace.find()
-    if not workspace.config_file.exists():
+    if not workspace.settings_file.exists():
         print(copy.WORKSPACE_MISSING)
         raise SystemExit(1)
     load_dotenv(workspace.root / ".env")
@@ -154,12 +154,12 @@ def _load_settings() -> Settings:
             if isinstance(error, ValidationError)
             else [f"- {error}"]
         )
-        print(copy.CONFIG_ERROR.format(errors="\n".join(error_lines)))
+        print(copy.SETTINGS_ERROR.format(errors="\n".join(error_lines)))
         raise SystemExit(1) from error
 
 
 def _describe_issue(issue: ErrorDetails) -> str:
-    setting = ".".join(map(str, issue["loc"])) or "configuration"
+    setting = ".".join(map(str, issue["loc"])) or "settings"
     if issue["type"] != "extra_forbidden":
         return f"- {setting}: {issue['msg']}"
     # An undeclared setting key is probably a typo for its writer, not the Pydantic schema error.

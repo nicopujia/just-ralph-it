@@ -14,19 +14,19 @@ from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
 SETTING_PATTERN = re.compile(r"(# )?[a-z_]+:( .*)?")
 
 
-def write_config(tmp_path: Path, config: dict[str, Any]) -> None:
-    write_config_text(tmp_path, yaml.safe_dump(config))
+def write_settings(tmp_path: Path, values: dict[str, Any]) -> None:
+    write_settings_text(tmp_path, yaml.safe_dump(values))
 
 
-def write_config_text(tmp_path: Path, text: str) -> None:
-    config_file = tmp_path / paths.CONFIG_FILE
-    config_file.parent.mkdir(exist_ok=True)
-    config_file.write_text(text)
+def write_settings_text(tmp_path: Path, text: str) -> None:
+    settings_file = tmp_path / paths.SETTINGS_FILE
+    settings_file.parent.mkdir(exist_ok=True)
+    settings_file.write_text(text)
 
 
-def test_generates_a_configuration_that_round_trips_through_the_settings(tmp_path: Path) -> None:
-    (tmp_path / paths.CONFIG_FILE).parent.mkdir(exist_ok=True)
-    (tmp_path / paths.CONFIG_FILE).write_text(Settings.render_config())
+def test_generates_a_settings_file_that_round_trips_through_the_model(tmp_path: Path) -> None:
+    (tmp_path / paths.SETTINGS_FILE).parent.mkdir(exist_ok=True)
+    (tmp_path / paths.SETTINGS_FILE).write_text(Settings.render())
 
     settings = Settings.load()
 
@@ -48,7 +48,7 @@ def test_generates_a_configuration_that_round_trips_through_the_settings(tmp_pat
 
 
 def test_documents_every_setting_it_generates() -> None:
-    lines = Settings.render_config().splitlines()
+    lines = Settings.render().splitlines()
 
     settings = [(index, line.strip()) for index, line in enumerate(lines) if SETTING_PATTERN.fullmatch(line.strip())]
 
@@ -71,19 +71,19 @@ def test_documents_every_setting_it_generates() -> None:
     }
 
 
-def test_reports_an_incomplete_configuration(tmp_path: Path) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    del config["agents"]["explorer"]["model"]
-    write_config(tmp_path, config)
+def test_reports_incomplete_settings(tmp_path: Path) -> None:
+    values = yaml.safe_load(Settings.render())
+    del values["agents"]["explorer"]["model"]
+    write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError, match=r"agents\.explorer\.model"):
         Settings.load()
 
 
 def test_reports_a_setting_it_does_not_know(tmp_path: Path) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["agents"]["designer"] = {"model": "gpt-5.6-sol"}
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["agents"]["designer"] = {"model": "gpt-5.6-sol"}
+    write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError, match=r"agents\.designer"):
         Settings.load()
@@ -110,10 +110,10 @@ def test_suggests_nothing_for_a_key_several_settings_begin() -> None:
 
 
 def test_leaves_omitted_model_options_to_the_model(tmp_path: Path) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["agents"]["explorer"].pop("reasoning_effort", None)
-    config["agents"]["explorer"].pop("temperature", None)
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["agents"]["explorer"].pop("reasoning_effort", None)
+    values["agents"]["explorer"].pop("temperature", None)
+    write_settings(tmp_path, values)
 
     settings = Settings.load()
 
@@ -122,9 +122,9 @@ def test_leaves_omitted_model_options_to_the_model(tmp_path: Path) -> None:
 
 
 def test_rejects_a_reasoning_effort_it_does_not_document(tmp_path: Path) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["agents"]["interviewer"]["reasoning_effort"] = "maximum"
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["agents"]["interviewer"]["reasoning_effort"] = "maximum"
+    write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError, match=r"agents\.interviewer\.reasoning_effort"):
         Settings.load()
@@ -133,10 +133,10 @@ def test_rejects_a_reasoning_effort_it_does_not_document(tmp_path: Path) -> None
 def test_reads_api_keys_from_the_environment_variables_they_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
-    config["brave_search"] = {"api_key": "SEARCH_API_KEY"}
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
+    values["brave_search"] = {"api_key": "SEARCH_API_KEY"}
+    write_settings(tmp_path, values)
     monkeypatch.setenv("PROVIDER_API_KEY", "provider-key")
     monkeypatch.setenv("SEARCH_API_KEY", "search-key")
 
@@ -148,47 +148,47 @@ def test_reads_api_keys_from_the_environment_variables_they_name(
 
 
 def test_reports_an_unset_environment_variable(tmp_path: Path) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "MISSING_API_KEY"}
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "MISSING_API_KEY"}
+    write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError, match="MISSING_API_KEY, but that environment variable is not set"):
         Settings.load()
 
 
 def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["llm"] = {"provider": "https://api.openai.com/v1"}
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://api.openai.com/v1"}
+    write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError, match=r"llm\.api_key"):
         Settings.load()
 
 
-def test_falls_back_to_the_defaults_for_a_blank_configuration_file(tmp_path: Path) -> None:
-    write_config_text(tmp_path, "  \n\n")
+def test_falls_back_to_the_defaults_for_a_blank_settings_file(tmp_path: Path) -> None:
+    write_settings_text(tmp_path, "  \n\n")
 
     settings = Settings.load()
 
     assert settings.model_dump() == Settings().model_dump()
 
 
-def test_reports_a_configuration_file_that_is_not_yaml(tmp_path: Path) -> None:
-    write_config_text(tmp_path, "llm: [unclosed\n")
+def test_reports_a_settings_file_that_is_not_yaml(tmp_path: Path) -> None:
+    write_settings_text(tmp_path, "llm: [unclosed\n")
 
     with pytest.raises(yaml.YAMLError):
         Settings.load()
 
 
-def test_reports_a_configuration_file_that_is_not_a_mapping(tmp_path: Path) -> None:
-    write_config_text(tmp_path, "- llm\n- logging\n")
+def test_reports_a_settings_file_that_is_not_a_mapping(tmp_path: Path) -> None:
+    write_settings_text(tmp_path, "- llm\n- logging\n")
 
     with pytest.raises(ValidationError):
         Settings.load()
 
 
 def test_reports_a_section_without_a_body(tmp_path: Path) -> None:
-    write_config_text(tmp_path, "llm:\n")
+    write_settings_text(tmp_path, "llm:\n")
 
     with pytest.raises(ValidationError, match="llm"):
         Settings.load()
@@ -196,9 +196,9 @@ def test_reports_a_section_without_a_body(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("temperature", [-0.1, 2.5], ids=["below", "above"])
 def test_rejects_a_temperature_outside_the_supported_range(tmp_path: Path, temperature: float) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["agents"]["explorer"]["temperature"] = temperature
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["agents"]["explorer"]["temperature"] = temperature
+    write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError, match=r"agents\.explorer\.temperature"):
         Settings.load()
@@ -206,26 +206,26 @@ def test_rejects_a_temperature_outside_the_supported_range(tmp_path: Path, tempe
 
 @pytest.mark.parametrize("temperature", [0, 2], ids=["focused", "varied"])
 def test_accepts_the_extremes_of_the_temperature_range(tmp_path: Path, temperature: float) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["agents"]["explorer"]["temperature"] = temperature
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["agents"]["explorer"]["temperature"] = temperature
+    write_settings(tmp_path, values)
 
     assert Settings.load().agents.explorer.temperature == temperature
 
 
 def test_reports_an_unset_search_environment_variable(tmp_path: Path) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["brave_search"] = {"api_key": "MISSING_SEARCH_API_KEY"}
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["brave_search"] = {"api_key": "MISSING_SEARCH_API_KEY"}
+    write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError, match="MISSING_SEARCH_API_KEY, but that environment variable is not set"):
         Settings.load()
 
 
 def test_blames_the_setting_an_unset_environment_variable_belongs_to(tmp_path: Path) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["brave_search"] = {"api_key": "MISSING_SEARCH_API_KEY"}
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["brave_search"] = {"api_key": "MISSING_SEARCH_API_KEY"}
+    write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError) as error:
         Settings.load()
@@ -234,9 +234,9 @@ def test_blames_the_setting_an_unset_environment_variable_belongs_to(tmp_path: P
 
 
 def test_blames_the_api_key_a_subscriptionless_provider_needs(tmp_path: Path) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["llm"] = {"provider": "https://api.openai.com/v1"}
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://api.openai.com/v1"}
+    write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError) as error:
         Settings.load()
@@ -245,7 +245,7 @@ def test_blames_the_api_key_a_subscriptionless_provider_needs(tmp_path: Path) ->
 
 
 def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path) -> None:
-    write_config_text(tmp_path, Settings.render_config())
+    write_settings_text(tmp_path, Settings.render())
 
     assert isinstance(Settings.load().llm.client, codex.Client)
 
@@ -255,14 +255,14 @@ def test_accepts_a_complete_subscription_login(tmp_path: Path, monkeypatch: pyte
     write_login(
         tmp_path, {"access_token": build_token(DISTANT_FUTURE), "refresh_token": "refresh", "account_id": "account"}
     )
-    write_config_text(tmp_path, Settings.render_config())
+    write_settings_text(tmp_path, Settings.render())
 
     Settings.load().llm.validate_authentication()
 
 
 def test_reports_a_missing_subscription_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
-    write_config_text(tmp_path, Settings.render_config())
+    write_settings_text(tmp_path, Settings.render())
 
     with pytest.raises(codex.AuthError):
         Settings.load().llm.validate_authentication()
@@ -271,9 +271,9 @@ def test_reports_a_missing_subscription_login(tmp_path: Path, monkeypatch: pytes
 def test_needs_no_subscription_login_for_another_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
     monkeypatch.setenv("PROVIDER_API_KEY", "provider-key")
-    config = yaml.safe_load(Settings.render_config())
-    config["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
-    write_config(tmp_path, config)
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
+    write_settings(tmp_path, values)
 
     Settings.load().llm.validate_authentication()
 
@@ -281,10 +281,10 @@ def test_needs_no_subscription_login_for_another_provider(tmp_path: Path, monkey
 # Settings has no generic environment-variable override layer, unlike common 12-factor config tools. Only an
 # `api_key` value naming a variable is ever read from the environment, so a `JRI_`-prefixed variable here must
 # have no effect.
-def test_takes_every_setting_from_the_configuration_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    config = yaml.safe_load(Settings.render_config())
-    config["agents"]["interviewer"] |= {"model": "file-model", "reasoning_effort": "low"}
-    write_config(tmp_path, config)
+def test_takes_every_setting_from_the_settings_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    values = yaml.safe_load(Settings.render())
+    values["agents"]["interviewer"] |= {"model": "file-model", "reasoning_effort": "low"}
+    write_settings(tmp_path, values)
     monkeypatch.setenv("JRI_AGENTS_INTERVIEWER_MODEL", "environment-model")
     monkeypatch.setenv("JRI_LOGGING_LEVEL", "DEBUG")
 

@@ -56,7 +56,7 @@ cd ./my-project
 jri init
 ```
 
-That creates `.jri/config.yaml`. Open it and follow its comments.
+That creates `.jri/settings.yaml`. Open it and follow its comments.
 
 ### 3. Usage
 

@@ -448,8 +448,8 @@ def test_commits_complete_specification_bundle(
     )
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
-        ".jri/config.yaml",
         ".jri/notebook.yaml",
+        ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
@@ -525,20 +525,20 @@ def test_shows_specifications_to_the_models_under_neutral_roots(
     assert "architecture/design.md" in architect_input
 
 
-def test_commits_modified_configuration_with_specifications(
+def test_commits_modified_settings_with_specifications(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
-    config = tmp_path / ".jri/config.yaml"
-    run_git(tmp_path, "add", ".jri/config.yaml")
-    run_git(tmp_path, "commit", "-qm", "add configuration")
-    config.write_text(f"{config.read_text()}\n# Project-specific configuration.\n")
+    settings_file = tmp_path / ".jri/settings.yaml"
+    run_git(tmp_path, "add", ".jri/settings.yaml")
+    run_git(tmp_path, "commit", "-qm", "add settings")
+    settings_file.write_text(f"{settings_file.read_text()}\n# Project-specific settings.\n")
 
     list(conversation.ralph())
 
-    assert run_git(tmp_path, "show", "HEAD:.jri/config.yaml").endswith("# Project-specific configuration.")
-    assert ".jri/config.yaml" in run_git(tmp_path, "show", "--format=", "--name-only").splitlines()
+    assert run_git(tmp_path, "show", "HEAD:.jri/settings.yaml").endswith("# Project-specific settings.")
+    assert ".jri/settings.yaml" in run_git(tmp_path, "show", "--format=", "--name-only").splitlines()
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -550,8 +550,8 @@ def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Pat
 
     assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
         ".jri/.gitignore",
-        ".jri/config.yaml",
         ".jri/notebook.yaml",
+        ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
@@ -568,8 +568,8 @@ def test_commits_specifications_onto_a_repository_without_commits(tmp_path: Path
 
     assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
         ".jri/.gitignore",
-        ".jri/config.yaml",
         ".jri/notebook.yaml",
+        ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
@@ -606,17 +606,17 @@ def test_keeps_the_content_the_user_staged_when_a_hook_refuses_the_commit(
     hook.write_bytes(b"#!/bin/sh\nexit 1\n")
     hook.chmod(0o755)
     conversation = build_conversation(tmp_path, successful_client())
-    config = tmp_path / ".jri/config.yaml"
-    config.write_text("# The configuration the user staged.\n")
-    run_git(tmp_path, "add", ".jri/config.yaml")
-    config.write_text("# The configuration the user went on editing.\n")
+    settings_file = tmp_path / ".jri/settings.yaml"
+    settings_file.write_text("# The settings the user staged.\n")
+    run_git(tmp_path, "add", ".jri/settings.yaml")
+    settings_file.write_text("# The settings the user went on editing.\n")
     index = run_git(tmp_path, "ls-files", "--stage")
 
     assert read_ending(conversation.ralph()) == "failed"
 
     assert run_git(tmp_path, "ls-files", "--stage") == index
-    assert run_git(tmp_path, "show", ":.jri/config.yaml") == "# The configuration the user staged."
-    assert config.read_text() == "# The configuration the user went on editing.\n"
+    assert run_git(tmp_path, "show", ":.jri/settings.yaml") == "# The settings the user staged."
+    assert settings_file.read_text() == "# The settings the user went on editing.\n"
 
 
 def test_undoes_the_acceptance_a_killed_run_left_in_the_worktree(
@@ -788,8 +788,8 @@ def test_undoes_the_acceptance_a_killed_run_left_staged(
     kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
     assert git.Repository(tmp_path).read_status() == (
         git.Status(".jri/.gitignore", " ", "A"),
-        git.Status(".jri/config.yaml", " ", "A"),
         git.Status(".jri/notebook.yaml", " ", "A"),
+        git.Status(".jri/settings.yaml", " ", "A"),
         git.Status(".jri/specs/architecture/design.md", " ", "A"),
         git.Status(".jri/specs/functional/behavior.md", " ", "A"),
     )
@@ -852,8 +852,8 @@ def test_keeps_the_acceptance_a_killed_run_wrote_before_git_copied_the_index(
     assert accepted == run_git(tmp_path, "rev-parse", "HEAD")
     assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
         ".jri/.gitignore",
-        ".jri/config.yaml",
         ".jri/notebook.yaml",
+        ".jri/settings.yaml",
         ".jri/specs/functional/behavior.md",
     ]
     (tmp_path / ".git/index.lock").unlink()
@@ -897,8 +897,8 @@ def test_settles_the_index_beside_a_record_it_cannot_read(
     Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
     assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
         ".jri/.gitignore",
-        ".jri/config.yaml",
         ".jri/notebook.yaml",
+        ".jri/settings.yaml",
         ".jri/specs/functional/behavior.md",
     ]
 
@@ -954,17 +954,17 @@ def test_keeps_the_content_the_user_staged_beside_a_record_it_cannot_read(
 ) -> None:
     create_repository(tmp_path)
     kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    config = tmp_path / ".jri/config.yaml"
-    config.write_text("# The configuration the user staged.\n")
-    run_git(tmp_path, "add", "--force", ".jri/config.yaml")
-    config.write_text("# The configuration the user went on editing.\n")
+    settings_file = tmp_path / ".jri/settings.yaml"
+    settings_file.write_text("# The settings the user staged.\n")
+    run_git(tmp_path, "add", "--force", ".jri/settings.yaml")
+    settings_file.write_text("# The settings the user went on editing.\n")
     Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
 
     ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
 
     assert ending == "blocked"
-    assert run_git(tmp_path, "show", ":.jri/config.yaml") == "# The configuration the user staged."
-    assert config.read_text() == "# The configuration the user went on editing.\n"
+    assert run_git(tmp_path, "show", ":.jri/settings.yaml") == "# The settings the user staged."
+    assert settings_file.read_text() == "# The settings the user went on editing.\n"
 
 
 def test_keeps_the_record_an_acceptance_under_way_cannot_be_read_from(
@@ -1379,8 +1379,8 @@ def test_commits_specifications_while_the_project_has_uncommitted_work(
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
-        ".jri/config.yaml",
         ".jri/notebook.yaml",
+        ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
@@ -1406,8 +1406,8 @@ def test_commits_specifications_while_the_project_has_work_staged(
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
-        ".jri/config.yaml",
         ".jri/notebook.yaml",
+        ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
@@ -1431,8 +1431,8 @@ def test_commits_specifications_into_a_project_that_ignores_the_workspace(
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
-        ".jri/config.yaml",
         ".jri/notebook.yaml",
+        ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]

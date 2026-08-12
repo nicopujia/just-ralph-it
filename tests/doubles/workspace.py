@@ -84,11 +84,11 @@ TICKS_WITHIN = 5.0
 # Check this test support.
 def install_workspace(path: Path, *, force: bool = False) -> Installation:
     workspace = Workspace(path)
-    config = Settings.render_config()
+    settings = Settings.render()
     if not force:
-        return workspace.install(config)
+        return workspace.install(settings)
     with workspace.open_reset() as reset:
-        return workspace.install(config, reset=reset)
+        return workspace.install(settings, reset=reset)
 
 
 # Check this test support.
