@@ -93,6 +93,8 @@ def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
     reset_copy = copy.INIT_RECREATED if force else copy.INIT_EXISTING
     directory = files.shorten_path(workspace.directory)
     print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=directory))
+    if installation.commit is not None:
+        print(copy.INIT_COMMITTED)
     print(copy.INIT_NEXT_STEPS.format(settings_file=files.shorten_path(workspace.settings_file)))
 
 

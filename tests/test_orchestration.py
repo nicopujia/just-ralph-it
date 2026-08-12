@@ -961,8 +961,6 @@ def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Pa
     run_git(tmp_path, "init", "-q")
     (tmp_path / "README.md").write_text("# Project\n")
     install_workspace(tmp_path)
-    run_git(tmp_path, "add", paths.WORKSPACE_DIR)
-    run_git(tmp_path, "commit", "-qm", "jri: update specifications")
     client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
 
     generate(client)

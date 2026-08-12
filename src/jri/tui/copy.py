@@ -41,6 +41,7 @@ GIT_ERROR = "Git failed: {error}"
 
 HIDE_THINKING_BLOCKS = "Hide thinking blocks"
 
+INIT_COMMITTED = "Committed the workspace files to Git."
 INIT_CREATED = "Created a JRI workspace at {directory}, with its settings, notebook, logs, and Git ignores."
 INIT_EXISTING = "A JRI workspace already exists at {directory}."
 INIT_NEXT_STEPS = "Open {settings_file} and follow its comments, then run `jri chat`."

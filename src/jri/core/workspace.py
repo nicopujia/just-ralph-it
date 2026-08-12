@@ -157,7 +157,7 @@ class Workspace:
     # A caller cannot request deletion with a flag alone.
     def install(self, settings: str, *, reset: "Reset | None" = None) -> "Installation":
         repository_created = git.find_root(self.root) is None
-        Repository.init(self.root)
+        repository = Repository.init(self.root)
         created = not self.settings_file.exists()
         if reset is not None:
             self._clear()
@@ -175,7 +175,45 @@ class Workspace:
             self.project_gitignore_file.write_text(
                 f"{'\n'.join(self.PROJECT_IGNORES)}\n", encoding="utf-8", newline="\n"
             )
-        return Installation(self, created=created, repository_created=repository_created)
+        # Commit a workspace this installation wrote, and one that no repository here holds yet.
+        # An existing workspace can hold notes a chat wrote and settings the user changed.
+        # That work belongs to the commit of the turn that made it, not to this one.
+        written = created or repository_created or reset is not None
+        return Installation(
+            self,
+            created=created,
+            repository_created=repository_created,
+            commit=self._commit(repository) if written else None,
+        )
+
+    # Commit what the installation wrote. The project then holds its settings, notes, and ignore rules from its
+    # first commit, and a clone gets the same workspace.
+    # Name the paths. The commit holds no user work, staged or not, and it changes none.
+    # Git refuses a partial commit during a merge or a cherry-pick, and a commit off a branch stays reachable only
+    # from a detached HEAD. Leave the files in the worktree in both states. The user commits them after that work.
+    def _commit(self, repository: Repository) -> str | None:
+        if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
+            logger.info("installation_uncommitted")
+            return None
+        # A workspace can sit under the repository root. Git reads a pathspec from that root.
+        prefix = self.root.resolve().relative_to(repository.path)
+        installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
+        try:
+            # Stage intent only, because Git commits a named path only after the index knows it.
+            # Force it, because a project can ignore `.jri`. JRI keeps its workspace in Git anyway.
+            repository.stage(installed, intent_to_add=True, force=True)
+            # A second installation of an unchanged workspace has nothing to commit.
+            # Git reports that state as a failure.
+            if not repository.read_status(installed):
+                return None
+            commit = repository.commit("jri: initialize project", paths=installed)
+        # A project hook can refuse this commit, and Git can fail for a reason outside JRI.
+        # The workspace is written and ready, so report the commit that did not happen instead of ending on it.
+        except git.Error:
+            logger.exception("installation_commit_failed")
+            return None
+        logger.info("installation_committed commit=%s", commit)
+        return commit
 
     # These are all paths that `--force` replaces, whether they exist or not. The workspace owns this list.
     @property
@@ -206,6 +244,7 @@ class Installation:
     workspace: Workspace
     created: bool
     repository_created: bool
+    commit: str | None
 
 
 # This is a reset that JRI can perform and the paths it replaces at check time.

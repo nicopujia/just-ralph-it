@@ -34,7 +34,9 @@ RECORDS_AFTER = 0.4
 def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     installation = install_workspace(tmp_path)
 
-    assert installation == Installation(Workspace(tmp_path), created=True, repository_created=True)
+    assert installation == Installation(
+        Workspace(tmp_path), created=True, repository_created=True, commit=git.Repository(tmp_path).read_head()
+    )
     assert installation.workspace.directory == tmp_path / paths.WORKSPACE_DIR
     assert installation.workspace.settings_file == tmp_path / paths.SETTINGS_FILE
     assert (tmp_path / paths.SETTINGS_FILE).read_text() == Settings.render()
@@ -47,23 +49,94 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     assert list((tmp_path / paths.LOGS_DIR).iterdir()) == []
 
 
-def test_leaves_the_project_uncommitted_when_it_creates_the_repository(tmp_path: Path) -> None:
+def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tmp_path: Path) -> None:
     (tmp_path / "main.py").write_text("print('hello')\n")
     (tmp_path / ".env").write_text("SECRET=1\n")
     (tmp_path / ".DS_Store").write_bytes(b"\x00")
 
-    install_workspace(tmp_path)
+    installation = install_workspace(tmp_path)
 
     repository = git.Repository(tmp_path)
-    assert not repository.has_commit()
+    commit = repository.read_head()
+    assert installation.commit == commit
+    assert set(repository.read_tree(commit)) == set(paths.INSTALLED_PATHS)
     assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == ".DS_Store\n.env\n.env.*\n"
-    assert {item.path for item in repository.read_status()} == {
-        paths.PROJECT_GITIGNORE_FILE,
-        paths.GITIGNORE_FILE,
-        paths.SETTINGS_FILE,
-        paths.NOTEBOOK_FILE,
-        "main.py",
-    }
+    # The project belongs to the user. Only the workspace files JRI wrote
+    # itself are in its commit; everything else waits for the user.
+    assert {item.path for item in repository.read_status()} == {paths.PROJECT_GITIGNORE_FILE, "main.py"}
+
+
+def test_leaves_the_changes_in_a_workspace_it_did_not_write_uncommitted(tmp_path: Path) -> None:
+    first = install_workspace(tmp_path)
+    (tmp_path / paths.SETTINGS_FILE).write_text("# The settings the user changed.\n")
+
+    second = install_workspace(tmp_path)
+
+    # This installation wrote nothing, so it has nothing to commit. The
+    # change is the user's, and they commit it when they want it kept.
+    assert second.commit is None
+    assert git.Repository(tmp_path).read_head() == first.commit
+
+
+def test_commits_the_workspace_a_forced_start_over_replaced(tmp_path: Path, run_git: RunGit) -> None:
+    install_workspace(tmp_path)
+    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n")
+    run_git(tmp_path, "commit", "-qam", "custom settings")
+
+    installation = install_workspace(tmp_path, force=True)
+
+    repository = git.Repository(tmp_path)
+    commit = repository.read_head()
+    assert installation.commit == commit
+    assert repository.read_file(commit, paths.SETTINGS_FILE).decode() == Settings.render()
+
+
+def test_commits_nothing_when_a_forced_start_over_changed_nothing(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    forced = install_workspace(tmp_path, force=True)
+
+    again = install_workspace(tmp_path, force=True)
+
+    assert again.commit is None
+    assert git.Repository(tmp_path).read_head() == forced.commit
+
+
+def test_leaves_the_workspace_uncommitted_during_a_merge(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
+    run_git(tmp_path, "checkout", "-qb", "other")
+    (tmp_path / "README.md").write_bytes(b"# Other\n")
+    run_git(tmp_path, "commit", "-qam", "other")
+    run_git(tmp_path, "checkout", "-q", "-")
+    (tmp_path / "README.md").write_bytes(b"# First\n")
+    run_git(tmp_path, "commit", "-qam", "first")
+    run_git(tmp_path, "merge", "other", check=False)
+    head = repository.read_head()
+
+    installation = install_workspace(tmp_path)
+
+    # Git refuses a partial commit here, and the merge is the user's to
+    # finish. The workspace still stands for the commit they make next.
+    assert installation.commit is None
+    assert repository.read_head() == head
+    assert (tmp_path / paths.SETTINGS_FILE).read_text() == Settings.render()
+
+
+def test_leaves_the_workspace_uncommitted_off_a_branch(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
+    run_git(tmp_path, "checkout", "-q", "--detach")
+    head = repository.read_head()
+
+    installation = install_workspace(tmp_path)
+
+    # A commit made off a branch is reachable only from a detached HEAD,
+    # and returning to the branch would lose the workspace with it.
+    assert installation.commit is None
+    assert repository.read_head() == head
+    assert (tmp_path / paths.SETTINGS_FILE).read_text() == Settings.render()
 
 
 def test_keeps_an_existing_ignore_file_when_creating_the_repository(tmp_path: Path) -> None:
@@ -74,14 +147,13 @@ def test_keeps_an_existing_ignore_file_when_creating_the_repository(tmp_path: Pa
     assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == "build/\n"
 
 
-def test_leaves_a_repository_without_commits_alone(tmp_path: Path, run_git: RunGit) -> None:
+def test_writes_no_ignore_file_into_a_repository_it_did_not_create(tmp_path: Path, run_git: RunGit) -> None:
     run_git(tmp_path, "init", "-q")
     (tmp_path / "main.py").write_text("print('hello')\n")
 
     installation = install_workspace(tmp_path)
 
     assert not installation.repository_created
-    assert not git.Repository(tmp_path).has_commit()
     assert not (tmp_path / paths.PROJECT_GITIGNORE_FILE).exists()
 
 

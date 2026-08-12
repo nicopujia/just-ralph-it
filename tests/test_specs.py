@@ -425,10 +425,12 @@ def updated_client() -> FakeClient:
 # This test data supports the tests below.
 # This test data supports the tests below.
 def kill_a_run(path: Path, method: str, kill: object) -> None:
+    # Install before the kill, because an installation commits the
+    # workspace with the same Git calls a run makes.
+    conversation = build_conversation(path, successful_client())
     with pytest.MonkeyPatch.context() as killed:
         killed.setattr(git.Repository, method, kill)
-        events = build_conversation(path, successful_client()).ralph()
-        assert read_ending(events, "stopped before it finished") == "failed"
+        assert read_ending(conversation.ralph(), "stopped before it finished") == "failed"
 
 
 def test_commits_complete_specification_bundle(
@@ -444,12 +446,15 @@ def test_commits_complete_specification_bundle(
     assert run_git(tmp_path, "show", "-s", "--format=%B") == (
         "jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>\nJRI-Specifications: accepted"
     )
-    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
+    # The installation commits the settings, notes, and ignore rules.
+    # This commit completes the bundle, and the tree holds all of it.
+    assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
         ".jri/.gitignore",
         ".jri/notebook.yaml",
         ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
+        "README.md",
     ]
     assert not run_git(tmp_path, "status", "--short")
 
@@ -529,8 +534,6 @@ def test_commits_modified_settings_with_specifications(
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
     settings_file = tmp_path / ".jri/settings.yaml"
-    run_git(tmp_path, "add", ".jri/settings.yaml")
-    run_git(tmp_path, "commit", "-qm", "add settings")
     settings_file.write_text(f"{settings_file.read_text()}\n# Project-specific settings.\n")
 
     list(conversation.ralph())
@@ -741,11 +744,11 @@ def test_puts_back_the_specification_a_killed_acceptance_deleted(
     create_repository(tmp_path)
     list(build_conversation(tmp_path, build_client(FUNCTIONAL_PAIR_FILES)).ralph())
     accepted = find_accepted_commit(tmp_path)
+    conversation = build_conversation(
+        tmp_path, build_client({}, UPDATED_ARCHITECTURE_FILES, functional_deleted=["functional/exports.md"])
+    )
     with pytest.MonkeyPatch.context() as killed:
         killed.setattr(git.Repository, "stage", kill_the_run_before_staging)
-        conversation = build_conversation(
-            tmp_path, build_client({}, UPDATED_ARCHITECTURE_FILES, functional_deleted=["functional/exports.md"])
-        )
         conversation.restore()
         assert read_ending(conversation.ralph(), "stopped before it finished") == "failed"
     exports = tmp_path / ".jri/specs/functional/exports.md"
@@ -785,9 +788,7 @@ def test_undoes_the_acceptance_a_killed_run_left_staged(
     create_repository(tmp_path)
     kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
     assert git.Repository(tmp_path).read_status() == (
-        git.Status(".jri/.gitignore", " ", "A"),
-        git.Status(".jri/notebook.yaml", " ", "A"),
-        git.Status(".jri/settings.yaml", " ", "A"),
+        git.Status(".jri/.gitignore", " ", "M"),
         git.Status(".jri/specs/architecture/design.md", " ", "A"),
         git.Status(".jri/specs/functional/behavior.md", " ", "A"),
     )
@@ -850,8 +851,6 @@ def test_keeps_the_acceptance_a_killed_run_wrote_before_git_copied_the_index(
     assert accepted == run_git(tmp_path, "rev-parse", "HEAD")
     assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
         ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
         ".jri/specs/functional/behavior.md",
     ]
     (tmp_path / ".git/index.lock").unlink()
@@ -895,8 +894,6 @@ def test_settles_the_index_beside_a_record_it_cannot_read(
     Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
     assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
         ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
         ".jri/specs/functional/behavior.md",
     ]
 
@@ -1244,7 +1241,7 @@ def test_refuses_specifications_left_uncommitted_before_generation(
 
     assert read_ending(conversation.ralph(), r"stray\.md") == "blocked"
 
-    assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
+    assert run_git(tmp_path, "log", "--format=%s").splitlines() == ["jri: initialize project", "initial"]
 
 
 def test_reports_a_notebook_file_it_cannot_read(tmp_path: Path, create_repository: CreateRepository) -> None:
@@ -1377,8 +1374,6 @@ def test_commits_specifications_while_the_project_has_uncommitted_work(
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
@@ -1404,8 +1399,6 @@ def test_commits_specifications_while_the_project_has_work_staged(
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
@@ -1429,8 +1422,6 @@ def test_commits_specifications_into_a_project_that_ignores_the_workspace(
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
