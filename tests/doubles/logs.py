@@ -70,13 +70,14 @@ from jri.core import logs
 
 bound, turns = int(sys.argv[1]), Path(sys.argv[2])
 padding = Path(sys.argv[4]).read_text(encoding="utf-8")
+handoff = 0.0005
 logs.LOG_FILE_BYTES = bound
 logs.configure(SimpleNamespace(logging=SimpleNamespace(level="INFO")))
 logger = logging.getLogger("jri.view")
 (turns / "configured").touch()
 for turn, size in enumerate(int(batch) for batch in sys.argv[3].split(",")):
     while not (turns / str(turn)).exists():
-        time.sleep(0.01)
+        time.sleep(handoff)
     for index in range(size):
         logger.info("VIEW %d %d %s", turn, index, padding)
     (turns / f"{turn}.done").touch()

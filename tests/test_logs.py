@@ -27,6 +27,8 @@ from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
 
+AT_ONCE_TURN_RECORDS = 25
+AT_ONCE_TURNS = 8
 EARLIER_RUN = "[an earlier run] left this"
 FAILURE_RECORD = "THE BUG HAPPENED HERE"
 FILLED_TIMES = 4
@@ -38,7 +40,6 @@ OPENING_RECORD = "THE SESSION OPENED HERE"
 OVERSIZED_PADDING = "y" * (logs.LOG_RECORD_BYTES * 4)
 OVERSIZED_RECORDS = 40
 RECORD_PADDING = "x" * 200
-RECORDS_PER_RUN = 200
 SABOTAGED_PATHS = tuple(itertools.product(LOG_PATHS, SABOTAGE_SHAPES))
 SABOTAGED_PATHS_THAT_ESCAPE = {
     (paths.LOGS_DIR, "a link to a directory"): "a link the log needs no repair to follow is a link it keeps",
@@ -222,19 +223,25 @@ def test_keeps_every_record_after_the_oldest_when_two_runs_of_a_session_write_at
     monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
     logs.configure(settings)
     logger = logging.getLogger("jri.chat")
+    # The runs write in turns. Each run starts its turn while the other run writes.
+    # One run can write two turns before the other run writes. It cannot write more.
+    # The records of two turns are less than the part a trim keeps, so a trim keeps records of both runs.
+    batches = [AT_ONCE_TURN_RECORDS] * AT_ONCE_TURNS
 
-    with run_beside(tmp_path, bound=SMALL_LOG_FILE_BYTES, batches=[RECORDS_PER_RUN], padding=RECORD_PADDING) as turns:
-        turns.start(0)
-        for index in range(RECORDS_PER_RUN):
-            logger.info("CHAT 0 %d %s", index, RECORD_PADDING)
-        turns.wait_for(0)
+    with run_beside(tmp_path, bound=SMALL_LOG_FILE_BYTES, batches=batches, padding=RECORD_PADDING) as turns:
+        for turn in range(AT_ONCE_TURNS):
+            turns.start(turn)
+            for index in range(AT_ONCE_TURN_RECORDS):
+                logger.info("CHAT %d %d %s", turn, index, RECORD_PADDING)
+            turns.wait_for(turn)
 
     log = read_session_log(tmp_path)
     for run in ("CHAT", "VIEW"):
-        kept = [int(index) for index in re.findall(rf"{run} 0 (\d+)", log)]
+        written = [f"{run} {turn} {index}" for turn in range(AT_ONCE_TURNS) for index in range(AT_ONCE_TURN_RECORDS)]
+        kept = re.findall(rf"{run} \d+ \d+", log)
         assert kept, f"the trims dropped every record the {run} run wrote"
         # A trim drops the oldest records. What stays is every record written after them, in write order.
-        assert kept == list(range(kept[0], RECORDS_PER_RUN))
+        assert kept == written[written.index(kept[0]) :]
 
 
 def test_reads_back_in_time_order_when_two_runs_write_at_once(tmp_path: Path) -> None:
