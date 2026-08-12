@@ -5,12 +5,13 @@ import socket
 import subprocess
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Never
+from typing import Never, cast
 
 import httpx
 import pytest
 from dotenv import dotenv_values
 
+from jri.core.settings import LLM
 from jri.lib import git
 from jri.lib.models import read_context_limit
 from tests.doubles.models import serve_catalog
@@ -95,6 +96,14 @@ def isolate_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPa
 @pytest.fixture(autouse=True)
 def isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
+
+
+# The default settings name the variable that holds the provider key.
+# A test that loads the default settings needs this variable.
+# Set a test value, because the key in the shell must not change a result.
+@pytest.fixture(autouse=True)
+def isolate_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(cast("str", LLM().api_key), "test-provider-key")
 
 
 @pytest.fixture

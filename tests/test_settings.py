@@ -31,13 +31,14 @@ def test_generates_a_settings_file_that_round_trips_through_the_model(tmp_path: 
     settings = Settings.load()
 
     assert settings.model_dump() == Settings().model_dump()
-    assert settings.llm.provider == "openai-subscription"
+    assert settings.llm.provider == "https://openrouter.ai/api/v1"
+    assert settings.llm.api_key == "OPENROUTER_API_KEY"
     assert settings.logging.level == "INFO"
     assert {name: agent["model"] for name, agent in settings.agents.model_dump().items()} == {
-        "interviewer": "gpt-5.6-sol",
-        "explorer": "gpt-5.6-terra",
-        "functional_analyst": "gpt-5.6-sol",
-        "architect": "gpt-5.6-sol",
+        "interviewer": "openai/gpt-5.6-sol",
+        "explorer": "openai/gpt-5.6-terra",
+        "functional_analyst": "openai/gpt-5.6-sol",
+        "architect": "openai/gpt-5.6-sol",
     }
     assert {name: agent["reasoning_effort"] for name, agent in settings.agents.model_dump().items()} == {
         "interviewer": "medium",
@@ -158,7 +159,7 @@ def test_reports_an_unset_environment_variable(tmp_path: Path) -> None:
 
 def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
     values = yaml.safe_load(Settings.render())
-    values["llm"] = {"provider": "https://api.openai.com/v1"}
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": None}
     write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError, match=r"llm\.api_key"):
@@ -235,7 +236,7 @@ def test_blames_the_setting_an_unset_environment_variable_belongs_to(tmp_path: P
 
 def test_blames_the_api_key_a_subscriptionless_provider_needs(tmp_path: Path) -> None:
     values = yaml.safe_load(Settings.render())
-    values["llm"] = {"provider": "https://api.openai.com/v1"}
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": None}
     write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError) as error:
@@ -244,8 +245,12 @@ def test_blames_the_api_key_a_subscriptionless_provider_needs(tmp_path: Path) ->
     assert error.value.errors()[0]["loc"] == ("llm", "api_key")
 
 
-def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path) -> None:
-    write_settings_text(tmp_path, Settings.render())
+def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "openai-subscription"}
+    write_settings(tmp_path, values)
+    # The subscription has its own login. It must not need the variable that llm.api_key names.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     assert isinstance(Settings.load().llm.client, codex.Client)
 
@@ -255,14 +260,18 @@ def test_accepts_a_complete_subscription_login(tmp_path: Path, monkeypatch: pyte
     write_login(
         tmp_path, {"access_token": build_token(DISTANT_FUTURE), "refresh_token": "refresh", "account_id": "account"}
     )
-    write_settings_text(tmp_path, Settings.render())
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "openai-subscription"}
+    write_settings(tmp_path, values)
 
     Settings.load().llm.validate_authentication()
 
 
 def test_reports_a_missing_subscription_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
-    write_settings_text(tmp_path, Settings.render())
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "openai-subscription"}
+    write_settings(tmp_path, values)
 
     with pytest.raises(codex.AuthError):
         Settings.load().llm.validate_authentication()

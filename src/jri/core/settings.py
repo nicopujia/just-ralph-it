@@ -52,25 +52,25 @@ class AgentProfile(BaseModel):
 
 class AgentProfiles(BaseModel):
     interviewer: AgentProfile = Field(
-        default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="medium"),
+        default=AgentProfile(model="openai/gpt-5.6-sol", reasoning_effort="medium"),
         description="Leads the requirements-gathering interview. Recommended model type: smart, and fairly fast.",
     )
     explorer: AgentProfile = Field(
-        default=AgentProfile(model="gpt-5.6-terra", reasoning_effort="low"),
+        default=AgentProfile(model="openai/gpt-5.6-terra", reasoning_effort="low"),
         description=(
             "Runs shell commands, reads files, and browses the web for the interviewer. "
             "Recommended model type: low cost, fast, and able to read images."
         ),
     )
     functional_analyst: AgentProfile = Field(
-        default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="xhigh"),
+        default=AgentProfile(model="openai/gpt-5.6-sol", reasoning_effort="xhigh"),
         description=(
             "Turns the interview notes into functional specifications. "
             "Recommended model type: the smartest model available."
         ),
     )
     architect: AgentProfile = Field(
-        default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="xhigh"),
+        default=AgentProfile(model="openai/gpt-5.6-sol", reasoning_effort="xhigh"),
         description=(
             "Designs the system that meets those specifications. Recommended model type: the smartest model available."
         ),
@@ -81,17 +81,19 @@ class AgentProfiles(BaseModel):
 
 class LLM(BaseModel):
     provider: str = Field(
-        default="openai-subscription",
+        default="https://openrouter.ai/api/v1",
         description=(
-            'Set this to "openai-subscription" to reuse a ChatGPT subscription through the Codex CLI. Or set this '
-            "to the base URL of an OpenAI-compatible provider, for example https://api.openai.com/v1\n\n"
-            "The subscription option needs the Codex CLI (https://learn.chatgpt.com/docs/codex/cli). "
+            "The base URL of an OpenAI-compatible provider. The default provider supplies the models of many "
+            "companies with one key. Each agent below can use a different model. Get a key at "
+            "https://openrouter.ai/keys. You can also add the keys that you have at "
+            "https://openrouter.ai/settings/integrations.\n\n"
+            'Set this to "openai-subscription" to use a ChatGPT subscription. This option needs the Codex CLI '
+            "(https://learn.chatgpt.com/docs/codex/cli). "
             'Set `cli_auth_credentials_store = "file"` in ~/.codex/settings.toml. Then run `codex login`.'
         ),
     )
     api_key: str | None = Field(
-        default=None,
-        examples=["OPENAI_API_KEY"],
+        default="OPENROUTER_API_KEY",
         description=(
             "Name of the environment variable that holds the API key for the provider above. This setting is "
             'required unless the provider is "openai-subscription". Do not put the key itself here. JRI reads the '
@@ -187,12 +189,17 @@ class Settings(BaseModel):
 
     @model_validator(mode="after")
     def validate_api_keys(self) -> "Settings":
-        if self.llm.provider != "openai-subscription" and not self.llm.api_key:
+        subscription = self.llm.provider == "openai-subscription"
+        if not subscription and not self.llm.api_key:
             raise _reject_setting(
                 ("llm", "api_key"),
                 "must name the environment variable holding the API key, unless llm.provider is openai-subscription",
             )
-        for section, variable in (("llm", self.llm.api_key), ("brave_search", self.brave_search.api_key)):
+        # The subscription has its own login. JRI does not read a key variable for it.
+        for section, variable in (
+            ("llm", None if subscription else self.llm.api_key),
+            ("brave_search", self.brave_search.api_key),
+        ):
             if variable and variable not in os.environ:
                 raise _reject_setting(
                     (section, "api_key"), f"names {variable}, but that environment variable is not set"
