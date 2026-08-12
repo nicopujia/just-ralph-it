@@ -12,6 +12,8 @@ COMMIT = "1a2b3c4"
 FINISHED_ROW = ToolCallFinished("commit", "Saved the specifications to your project", "done")
 STARTED_ROW = ToolCallStarted("commit", "Saving the specifications to your project", "💾")
 THOUGHT = ReasoningDelta("Weighing the options.")
+STREAMED_THOUGHT = "part {number} "
+STREAMED_THOUGHTS = 200
 # Check this test support.
 # Check this test support.
 STOPS_WITHIN = 10.0
@@ -43,6 +45,14 @@ def generate_succeeding(_settings: "Settings", _cancelled: Event | None = None) 
 def generate_thinking(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:
     yield STARTED_ROW
     yield THOUGHT
+    yield FINISHED_ROW
+    return COMMIT
+
+
+def generate_streaming(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:
+    yield STARTED_ROW
+    for number in range(STREAMED_THOUGHTS):
+        yield ReasoningDelta(STREAMED_THOUGHT.format(number=number))
     yield FINISHED_ROW
     return COMMIT
 

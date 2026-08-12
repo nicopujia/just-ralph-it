@@ -31,12 +31,15 @@ from tests.doubles.specs_generation import (
     COMMIT,
     FINISHED_ROW,
     STARTED_ROW,
+    STREAMED_THOUGHT,
+    STREAMED_THOUGHTS,
     THOUGHT,
     generate_blocked,
     generate_failing,
     generate_refused,
     generate_silently,
     generate_stopped,
+    generate_streaming,
     generate_succeeding,
     generate_thinking,
 )
@@ -139,6 +142,17 @@ def test_writes_every_event_a_run_produced(tmp_path: Path, monkeypatch: pytest.M
         },
         {"kind": "conclusion", "ending": "committed", "commit": COMMIT, "ambiguities": [], "detail": ""},
     ]
+
+
+def test_writes_the_reasoning_a_run_streams_as_batches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    generation = run(tmp_path, monkeypatch, generate_streaming)
+
+    _, *records = read_journal(generation)
+
+    thoughts = [record for record in records if record["kind"] == "thought"]
+    assert 0 < len(thoughts) < STREAMED_THOUGHTS
+    streamed = "".join(STREAMED_THOUGHT.format(number=number) for number in range(STREAMED_THOUGHTS))
+    assert "".join(str(thought["text"]) for thought in thoughts) == streamed
 
 
 def test_reads_back_the_events_a_journal_holds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
