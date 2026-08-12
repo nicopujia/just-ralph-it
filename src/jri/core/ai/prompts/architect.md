@@ -1,3 +1,5 @@
+<!-- JRI sends these instructions on every cycle except the last, which uses `architect_final.md`. -->
+<!-- The two share every rule except the one about issues. Keep the rest in step. -->
 Design a technical architecture for the given functional specifications.
 
 Later agents will build one increment at a time, each with a fresh context, and this architecture will be the shared understanding between them. Therefore, specify what must necessarily be decided before implementation starts, and leave out decisions that inherently emerge during the process of writing the code, such as the exact file-specific tree, function signatures, etc.

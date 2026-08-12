@@ -41,7 +41,11 @@ class Output(BaseModel):
 
 
 class Architect:
-    FINAL_PROMPT = prompts.read("architect_final")
+    # The last pass takes the decisions that a review would send back, so it receives its own instructions.
+    # Appending them to the review instructions would state both rules at once.
+    FINAL_PROMPT = prompts.read(
+        "architect_final", architecture_specs_root=paths.ARCHITECTURE_SPECS_ROOT, workspace_dir=paths.WORKSPACE_DIR
+    )
 
     def __init__(self, settings: Settings) -> None:
         profile = settings.agents.architect
@@ -60,11 +64,7 @@ class Architect:
         return None if output is None else output.result
 
     def finish(self, context: Input, cancelled: Event) -> Generator[ReasoningDelta, None, Architecture | None]:
-        return (
-            yield from self.runner.parse(
-                self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Architecture, cancelled
-            )
-        )
+        return (yield from self.runner.parse(self._build_input(context, self.FINAL_PROMPT), Architecture, cancelled))
 
     @staticmethod
     def _build_input(context: Input, instructions: str) -> ResponseInputParam:
