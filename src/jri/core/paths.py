@@ -33,9 +33,10 @@ RUNNER_LOG_FILE = f"{GENERATION_DIR}/runner.log"
 
 LOGS_DIR = f"{WORKSPACE_DIR}/logs"
 
-LOG_FILE = f"{LOGS_DIR}/jri.log"
-# Log rotation renames log files. This lock file remains in place while session runs use it.
-LOG_LOCK_FILE = f"{LOGS_DIR}/.lock"
+# One file holds the whole session. A trim drops its oldest records to keep it inside its size limit.
+LOG_FILE = f"{LOGS_DIR}/session.log"
+# Session runs take this lock to write the log file. A trim rewrites that file, and this lock stays where it is.
+LOG_LOCK_FILE = f"{LOGS_DIR}/lock"
 
 SPECS_DIR = f"{WORKSPACE_DIR}/specs"
 

@@ -29,6 +29,8 @@ from tests.doubles.workspace import install_workspace
 
 EARLIER_RUN = "[an earlier run] left this"
 FAILURE_RECORD = "THE BUG HAPPENED HERE"
+FILLED_TIMES = 4
+FILLER_LINE_BYTES = 1024
 FILLING_RECORD_BYTES = 32 * 1024
 # A lone surrogate is how Python represents a git ref byte sequence that is not valid UTF-8 (`surrogateescape`).
 LONE_SURROGATE_NAME = "refs/heads/caf\udce9.lock"
@@ -88,34 +90,35 @@ def test_names_the_version_and_the_process_on_every_line(tmp_path: Path) -> None
     assert all(f"[{__version__}] [{os.getpid()}]" in line for line in lines)
 
 
-def test_bounds_the_files_and_the_bytes_a_long_session_leaves(tmp_path: Path) -> None:
+def test_bounds_the_file_and_the_bytes_a_long_session_leaves(tmp_path: Path) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
 
     logs.configure(settings)
     logger = logging.getLogger("jri")
-    for _ in range(logs.LOG_FILE_BYTES // FILLING_RECORD_BYTES * (logs.KEPT_LOG_FILES + 1)):
+    for _ in range(logs.LOG_FILE_BYTES // FILLING_RECORD_BYTES * FILLED_TIMES):
         logger.info("x" * FILLING_RECORD_BYTES)
 
     files = list_log_files(tmp_path)
-    assert len(files) == logs.KEPT_LOG_FILES
-    assert all(file.stat().st_size <= logs.LOG_FILE_BYTES for file in files)
+    assert [file.name for file in files] == [Path(paths.LOG_FILE).name]
+    assert files[0].stat().st_size <= logs.LOG_FILE_BYTES
 
 
-def test_keeps_the_opening_of_a_session_that_fills_the_files_over_and_over(tmp_path: Path) -> None:
+def test_keeps_the_newest_records_of_a_session_that_fills_the_file_over_and_over(tmp_path: Path) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
 
     logs.configure(settings)
     logger = logging.getLogger("jri")
     logger.info(OPENING_RECORD)
-    for _ in range(logs.LOG_FILE_BYTES // FILLING_RECORD_BYTES * (logs.KEPT_LOG_FILES + 1)):
+    for _ in range(logs.LOG_FILE_BYTES // FILLING_RECORD_BYTES * FILLED_TIMES):
         logger.info("x" * FILLING_RECORD_BYTES)
     logger.info(FAILURE_RECORD)
 
     log = read_session_log(tmp_path)
-    assert OPENING_RECORD in log
     assert FAILURE_RECORD in log
+    assert OPENING_RECORD not in log, "the file keeps its newest records, and this one is older than the limit"
+    assert logs.TRIM_NOTICE in log
 
 
 @pytest.mark.parametrize(("path", "shape"), SABOTAGED_PATHS)
@@ -189,9 +192,10 @@ def test_reads_back_in_the_order_two_runs_of_a_session_wrote(tmp_path: Path, mon
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
     monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
-    # Fill the file near its bound so the first records the runs write force a rotation, instead of waiting for one.
-    filler = "." * (SMALL_LOG_FILE_BYTES - len(EARLIER_RUN) - 1)
-    (tmp_path / paths.LOG_FILE).write_text(f"{EARLIER_RUN}{filler}\n")
+    # Fill the file to its bound so the first records the runs write force a trim, instead of waiting for one.
+    # A trim keeps the newest records, so write the record that must survive it last.
+    filler = f"{'.' * (FILLER_LINE_BYTES - 1)}\n" * (SMALL_LOG_FILE_BYTES // FILLER_LINE_BYTES)
+    (tmp_path / paths.LOG_FILE).write_text(f"{filler}{EARLIER_RUN}\n")
     logs.configure(settings)
     logger = logging.getLogger("jri.chat")
     written: list[str] = []
@@ -206,11 +210,11 @@ def test_reads_back_in_the_order_two_runs_of_a_session_wrote(tmp_path: Path, mon
             written += [f"VIEW {turn} {index}" for index in range(TURN_RECORDS)]
 
     log = read_session_log(tmp_path)
-    assert EARLIER_RUN in log, "a rotation the runs raced dropped the file neither of them had filled"
+    assert EARLIER_RUN in log, "a trim the runs raced dropped a record newer than the part it keeps"
     assert re.findall(r"(?:CHAT|VIEW) \d+ \d+", log) == written
 
 
-def test_keeps_every_record_two_runs_of_a_session_write_at_once(
+def test_keeps_every_record_after_the_oldest_when_two_runs_of_a_session_write_at_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     install_workspace(tmp_path)
@@ -227,7 +231,10 @@ def test_keeps_every_record_two_runs_of_a_session_write_at_once(
 
     log = read_session_log(tmp_path)
     for run in ("CHAT", "VIEW"):
-        assert re.findall(rf"{run} 0 (\d+)", log) == [str(index) for index in range(RECORDS_PER_RUN)]
+        kept = [int(index) for index in re.findall(rf"{run} 0 (\d+)", log)]
+        assert kept, f"the trims dropped every record the {run} run wrote"
+        # A trim drops the oldest records. What stays is every record written after them, in write order.
+        assert kept == list(range(kept[0], RECORDS_PER_RUN))
 
 
 def test_reads_back_in_time_order_when_two_runs_write_at_once(tmp_path: Path) -> None:

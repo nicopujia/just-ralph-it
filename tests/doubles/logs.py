@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, override
 
-from jri.core import logs, paths
+from jri.core import paths
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -24,12 +24,7 @@ if TYPE_CHECKING:
 # Check this test support.
 # Check this test support.
 # Check this test support.
-LOG_PATHS = (
-    paths.LOGS_DIR,
-    paths.LOG_LOCK_FILE,
-    paths.LOG_FILE,
-    *(f"{paths.LOG_FILE}.{index}" for index in range(1, logs.KEPT_LOG_FILES)),
-)
+LOG_PATHS = (paths.LOGS_DIR, paths.LOG_LOCK_FILE, paths.LOG_FILE)
 POLL = 0.01
 # Check this test support.
 # Check this test support.

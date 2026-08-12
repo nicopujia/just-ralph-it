@@ -1,6 +1,5 @@
 import contextlib
 import errno
-import itertools
 import logging
 import os
 import shutil
@@ -18,11 +17,12 @@ from .settings import Settings
 from .workspace import Workspace
 
 # A session outlives its serving process. `jri chat` restores its conversation, and `jri view` reads the same notes.
-# All session runs append here. A session reset clears this directory.
-# Preserve the opening log permanently. A report zips this directory and must include setup, not only the latest window.
-# This directory cannot preserve log data that a window drops.
-KEPT_LOG_FILES = 3
-LOG_FILE_BYTES = 5 * 1024 * 1024
+# All session runs append to one file. A session reset clears this directory.
+# The file keeps the most recent records of the session. A long session loses its opening.
+LOG_FILE_BYTES = 10 * 1024 * 1024
+# A trim keeps this share of the file limit. The remainder is the room that records fill before the next trim.
+# A trim writes the kept records again, so this share sets how much history stays and how often JRI pays for it.
+LOG_KEPT_SHARE = 0.5
 # `open` adds these flags to flags required by its mode. A link can write records outside `.jri`.
 # A pipe can block the open while the run holds the log lock. Windows has neither flag and follows a link.
 LOG_FILE_FLAGS = 0
@@ -31,7 +31,7 @@ if sys.platform != "win32":
 # These are the permissions that `open` uses to create a file.
 # The umask still controls access for users other than the owner.
 LOG_FILE_PERMISSIONS = 0o666
-# A record reaches the file whole or not at all. A record over the file limit would exceed that limit before rotation.
+# A record reaches the file whole or not at all. A record over the file limit would exceed that limit before a trim.
 # Fetched pages, read files, and model output can create such records.
 # Keep their beginning and state the removed byte count.
 # This limit must remain below `LOG_FILE_BYTES`.
@@ -44,6 +44,7 @@ LOG_STAMP_BYTES = len(LOG_STAMP.format(time="0000-00-00 00:00:00,000"))
 # `%f` includes microseconds, but the log uses milliseconds. Remove the final three stamp digits.
 LOG_TIME_FORMAT = "%Y-%m-%d %H:%M:%S,%f"
 LOG_TIME_MICROSECOND_DIGITS = 3
+TRIM_NOTICE = "[earlier records dropped]"
 TRUNCATION_NOTICE = "... [{dropped} bytes dropped]"
 # This marks the source of a record that cannot be rendered.
 UNRENDERED_RECORD = "unrendered_record source={source}:{line}"
@@ -72,10 +73,6 @@ class SessionLog(logging.Handler):
     def __init__(self, file: Path, lock_file: Path) -> None:
         super().__init__()
         self.file = file
-        # Store files from oldest to newest: the opening, rotated files, and the current file.
-        self.kept_files = tuple(
-            file.with_name(f"{file.name}.{index}") if index else file for index in reversed(range(KEPT_LOG_FILES))
-        )
         self.file_lock = Lock(lock_file)
 
     @override
@@ -111,7 +108,7 @@ class SessionLog(logging.Handler):
                 directory.unlink()
         directory.mkdir(parents=True, exist_ok=True)
         _grant_owner_access(directory)
-        for path in (*self.kept_files, self.file_lock.path):
+        for path in (self.file, self.file_lock.path):
             if path.is_symlink() or (path.exists() and not path.is_file()):
                 _discard(path)
             else:
@@ -132,8 +129,8 @@ class SessionLog(logging.Handler):
         return rendered.encode(errors="backslashreplace")
 
     def _write(self, body: bytes) -> None:
-        # `jri chat` and `jri view` can write this file at the same time. Rotation can rename it under another run.
-        # Stamp, size check, rotation, and append must occur under one lock.
+        # `jri chat` and `jri view` can write this file at the same time. A trim can rewrite it under another run.
+        # Stamp, size check, trim, and append must occur under one lock.
         with self.file_lock:
             stamp = datetime.now(UTC).astimezone().strftime(LOG_TIME_FORMAT)[:-LOG_TIME_MICROSECOND_DIGITS]
             line = LOG_STAMP.format(time=stamp).encode() + body + b"\n"
@@ -149,21 +146,20 @@ class SessionLog(logging.Handler):
                     raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), str(self.file))
                 size = standing.st_size
             if size and size + len(line) > LOG_FILE_BYTES:
-                self._rotate()
+                self._trim(size)
             with open(self.file, "ab", opener=_open_the_log) as stream:
                 stream.write(line)
 
-    def _rotate(self) -> None:
-        opening, *window = self.kept_files
-        # The first rotation would drop the session opening, so freeze that file.
-        # Later rotations move only the rotating window.
-        # A path that does not hold a log file holds no records. Let its rename fail and trigger repair.
-        if not opening.is_file():
-            self.file.replace(opening)
-            return
-        for older, newer in itertools.pairwise(window):
-            if newer.is_file():
-                newer.replace(older)
+    # Keep the newest records and drop the oldest ones. Read and write the file under the lock the append holds.
+    # A run that wrote a record before the trim keeps it only if the record is in the kept part.
+    def _trim(self, size: int) -> None:
+        with open(self.file, "rb", opener=_open_the_log) as stream:
+            stream.seek(max(size - int(LOG_FILE_BYTES * LOG_KEPT_SHARE), 0))
+            kept = stream.read()
+        # The cut lands inside a record. Remove the part of that record which stayed, and report the removal.
+        _, _, kept = kept.partition(b"\n")
+        with open(self.file, "wb", opener=_open_the_log) as stream:
+            stream.write(f"{TRIM_NOTICE}\n".encode() + kept)
 
 
 # Remove files on a best-effort basis. An immutable file can require unavailable privileges.
@@ -179,7 +175,7 @@ def _discard(path: Path) -> None:
 def _grant_owner_access(path: Path) -> None:
     with contextlib.suppress(OSError):
         mode = path.stat().st_mode
-        # A directory without owner access cannot be written, emptied, or read for rotated files.
+        # A directory without owner access cannot be written, emptied, or read for the log file.
         # Restore only owner access. Preserve access configured for other users.
         wanted = mode | (stat.S_IRWXU if stat.S_ISDIR(mode) else stat.S_IRUSR | stat.S_IWUSR)
         if wanted != mode:
