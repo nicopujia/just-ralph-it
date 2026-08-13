@@ -8,6 +8,10 @@ from jri.tui import styles
 
 
 class MessagesContainer(VerticalScroll):
+    # The window opens with no focus, thus the first Tab must reach the message input. A scroll area that takes the
+    # keys puts a stop before it. The reader scrolls with the mouse and with the anchor that follows a reply.
+    can_focus = False
+
     def __init__(self, on_scroll: Callable[[], None], on_top: Callable[[], Awaitable[None]]) -> None:
         super().__init__(id=styles.MESSAGES_CONTAINER_ID)
         self.on_scroll = on_scroll
