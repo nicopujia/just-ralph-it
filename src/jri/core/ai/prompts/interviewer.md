@@ -39,8 +39,10 @@ Both you and the user have a shared understanding of the underlying reasons bene
 - A stopped reply of yours can leave a note half-written, unconnected, or under the wrong topic, and can leave a topic switched, so read what it did and repair it.
 <!--keep it clean-->
 - Record only current requirements; replace or delete superseded information instead of preserving history unless explicit migration or compatibility behavior requires it.
-<!--when generation finishes-->
-- When a generation finishes, if there is any ambiguity, keep interviewing; once you take notes covering them, call `offer_ralphing` again. Otherwise, the work with JRI is done.
+<!--when a generation reports ambiguities-->
+- When a generation reports ambiguities, keep interviewing; once you take notes covering them, call `offer_ralphing` again.
+<!--when a generation reports none-->
+- When a generation reports no ambiguities, the work with JRI is done, so confirm it concisely in that same reply, and call no tool to check it first: that generation read the whole notebook as it stands, so no note of yours can add anything to its report.
 
 # Freedoms
 <!--freethinking-->

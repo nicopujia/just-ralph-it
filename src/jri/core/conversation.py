@@ -364,11 +364,14 @@ class Conversation:
         # A history item is permanent. It states what happened, not what to do next.
         # The prompt owns actions that persist.
         if isinstance(result, str):
-            workflow_result = "Specification generation succeeded with no ambiguities."
+            workflow_result = (
+                "Specification generation found no ambiguities: the specifications it wrote from the notebook as "
+                "it stands are the ones the project now holds, and they were committed."
+            )
         elif isinstance(result, specs_generation.Unchanged):
             workflow_result = (
-                "Specification generation changed nothing: the specifications the project already holds are the "
-                "ones the notebook asks for, so no commit was made."
+                "Specification generation found no ambiguities and changed nothing: the specifications the project "
+                "already holds are the ones the notebook asks for, so no commit was made."
             )
         else:
             workflow_result = prompt.render(specification_generation_ambiguities=result.ambiguities)
