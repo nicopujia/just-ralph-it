@@ -31,9 +31,12 @@ while True:
         ticks.write(b".")
     time.sleep(0.005)
 """
+# A holder stays alive while its test reads the project. A parallel run loads the machine, thus this window
+# must outlive the slowest test by a large margin. Each holder ends when its test ends.
+HELD_FOR = 300
 # Check this test support.
 # Check this test support.
-HOLDER = """
+HOLDER = f"""
 import os, signal, sys, time
 from pathlib import Path
 from jri.core import paths
@@ -48,13 +51,13 @@ if deaf:
 taken = Lock(root / paths.LOCK_FILE).take(record) if record else Workspace(root).open_hold().take()
 assert taken
 ready.write_text(str(os.getpid()))
-time.sleep(30)
+time.sleep({HELD_FOR})
 """
 POLL = 0.01
 # Check this test support.
 # Check this test support.
 # Check this test support.
-SLOW_HOLDER = """
+SLOW_HOLDER = f"""
 import os, sys, time
 from pathlib import Path
 from jri.core import paths
@@ -71,7 +74,7 @@ os.lseek(descriptor, LOCKED_BYTES, os.SEEK_SET)
 os.write(descriptor, str(os.getpid()).encode())
 os.close(descriptor)
 claim.release()
-time.sleep(30)
+time.sleep({HELD_FOR})
 """
 STARTS_WITHIN = 30
 # Check this test support.

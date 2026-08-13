@@ -27,6 +27,11 @@ UV_COMMANDS = (
         "-q",
         "-m",
         f"not {CONTRACT_MARKER}",
+        # A test waits for a subprocess, a Git command, or a file much longer than it calculates. One worker
+        # for each core reads that wait as free time and fills it. More workers than cores only add load,
+        # which makes a test that waits for a deadline miss it.
+        "-n",
+        "auto",
         "--cov=src/jri/core",
         "--cov=src/jri/lib",
         "--cov-report=term-missing",

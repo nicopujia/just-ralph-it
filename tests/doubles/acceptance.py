@@ -81,9 +81,12 @@ WINDOW_MARKER = "window-open"
 # Check this test support.
 # Check this test support.
 KILL_THE_GIT = "kill -9 $PPID\n"
+# A hook stays alive while its test reads the repository. A parallel run loads the machine, thus this window
+# must outlive the slowest test by a large margin. Each test ends its own hook.
+HELD_FOR = 300
 # Check this test support.
 # Check this test support.
-HOLD_THE_WINDOW = "sleep 30\n"
+HOLD_THE_WINDOW = f"sleep {HELD_FOR}\n"
 # Check this test support.
 # Check this test support.
 # Check this test support.
@@ -120,7 +123,7 @@ TAKE_THE_LOCK = "touch {directory}/{lock}\n"
 # Check this test support.
 # Check this test support.
 HOLD_THE_LOCK = (
-    "sh -c 'touch {directory}/{lock}; exec sleep 30' >/dev/null 2>&1 &\n"
+    f"sh -c 'touch {{directory}}/{{lock}}; exec sleep {HELD_FOR}' >/dev/null 2>&1 &\n"
     f"echo $! > {{directory}}/{SECOND_COMMAND_PID}\n"
     "until [ -e {directory}/{lock} ]; do :; done\n"
 )

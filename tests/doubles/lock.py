@@ -11,15 +11,18 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 CHILD_SUFFIX = ".child"
+# A holder stays alive while its test reads the lock. A parallel run loads the machine, thus this window
+# must outlive the slowest test by a large margin. `hold` ends its holder when the test ends.
+HELD_FOR = 300
 # Check this test support.
 # Check this test support.
-HOLDER = """
+HOLDER = f"""
 import multiprocessing, sys, time
 from pathlib import Path
 from jri.lib.lock import Lock
 
 def rest():
-    time.sleep(30)
+    time.sleep({HELD_FOR})
 
 with Lock(Path(sys.argv[1])):
     if len(sys.argv) > 3:
@@ -29,7 +32,7 @@ with Lock(Path(sys.argv[1])):
         child.start()
         Path(sys.argv[3]).write_text(str(child.pid))
     Path(sys.argv[2]).touch()
-    time.sleep(30)
+    time.sleep({HELD_FOR})
 """
 POLL = 0.01
 TAKER = """
