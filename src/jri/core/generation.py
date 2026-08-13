@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -275,6 +276,19 @@ class Generation:
                 path.unlink(missing_ok=True)
             except OSError:
                 logger.exception("generation_record_removal_failed path=%r", path)
+        self._drop_worktrees()
+
+    # A killed run leaves the worktree it worked in beside the project. A run that ends removes its own worktree,
+    # so every worktree that stands here now was left by a run that cannot come back for it.
+    # Report a failed removal instead of raising it. A leftover worktree stops no later run.
+    def _drop_worktrees(self) -> None:
+        worktree_dir = self.workspace.root / paths.WORKTREE_DIR
+        if not worktree_dir.exists():
+            return
+        try:
+            shutil.rmtree(worktree_dir)
+        except OSError:
+            logger.exception("worktree_removal_failed path=%r", worktree_dir)
 
     # Yield each run record and its ending when present. Close the reader before return or failure.
     # A suspended reader keeps the journal open. Windows cannot remove a file that this process still has open.

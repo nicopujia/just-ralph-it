@@ -160,9 +160,12 @@ class Repository:
         self._git_directory = Path(git_directory).resolve()
         self._common_directory = (candidate / common_directory).resolve()
 
+    # Return the repository that holds this path, and create one at this path when none does.
+    # `nested` initializes a repository at this path even where another repository already holds it. A copy of a
+    # project needs an index of its own, and the repository that holds the copy must never receive the copied files.
     @classmethod
-    def init(cls, path: Path | str, executable: str = "git") -> Self:
-        if find_root(Path(path)) is not None:
+    def init(cls, path: Path | str, executable: str = "git", *, nested: bool = False) -> Self:
+        if not nested and find_root(Path(path)) is not None:
             return cls(path, executable)
         resolved_executable = shutil.which(executable)
         if resolved_executable is None:
@@ -172,11 +175,11 @@ class Repository:
             candidate.mkdir(parents=True, exist_ok=True)
         except OSError as error:
             raise NotRepositoryError(f"Cannot initialize Git: {candidate}") from error
-        # Other commands use `_run`. It records existing locks and removes only locks that its command left. `init`
-        # runs before a repository exists. Each lock that it removes was left by a stopped run. `find_root` rejects
-        # this path as a repository. Locks protect commands in one repository, so no command in this repository runs
-        # here. `init` writes config and then HEAD with separate locks. A stop between the writes leaves a lock that
-        # stops later `init` calls. No `Repository` can be created for that `.git` directory to report the lock.
+        # Other commands use `_run`. It records existing locks and removes only locks that its command left. This
+        # command runs before a repository exists at this path. Each lock that it removes was left by a stopped run.
+        # Locks protect commands in one repository, so no command in this repository runs here. `init` writes config
+        # and then HEAD with separate locks. A stop between the writes leaves a lock that stops later `init` calls.
+        # No `Repository` can be created for that `.git` directory to report the lock.
         directory = candidate / ".git"
         Locks((directory,), (directory / "config", directory / "HEAD")).clear()
         result = subprocess.run(
@@ -281,9 +284,12 @@ class Repository:
         output = self._run("ls-files", "-co", "--exclude-standard", "-z").stdout
         return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
 
+    # Open a checkout of `revision` in `parent`, or a copy of the current worktree when `revision` is `None`.
+    # The caller names the directory that receives it. Each open takes a directory of its own, so two worktrees can
+    # stand at once. Git must ignore a `parent` inside this repository, or the copy below receives itself.
     @contextmanager
-    def open_worktree(self, revision: str | None = "HEAD") -> Generator["Repository"]:
-        with tempfile.TemporaryDirectory(prefix="git-worktree-") as temporary_directory:
+    def open_worktree(self, revision: str | None = "HEAD", *, parent: Path) -> Generator["Repository"]:
+        with tempfile.TemporaryDirectory(prefix="git-worktree-", dir=parent) as temporary_directory:
             location = Path(temporary_directory) / (revision or "worktree")
             if revision is None:
                 location.mkdir()
@@ -293,7 +299,7 @@ class Repository:
                         destination = location / relative_path
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(source, destination)
-                repository = type(self).init(location, str(self.executable))
+                repository = type(self).init(location, str(self.executable), nested=True)
                 repository.stage((".",))
                 yield repository
                 return

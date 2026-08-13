@@ -436,11 +436,11 @@ class Specs:
     @contextmanager
     def _open_pre_image(self, accepted: str | None) -> Generator[git.Repository]:
         if accepted is not None:
-            with self.repository.open_worktree(accepted) as worktree:
+            with self.repository.open_worktree(accepted, parent=self.workspace.open_worktree_dir()) as worktree:
                 yield worktree
             return
-        with TemporaryDirectory(prefix="jri-rebuild-") as directory:
-            yield git.Repository.init(directory)
+        with TemporaryDirectory(prefix="jri-rebuild-", dir=self.workspace.open_worktree_dir()) as directory:
+            yield git.Repository.init(directory, nested=True)
 
     # A partial write leaves either no file or an initial part of the target.
     # `git apply` removes a file before recreating it.

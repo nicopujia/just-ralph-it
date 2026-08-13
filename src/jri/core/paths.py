@@ -29,6 +29,10 @@ CANCEL_FILE = f"{GENERATION_DIR}/cancel"
 # It reports a crash before journaling starts.
 RUNNER_LOG_FILE = f"{GENERATION_DIR}/runner.log"
 
+# A run opens each Git worktree it works in under here, beside the project rather than in a system temporary
+# directory. Every worktree here belongs to a run, and a run that ends removes the one it opened.
+WORKTREE_DIR = f"{WORKSPACE_DIR}/worktree"
+
 LOGS_DIR = f"{WORKSPACE_DIR}/logs"
 
 # One file holds the whole session. A trim drops its oldest records to keep it inside its size limit.
@@ -58,4 +62,4 @@ INSTALLED_PATHS = (SETTINGS_FILE, GITIGNORE_FILE, NOTEBOOK_FILE)
 # These are all paths that JRI commits.
 COMMITTED_PATHS = (*INSTALLED_PATHS, COMMITTED_SPECS)
 
-RESET_PATHS = (SESSION_FILE, NOTEBOOK_FILE, VISUALIZATION_FILE, LOGS_DIR, SPECS_DIR, GENERATION_DIR)
+RESET_PATHS = (SESSION_FILE, NOTEBOOK_FILE, VISUALIZATION_FILE, LOGS_DIR, SPECS_DIR, GENERATION_DIR, WORKTREE_DIR)

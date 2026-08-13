@@ -38,6 +38,7 @@ class Workspace:
         f"/{Path(paths.LOCK_FILE).name}",
         f"/{Path(paths.CLAIM_FILE).name}",
         f"/{Path(paths.GENERATION_DIR).name}/",
+        f"/{Path(paths.WORKTREE_DIR).name}/",
     )
 
     root: Path
@@ -120,6 +121,14 @@ class Workspace:
         self.generation_dir.mkdir(exist_ok=True, parents=True)
         self._ignore()
         return self.generation_dir
+
+    # This directory receives the Git worktrees a run works in. The ignore rule is written before the first worktree,
+    # because Git reads a worktree here as project content without it.
+    def open_worktree_dir(self) -> Path:
+        worktree_dir = self.root / paths.WORKTREE_DIR
+        worktree_dir.mkdir(exist_ok=True, parents=True)
+        self._ignore()
+        return worktree_dir
 
     # Return a reset only after every refusal check passes. Check both conditions before return.
     # A `--force` warning then appears only when JRI can perform the reset.

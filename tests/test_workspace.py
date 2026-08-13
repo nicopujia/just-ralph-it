@@ -41,7 +41,7 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     assert installation.workspace.settings_file == tmp_path / paths.SETTINGS_FILE
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
     assert (tmp_path / paths.GITIGNORE_FILE).read_text(encoding="utf-8") == (
-        "session.json\nlogs\nvisualization.html\n/lock\n/lock.claim\n/generation/\n"
+        "session.json\nlogs\nvisualization.html\n/lock\n/lock.claim\n/generation/\n/worktree/\n"
     )
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text(encoding="utf-8")) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
@@ -65,6 +65,22 @@ def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tm
     # The project belongs to the user. Only the workspace files JRI wrote
     # itself are in its commit; everything else waits for the user.
     assert {item.path for item in repository.read_status()} == {".DS_Store", ".env", "main.py"}
+
+
+def test_opens_a_worktree_directory_that_stays_out_of_the_project(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    repository = git.Repository(tmp_path)
+
+    worktree_dir = workspace.open_worktree_dir()
+    checkout = worktree_dir / "git-worktree-1" / "HEAD"
+    checkout.mkdir(parents=True)
+    (checkout / "main.py").write_text("print('a copy of the project')\n", encoding="utf-8")
+
+    assert worktree_dir == tmp_path / paths.WORKTREE_DIR
+    # A run works in this directory while Git reads the project. Git reports nothing it holds, and no later read
+    # of the project files finds a copy of the project among them.
+    assert repository.read_status() == ()
+    assert paths.WORKTREE_DIR not in "\n".join(repository.read_worktree_paths())
 
 
 def test_commits_every_ignore_rule_a_chat_and_a_run_use(tmp_path: Path) -> None:
@@ -244,7 +260,7 @@ def test_preserves_an_existing_workspace_when_initializing_again(tmp_path: Path)
     assert not installation.created
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == "custom settings\n"
     assert (tmp_path / paths.GITIGNORE_FILE).read_text(encoding="utf-8") == (
-        "custom-cache\nlogs\nsession.json\nvisualization.html\n/lock\n/lock.claim\n/generation/\n"
+        "custom-cache\nlogs\nsession.json\nvisualization.html\n/lock\n/lock.claim\n/generation/\n/worktree/\n"
     )
 
 
@@ -300,7 +316,7 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     # The reset paths never include the ignore file itself, only what it
     # lists. A forced reset must keep a rule the file already held.
     assert (base_dir / ".gitignore").read_text(encoding="utf-8") == (
-        "custom-cache\nsession.json\nlogs\nvisualization.html\n/lock\n/lock.claim\n/generation/\n"
+        "custom-cache\nsession.json\nlogs\nvisualization.html\n/lock\n/lock.claim\n/generation/\n/worktree/\n"
     )
 
 
