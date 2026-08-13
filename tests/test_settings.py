@@ -21,7 +21,7 @@ def write_settings(tmp_path: Path, values: dict[str, Any]) -> None:
 def write_settings_text(tmp_path: Path, text: str) -> None:
     settings_file = tmp_path / paths.SETTINGS_FILE
     settings_file.parent.mkdir(exist_ok=True)
-    settings_file.write_text(text)
+    settings_file.write_text(text, encoding="utf-8")
 
 
 def is_comment(line: str) -> bool:
@@ -49,7 +49,7 @@ def read_comments(lines: list[str]) -> list[str]:
 
 def test_generates_a_settings_file_that_round_trips_through_the_model(tmp_path: Path) -> None:
     (tmp_path / paths.SETTINGS_FILE).parent.mkdir(exist_ok=True)
-    (tmp_path / paths.SETTINGS_FILE).write_text(Settings.render())
+    (tmp_path / paths.SETTINGS_FILE).write_text(Settings.render(), encoding="utf-8")
 
     settings = Settings.load()
 

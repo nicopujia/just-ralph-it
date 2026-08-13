@@ -39,9 +39,9 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     )
     assert installation.workspace.directory == tmp_path / paths.WORKSPACE_DIR
     assert installation.workspace.settings_file == tmp_path / paths.SETTINGS_FILE
-    assert (tmp_path / paths.SETTINGS_FILE).read_text() == Settings.render()
-    assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "session.json\nlogs\nvisualization.html\n"
-    assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == {
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
+    assert (tmp_path / paths.GITIGNORE_FILE).read_text(encoding="utf-8") == "session.json\nlogs\nvisualization.html\n"
+    assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text(encoding="utf-8")) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
         "connections": [],
         "next_note_id": "n1",
@@ -50,8 +50,8 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
 
 
 def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tmp_path: Path) -> None:
-    (tmp_path / "main.py").write_text("print('hello')\n")
-    (tmp_path / ".env").write_text("SECRET=1\n")
+    (tmp_path / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=1\n", encoding="utf-8")
     (tmp_path / ".DS_Store").write_bytes(b"\x00")
 
     installation = install_workspace(tmp_path)
@@ -60,7 +60,7 @@ def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tm
     commit = repository.read_head()
     assert installation.commit == commit
     assert set(repository.read_tree(commit)) == set(paths.INSTALLED_PATHS)
-    assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == ".DS_Store\n.env\n.env.*\n"
+    assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text(encoding="utf-8") == ".DS_Store\n.env\n.env.*\n"
     # The project belongs to the user. Only the workspace files JRI wrote
     # itself are in its commit; everything else waits for the user.
     assert {item.path for item in repository.read_status()} == {paths.PROJECT_GITIGNORE_FILE, "main.py"}
@@ -68,7 +68,7 @@ def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tm
 
 def test_leaves_the_changes_in_a_workspace_it_did_not_write_uncommitted(tmp_path: Path) -> None:
     first = install_workspace(tmp_path)
-    (tmp_path / paths.SETTINGS_FILE).write_text("# The settings the user changed.\n")
+    (tmp_path / paths.SETTINGS_FILE).write_text("# The settings the user changed.\n", encoding="utf-8")
 
     second = install_workspace(tmp_path)
 
@@ -80,7 +80,7 @@ def test_leaves_the_changes_in_a_workspace_it_did_not_write_uncommitted(tmp_path
 
 def test_commits_the_workspace_a_forced_start_over_replaced(tmp_path: Path, run_git: RunGit) -> None:
     install_workspace(tmp_path)
-    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n")
+    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n", encoding="utf-8")
     run_git(tmp_path, "commit", "-qam", "custom settings")
 
     installation = install_workspace(tmp_path, force=True)
@@ -120,7 +120,7 @@ def test_leaves_the_workspace_uncommitted_during_a_merge(
     # finish. The workspace still stands for the commit they make next.
     assert installation.commit is None
     assert repository.read_head() == head
-    assert (tmp_path / paths.SETTINGS_FILE).read_text() == Settings.render()
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
 
 
 def test_leaves_the_workspace_uncommitted_off_a_branch(
@@ -136,20 +136,20 @@ def test_leaves_the_workspace_uncommitted_off_a_branch(
     # and returning to the branch would lose the workspace with it.
     assert installation.commit is None
     assert repository.read_head() == head
-    assert (tmp_path / paths.SETTINGS_FILE).read_text() == Settings.render()
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
 
 
 def test_keeps_an_existing_ignore_file_when_creating_the_repository(tmp_path: Path) -> None:
-    (tmp_path / paths.PROJECT_GITIGNORE_FILE).write_text("build/\n")
+    (tmp_path / paths.PROJECT_GITIGNORE_FILE).write_text("build/\n", encoding="utf-8")
 
     install_workspace(tmp_path)
 
-    assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == "build/\n"
+    assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text(encoding="utf-8") == "build/\n"
 
 
 def test_writes_no_ignore_file_into_a_repository_it_did_not_create(tmp_path: Path, run_git: RunGit) -> None:
     run_git(tmp_path, "init", "-q")
-    (tmp_path / "main.py").write_text("print('hello')\n")
+    (tmp_path / "main.py").write_text("print('hello')\n", encoding="utf-8")
 
     installation = install_workspace(tmp_path)
 
@@ -221,15 +221,17 @@ def test_creates_the_working_directory_when_it_is_missing(tmp_path: Path) -> Non
 
 def test_preserves_an_existing_workspace_when_initializing_again(tmp_path: Path) -> None:
     (tmp_path / paths.WORKSPACE_DIR).mkdir()
-    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n")
-    (tmp_path / paths.GITIGNORE_FILE).write_text("custom-cache\nlogs")
+    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n", encoding="utf-8")
+    (tmp_path / paths.GITIGNORE_FILE).write_text("custom-cache\nlogs", encoding="utf-8")
 
     install_workspace(tmp_path)
     installation = install_workspace(tmp_path)
 
     assert not installation.created
-    assert (tmp_path / paths.SETTINGS_FILE).read_text() == "custom settings\n"
-    assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == "custom settings\n"
+    assert (tmp_path / paths.GITIGNORE_FILE).read_text(
+        encoding="utf-8"
+    ) == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
 
 
 def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path) -> None:
@@ -239,14 +241,14 @@ def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path)
         "next_note_id": "n2",
     }
     install_workspace(tmp_path)
-    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n")
-    (tmp_path / paths.NOTEBOOK_FILE).write_text(yaml.safe_dump(notebook))
+    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n", encoding="utf-8")
+    (tmp_path / paths.NOTEBOOK_FILE).write_text(yaml.safe_dump(notebook), encoding="utf-8")
 
     installation = install_workspace(tmp_path, force=True)
 
     assert not installation.created
-    assert (tmp_path / paths.SETTINGS_FILE).read_text() == Settings.render()
-    assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == {
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
+    assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text(encoding="utf-8")) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
         "connections": [],
         "next_note_id": "n1",
@@ -257,15 +259,15 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     base_dir = tmp_path / ".jri"
     base_dir.mkdir()
     settings_file = base_dir / "settings.yaml"
-    settings_file.write_text("custom settings_file")
-    (base_dir / ".gitignore").write_text("custom-cache\n")
-    (base_dir / "notebook.yaml").write_text(": invalid yaml")
-    (base_dir / "session.json").write_text("not json")
-    (base_dir / "visualization.html").write_text("old graph")
+    settings_file.write_text("custom settings_file", encoding="utf-8")
+    (base_dir / ".gitignore").write_text("custom-cache\n", encoding="utf-8")
+    (base_dir / "notebook.yaml").write_text(": invalid yaml", encoding="utf-8")
+    (base_dir / "session.json").write_text("not json", encoding="utf-8")
+    (base_dir / "visualization.html").write_text("old graph", encoding="utf-8")
     (base_dir / "logs").mkdir()
-    (base_dir / "logs" / "old.log").write_text("old log")
+    (base_dir / "logs" / "old.log").write_text("old log", encoding="utf-8")
     (base_dir / "specs").mkdir()
-    (base_dir / "specs" / "old.md").write_text("old spec")
+    (base_dir / "specs" / "old.md").write_text("old spec", encoding="utf-8")
 
     install_workspace(tmp_path, force=True)
     conversation = Conversation(build_settings(FakeClient([])))
@@ -276,14 +278,14 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
         ("t1", "Project overview")
     ]
     assert conversation.workspace.notebook_file == base_dir / "notebook.yaml"
-    assert settings_file.read_text() == Settings.render()
+    assert settings_file.read_text(encoding="utf-8") == Settings.render()
     assert not conversation.workspace.session_file.exists()
     assert not (base_dir / "visualization.html").exists()
     assert not (base_dir / "specs").exists()
     assert not (base_dir / "logs" / "old.log").exists()
     # The reset paths never include the ignore file itself, only what it
     # lists. A forced reset must keep a rule the file already held.
-    assert (base_dir / ".gitignore").read_text() == (
+    assert (base_dir / ".gitignore").read_text(encoding="utf-8") == (
         "custom-cache\n/lock\n/lock.claim\nsession.json\nlogs\nvisualization.html\n"
     )
 
@@ -296,7 +298,7 @@ def test_keeps_a_run_directory_out_of_the_project(
     repository = git.Repository(tmp_path)
     tracked = repository.read_worktree_paths()
 
-    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n", encoding="utf-8")
 
     assert repository.read_worktree_paths() == tracked
     assert not repository.read_status((paths.GENERATION_DIR,))
@@ -317,9 +319,9 @@ def test_puts_back_a_run_directory_rule_something_replaced(
     create_repository(tmp_path)
     workspace = install_workspace(tmp_path).workspace
     repository = git.Repository(tmp_path)
-    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n", encoding="utf-8")
     for rule in sorted(workspace.directory.rglob(workspace.gitignore_file.name)):
-        rule.write_text("# nothing to ignore here\n")
+        rule.write_text("# nothing to ignore here\n", encoding="utf-8")
 
     workspace.open_generation_dir()
 
@@ -330,7 +332,7 @@ def test_puts_back_a_run_directory_rule_something_replaced(
 
 def test_clears_a_run_directory_a_reset_asks_for(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
-    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n", encoding="utf-8")
 
     install_workspace(tmp_path, force=True)
 
@@ -339,33 +341,35 @@ def test_clears_a_run_directory_a_reset_asks_for(tmp_path: Path) -> None:
 
 def test_refuses_a_reset_while_a_window_has_the_project(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
-    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
-    workspace.draft_file.write_text("diff --git a/x b/x\n")
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n", encoding="utf-8")
+    workspace.draft_file.write_text("diff --git a/x b/x\n", encoding="utf-8")
     (tmp_path / paths.FUNCTIONAL_SPECS_DIR).mkdir(parents=True)
-    (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# what the project does\n")
+    (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# what the project does\n", encoding="utf-8")
 
     with hold_workspace(tmp_path) as window:
         with pytest.raises(PersistenceError, match=str(window.pid)):
             install_workspace(tmp_path, force=True)
 
         assert window.poll() is None, "the window holding the project was left to write into a workspace that went"
-        assert workspace.draft_file.read_text() == "diff --git a/x b/x\n"
-        assert (workspace.generation_dir / "journal.jsonl").read_text() == "what a model said\n"
-        assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == "# what the project does\n"
+        assert workspace.draft_file.read_text(encoding="utf-8") == "diff --git a/x b/x\n"
+        assert (workspace.generation_dir / "journal.jsonl").read_text(encoding="utf-8") == "what a model said\n"
+        assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text(
+            encoding="utf-8"
+        ) == "# what the project does\n"
         assert workspace.notebook_file.exists()
 
 
 def test_refuses_a_reset_while_a_run_is_still_going(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
     journal = workspace.open_generation_dir() / "journal.jsonl"
-    journal.write_text("what a model said\n")
+    journal.write_text("what a model said\n", encoding="utf-8")
 
     with hold(tmp_path / paths.GENERATION_LOCK_FILE) as runner:
         with pytest.raises(PersistenceError, match="run is still going"):
             install_workspace(tmp_path, force=True)
 
         assert runner.poll() is None, "the run was left writing into a directory that went"
-        assert journal.read_text() == "what a model said\n"
+        assert journal.read_text(encoding="utf-8") == "what a model said\n"
         assert not take(tmp_path / paths.GENERATION_LOCK_FILE)
 
 
@@ -422,23 +426,23 @@ def test_leaves_a_workspace_alone_while_a_window_has_the_project(tmp_path: Path)
     workspace = install_workspace(tmp_path).workspace
     notebook = (
         workspace.notebook_file
-        .read_text()
+        .read_text(encoding="utf-8")
         .replace("notes: {}", "notes: {n1: What the window wrote.}")
         .replace("next_note_id: n1", "next_note_id: n2")
     )
-    workspace.notebook_file.write_text(notebook)
+    workspace.notebook_file.write_text(notebook, encoding="utf-8")
 
     with hold_workspace(tmp_path) as window:
         installation = install_workspace(tmp_path)
 
         assert not installation.created
-        assert workspace.notebook_file.read_text() == notebook
+        assert workspace.notebook_file.read_text(encoding="utf-8") == notebook
         assert window.poll() is None
 
 
 def test_resets_the_project_the_window_holding_it_let_go_of(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
-    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n", encoding="utf-8")
     with hold_workspace(tmp_path) as window:
         window.kill()
         window.wait()
@@ -450,7 +454,7 @@ def test_resets_the_project_the_window_holding_it_let_go_of(tmp_path: Path) -> N
 
 def test_resets_a_project_whose_run_already_ended(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
-    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n", encoding="utf-8")
     (tmp_path / paths.GENERATION_LOCK_FILE).touch()
 
     install_workspace(tmp_path, force=True)
@@ -667,11 +671,13 @@ def test_names_this_process_as_the_one_holding_the_project(tmp_path: Path) -> No
 def test_keeps_the_rest_of_the_project_when_resetting_the_workspace(tmp_path: Path) -> None:
     for name in (paths.ARCHITECTURE_SPECS_ROOT, paths.FUNCTIONAL_SPECS_ROOT, "src"):
         (tmp_path / name).mkdir()
-        (tmp_path / name / "file.md").write_text("project content")
+        (tmp_path / name / "file.md").write_text("project content", encoding="utf-8")
 
     install_workspace(tmp_path, force=True)
 
     kept = {".jri", ".git", paths.PROJECT_GITIGNORE_FILE}
     assert [
-        (path.name, (path / "file.md").read_text()) for path in sorted(tmp_path.iterdir()) if path.name not in kept
+        (path.name, (path / "file.md").read_text(encoding="utf-8"))
+        for path in sorted(tmp_path.iterdir())
+        if path.name not in kept
     ] == [("architecture", "project content"), ("functional", "project content"), ("src", "project content")]
