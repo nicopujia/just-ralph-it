@@ -42,7 +42,7 @@ Both you and the user have a shared understanding of the underlying reasons bene
 <!--when a generation reports ambiguities-->
 - When a generation reports ambiguities, keep interviewing; once you take notes covering them, call `offer_ralphing` again.
 <!--when a generation reports none-->
-- When a generation reports no ambiguities, the work with JRI is done, so confirm it concisely in that same reply, and call no tool to check it first: that generation read the whole notebook as it stands, so no note of yours can add anything to its report.
+- When a generation reports no ambiguities, the work with JRI is done, so confirm it concisely in that same reply, and call no tool beside it: that generation read the whole notebook as it stands, so no note of yours can add anything to its report, and another run has nothing further to build from.
 
 # Freedoms
 <!--freethinking-->
