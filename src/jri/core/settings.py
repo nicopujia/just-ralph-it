@@ -1,7 +1,7 @@
 import difflib
 import os
 import textwrap
-from typing import Annotated, Literal, LiteralString, Self, cast
+from typing import Annotated, Any, Literal, LiteralString, Self, cast
 
 import yaml
 from openai import OpenAI
@@ -20,10 +20,14 @@ type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhig
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
 APPLICATION_NAME = "jri"
+API_KEY_DESCRIPTION = "Name of the environment variable (NOT the key itself!)"
 COMMENT_WIDTH = 100
 INTRO = (
-    "Welcome to JRI! You can use this file now, with no changes. The values below are the defaults JRI uses. "
-    "The commented lines are optional settings: remove the # to turn one on."
+    "Welcome to Just Ralph It!\n\n"
+    "When asked for an API key, you have to specify the name of the corresponding environment variable, "
+    "and then JRI reads the variables defined at your shell and at the .env file at the root of this project, "
+    "if any.\n"
+    "That is because this settings file is meant to be committed."
 )
 
 
@@ -32,19 +36,15 @@ def read_api_key(variable: str) -> str:
 
 
 class AgentProfile(BaseModel):
-    model: str = Field(description="ID of the model.")
+    model: str = Field(description="The ID of the model, as the provider writes it.")
     reasoning_effort: ReasoningEffort = Field(
         default=None,
-        description=(
-            "Reasoning effort. The values are: none, minimal, low, medium, high, xhigh, and max. The value none "
-            "turns reasoning off. Omit this setting to let the model pick its own default. Not every model supports "
-            "every value. A model rejects a value it does not support."
-        ),
+        description="One of none, minimal, low, medium, high, xhigh, max. Not all models accept all the values.",
     )
     temperature: Temperature = Field(
         default=None,
         examples=[0.2],
-        description="Sampling temperature. The value 0 gives focused output. The value 2 gives varied output.",
+        description="0 gives predictable output and 2 gives random output. Reasoning models refuse this setting.",
     )
 
     model_config = ConfigDict(extra="forbid")
@@ -52,27 +52,28 @@ class AgentProfile(BaseModel):
 
 class AgentProfiles(BaseModel):
     interviewer: AgentProfile = Field(
-        default=AgentProfile(model="openai/gpt-5.6-sol", reasoning_effort="medium"),
-        description="Leads the requirements-gathering interview. Recommended model type: smart, and fairly fast.",
+        default=AgentProfile(model="x-ai/grok-4.6", reasoning_effort="medium"),
+        examples=[{"temperature": 0.75}],
+        description=("Interacts with you and takes notes.\nUse a smart model with a relatively fast reasoning_effort."),
     )
     explorer: AgentProfile = Field(
-        default=AgentProfile(model="openai/gpt-5.6-terra", reasoning_effort="low"),
+        default=AgentProfile(model="openai/gpt-5.6-luna", reasoning_effort="low"),
+        examples=[{"temperature": 0}],
         description=(
-            "Runs shell commands, reads files, and browses the web for the interviewer. "
-            "Recommended model type: low cost, fast, and able to read images."
+            "Runs commands, reads files, and browses the web for the interviewer.\n"
+            "Use a low-cost and fast model with vision capabilities."
         ),
     )
     functional_analyst: AgentProfile = Field(
         default=AgentProfile(model="openai/gpt-5.6-sol", reasoning_effort="xhigh"),
-        description=(
-            "Turns the interview notes into functional specifications. "
-            "Recommended model type: the smartest model available."
-        ),
+        description="Writes the functional specifications.\nUse the smartest model that you have.",
     )
     architect: AgentProfile = Field(
-        default=AgentProfile(model="openai/gpt-5.6-sol", reasoning_effort="xhigh"),
+        default=AgentProfile(model="anthropic/claude-opus-5", reasoning_effort="xhigh"),
         description=(
-            "Designs the system that meets those specifications. Recommended model type: the smartest model available."
+            "Designs the system.\n"
+            "Use the smartest model that you have and, if possible, from a different lab than the "
+            "functional_analyst."
         ),
     )
 
@@ -83,23 +84,12 @@ class LLM(BaseModel):
     provider: str = Field(
         default="https://openrouter.ai/api/v1",
         description=(
-            "The base URL of an OpenAI-compatible provider. The default provider supplies the models of many "
-            "companies with one key. Each agent below can use a different model. Get a key at "
-            "https://openrouter.ai/keys. You can also add the keys that you have at "
-            "https://openrouter.ai/settings/integrations.\n\n"
-            'Set this to "openai-subscription" to use a ChatGPT subscription. This option needs the Codex CLI '
-            "(https://learn.chatgpt.com/docs/codex/cli). "
-            'Set `cli_auth_credentials_store = "file"` in ~/.codex/settings.toml. Then run `codex login`.'
+            "Here you can set the base URL of any OpenAI-compatible provider.\n"
+            "Or, for a ChatGPT subscription, write `openai-subscription`. "
+            "For that, you need the Codex CLI (https://learn.chatgpt.com/docs/codex/cli) installed and logged in."
         ),
     )
-    api_key: str | None = Field(
-        default="OPENROUTER_API_KEY",
-        description=(
-            "Name of the environment variable that holds the API key for the provider above. This setting is "
-            'required unless the provider is "openai-subscription". Do not put the key itself here. JRI reads the '
-            "key from your shell, or from the .env file at the root of your project."
-        ),
-    )
+    api_key: str | None = Field(default="OPENROUTER_API_KEY", description=API_KEY_DESCRIPTION)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -115,47 +105,38 @@ class LLM(BaseModel):
 
 
 class BraveSearch(BaseModel):
-    api_key: str | None = Field(
-        default=None,
-        examples=["BRAVE_SEARCH_API_KEY"],
-        description="Name of the environment variable that holds the Brave Search LLM Context API key.",
-    )
+    api_key: str | None = Field(default=None, examples=["BRAVE_SEARCH_API_KEY"], description=API_KEY_DESCRIPTION)
 
     model_config = ConfigDict(extra="forbid")
 
 
 class Logging(BaseModel):
-    level: LoggingLevel = Field(
-        default="INFO",
-        description=(
-            "Minimum logging level. The values are: DEBUG, INFO, WARNING, ERROR, and CRITICAL. "
-            f"JRI saves logs in the {paths.LOGS_DIR}/ directory."
-        ),
-    )
+    level: LoggingLevel = Field(default="INFO", description="One of DEBUG, INFO, WARNING, ERROR, CRITICAL.")
 
     model_config = ConfigDict(extra="forbid")
 
 
 class Settings(BaseModel):
-    llm: LLM = Field(default_factory=LLM, description="The provider that every agent sends model requests to.")
+    llm: LLM = Field(
+        default_factory=LLM,
+        description=(
+            "To start using JRI, you need an LLM inference provider.\n\n"
+            "OpenRouter is set as the default one for simplicity—with one key, it gives you access to "
+            "practically all models from all providers. You can get an API key at https://openrouter.ai/keys. "
+            "It is also useful because if you already have API keys from other providers, it lets you unify "
+            "them under a single provider, as it supports to Bring Your Own Key (BYOK).\n\n"
+            "Nevertheless, you can also use any OpenAI-compatible provider of your choice, or even a ChatGPT "
+            "subscription."
+        ),
+    )
     brave_search: BraveSearch = Field(
         default_factory=BraveSearch,
-        description=(
-            "Adds web search for the explorer agent. The explorer agent already has the shell, files, and URLs. "
-            "Get an API key at https://brave.com/search/api/."
-        ),
+        description="[Optional] Get a key at https://brave.com/search/api/ to add web search support.",
     )
     agents: AgentProfiles = Field(
-        default_factory=AgentProfiles,
-        description=(
-            "Each agent uses a model from the provider above. Omit the reasoning effort for models that do not "
-            "support reasoning. Omit the temperature to let the model pick its own value. Reasoning models reject "
-            "the temperature setting."
-        ),
+        default_factory=AgentProfiles, description="Each agent can use a different model from the provider above."
     )
-    logging: Logging = Field(
-        default_factory=Logging, description="The diagnostic messages that JRI writes while it runs."
-    )
+    logging: Logging = Field(default_factory=Logging, description=f"JRI writes the logs in {paths.LOGS_DIR}/.")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -166,11 +147,10 @@ class Settings(BaseModel):
 
     @classmethod
     def render(cls, *, comments: bool = True) -> str:
-        body = _render_settings(cls, None, 0, comments=comments)
+        body = _render_settings(cls, None, 0, set(), {}, comments=comments)
         if not comments:
             return "\n".join([*body, ""])
-        intro = [f"# {line}" for line in textwrap.wrap(INTRO, COMMENT_WIDTH)]
-        return "\n".join([*intro, "", *body, ""])
+        return "\n".join([*_wrap_comment(INTRO, ""), "", *body, ""])
 
     @classmethod
     def suggest_setting(cls, path: tuple[int | str, ...]) -> str | None:
@@ -210,39 +190,65 @@ class Settings(BaseModel):
         return self
 
 
-def _render_settings(model: type[BaseModel], values: BaseModel | None, level: int, *, comments: bool) -> list[str]:
+def _wrap_comment(description: str, indent: str) -> list[str]:
+    lines: list[str] = []
+    for paragraph in description.split("\n\n"):
+        if lines:
+            lines.append(f"{indent}#")
+        for text in paragraph.split("\n"):
+            # The # and the space after it are part of the width.
+            lines.extend(f"{indent}# {line}" for line in textwrap.wrap(text, COMMENT_WIDTH - len(indent) - 2))
+    return lines
+
+
+def _render_settings(
+    model: type[BaseModel],
+    values: BaseModel | None,
+    level: int,
+    documented: set[tuple[type[BaseModel], str]],
+    examples: dict[str, Any],
+    *,
+    comments: bool,
+) -> list[str]:
     indent = "  " * level
-    entries: list[list[str]] = []
+    entries: list[tuple[list[str], list[str]]] = []
     for name, field in model.model_fields.items():
         comment: list[str] = []
-        for paragraph in (field.description or "").split("\n\n") if comments else ():
-            if comment:
-                comment.append(f"{indent}#")
-            comment.extend(f"{indent}# {line}" for line in textwrap.wrap(paragraph, COMMENT_WIDTH - len(indent)))
+        # Document a setting one time. The agents repeat the settings of the same profile.
+        if comments and (model, name) not in documented:
+            documented.add((model, name))
+            comment = _wrap_comment(field.description or "", indent)
         value = getattr(values, name) if values is not None else field.default
         annotation = field.annotation
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             body = _render_settings(
-                annotation, value if isinstance(value, BaseModel) else None, level + 1, comments=comments
+                annotation,
+                value if isinstance(value, BaseModel) else None,
+                level + 1,
+                documented,
+                field.examples[0] if field.examples else {},
+                comments=comments,
             )
             unset = not body or all(line.lstrip().startswith("#") for line in body if line)
             # A file with no comments holds only the settings that have a value. An unset section has none.
             if unset and not comments:
                 continue
-            entries.append([*comment, f"{indent}# {name}:" if unset else f"{indent}{name}:", *body])
+            entries.append((comment, [f"{indent}# {name}:" if unset else f"{indent}{name}:", *body]))
             continue
         unset = value is None
         if unset and not comments:
             continue
         if unset:
-            value = field.examples[0] if field.examples else None
+            # A section can suggest its own value. The agents suggest a different temperature each.
+            value = examples.get(name, field.examples[0] if field.examples else None)
         setting = yaml.safe_dump({name: value}, sort_keys=False, allow_unicode=True, width=10**9).strip()
-        entries.append([*comment, f"{indent}# {setting}" if unset else f"{indent}{setting}"])
+        entries.append((comment, [f"{indent}# {setting}" if unset else f"{indent}{setting}"]))
 
     if not comments:
-        return [line for entry in entries for line in entry]
-    lines = [line for entry in entries for line in ("", *entry)]
-    return lines[1:]
+        return [line for _, entry in entries for line in entry]
+    # A blank line separates a comment from the setting above it. Settings with no comment stay together.
+    lines = [line for comment, entry in entries for line in (["", *comment, *entry] if comment else entry)]
+    return lines[1:] if lines and not lines[0] else lines
 
 
 def _reject_setting(path: tuple[str, ...], message: str) -> ValidationError:

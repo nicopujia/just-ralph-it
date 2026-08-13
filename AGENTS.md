@@ -12,7 +12,7 @@ After changes: `scripts/check.py`
 - Helpers only for: repeated logic, unavoidable extractions, linter alerts
 - DDD naming, modules included: `Agent.get_context`, NEVER `BaseOpenAIAgent.get_agent_context`; `repository.py`, NEVER `constants.py`
 - Functions/methods = verbs; except properties, event handlers, decorators
-- Comments and setting descriptions in ASD-STE100
+- Comments in ASD-STE100
 
 ## Boundaries
 - JRI must pass text it did not write through `lib.prompt.render`, or send it alone as a whole message with no JRI wording beside it to copy

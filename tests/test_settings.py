@@ -4,10 +4,10 @@ from typing import Any
 
 import pytest
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from jri.core import paths
-from jri.core.settings import Settings
+from jri.core.settings import AgentProfile, Settings
 from jri.lib.providers import codex
 from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
 
@@ -24,28 +24,38 @@ def write_settings_text(tmp_path: Path, text: str) -> None:
     settings_file.write_text(text)
 
 
+def is_comment(line: str) -> bool:
+    # A setting that has no value is also a line that starts with a #.
+    return line.strip().startswith("#") and not SETTING_PATTERN.fullmatch(line.strip())
+
+
+def read_setting_names(model: type[BaseModel]) -> set[str]:
+    names = set(model.model_fields)
+    for field in model.model_fields.values():
+        if isinstance(field.annotation, type) and issubclass(field.annotation, BaseModel):
+            names |= read_setting_names(field.annotation)
+    return names
+
+
+def read_comments(lines: list[str]) -> list[str]:
+    comments: list[list[str]] = [[]]
+    for line in lines:
+        if is_comment(line):
+            comments[-1].append(line.strip().removeprefix("#").strip())
+        elif comments[-1]:
+            comments.append([])
+    return [" ".join(text for text in comment if text) for comment in comments if comment]
+
+
 def test_generates_a_settings_file_that_round_trips_through_the_model(tmp_path: Path) -> None:
     (tmp_path / paths.SETTINGS_FILE).parent.mkdir(exist_ok=True)
     (tmp_path / paths.SETTINGS_FILE).write_text(Settings.render())
 
     settings = Settings.load()
 
+    # The values that the file writes are the values the model reads back. Each one is a default, not a constant
+    # this test must repeat.
     assert settings.model_dump() == Settings().model_dump()
-    assert settings.llm.provider == "https://openrouter.ai/api/v1"
-    assert settings.llm.api_key == "OPENROUTER_API_KEY"
-    assert settings.logging.level == "INFO"
-    assert {name: agent["model"] for name, agent in settings.agents.model_dump().items()} == {
-        "interviewer": "openai/gpt-5.6-sol",
-        "explorer": "openai/gpt-5.6-terra",
-        "functional_analyst": "openai/gpt-5.6-sol",
-        "architect": "openai/gpt-5.6-sol",
-    }
-    assert {name: agent["reasoning_effort"] for name, agent in settings.agents.model_dump().items()} == {
-        "interviewer": "medium",
-        "explorer": "low",
-        "functional_analyst": "xhigh",
-        "architect": "xhigh",
-    }
 
 
 def test_generates_a_settings_file_with_no_comments_that_round_trips(tmp_path: Path) -> None:
@@ -61,28 +71,21 @@ def test_generates_a_settings_file_with_no_comments_that_round_trips(tmp_path: P
     assert "temperature" not in text
 
 
-def test_documents_every_setting_it_generates() -> None:
+def test_documents_every_setting_it_generates_one_time() -> None:
     lines = Settings.render().splitlines()
 
-    settings = [(index, line.strip()) for index, line in enumerate(lines) if SETTING_PATTERN.fullmatch(line.strip())]
-
-    assert [line for index, line in settings if not lines[index - 1].strip().startswith("#")] == []
-    assert {line.removeprefix("# ").split(":")[0] for _, line in settings} == {
-        "agents",
-        "api_key",
-        "architect",
-        "brave_search",
-        "explorer",
-        "functional_analyst",
-        "interviewer",
-        "level",
-        "llm",
-        "logging",
-        "model",
-        "provider",
-        "reasoning_effort",
-        "temperature",
+    comments = read_comments(lines)
+    documented = {
+        line.strip().removeprefix("# ").split(":")[0]
+        for index, line in enumerate(lines)
+        if SETTING_PATTERN.fullmatch(line.strip()) and is_comment(lines[index - 1])
     }
+
+    # The introduction documents the settings that no section documents.
+    assert all(name in comments[0] for name in read_setting_names(Settings) - documented)
+    # The agents repeat the settings of the same profile. Only the first agent documents them.
+    profile = [str(field.description).replace("\n", " ") for field in AgentProfile.model_fields.values()]
+    assert [comment for comment in comments if comment in profile] == profile
 
 
 def test_reports_incomplete_settings(tmp_path: Path) -> None:
