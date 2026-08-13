@@ -142,9 +142,6 @@ class MessageInput(TextArea):
         self._message_index = len(self._messages)
         self.text = ""
 
-    def on_blur(self) -> None:
-        self.focus()
-
     # A turn from shortcuts, or the message below them, owns Escape. Close shortcuts before the turn can stop.
     def watch_is_turn_active(self) -> None:
         if self.is_turn_active:

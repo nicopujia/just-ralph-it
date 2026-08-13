@@ -56,10 +56,17 @@ Header {{
     layers: message ralphing;
 }}
 
+/* The window opens with no focus. A muted border tells the reader that the input does not take the keys.
+   The theme blurred border is the background color of the terminal, which shows no box at all. */
 #{MESSAGE_INPUT_ID} {{
     layer: message;
     height: auto;
     max-height: 16;
+    border: tall ansi_bright_black;
+}}
+
+#{MESSAGE_INPUT_ID}:focus {{
+    border: tall $border;
 }}
 
 /* The panel is over the message input, so it uses this input container.

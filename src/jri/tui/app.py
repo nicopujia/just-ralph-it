@@ -73,6 +73,9 @@ class Screen(TextualScreen[None]):
 
 
 class App(TextualApp[None]):
+    # The window opens with no focus. The user gives the message input the keys with a click or Tab.
+    # The app bindings stay available, because a screen with no focus sends its keys to the screen and the app.
+    AUTO_FOCUS = None
     # The footer shows only the three exits from the current view.
     # All other bindings have `show=False` and are in the keymap panel.
     # A permanent hint has little value. The footer is the only terminal line that remains reserved.
@@ -229,7 +232,6 @@ class App(TextualApp[None]):
         if self.conversation.pending_generation:
             await self._start_ralphing()
         await self._sync_ralph_button()
-        self.set_focus(self.message_input)
         logger.info("mounted theme=%s", self.theme)
 
     # When the window closes, set this event. It stops window updates for a run that continues.
@@ -347,7 +349,6 @@ class App(TextualApp[None]):
         self.active_turn_state = None
         App.ALLOW_SELECT = True
         await self._sync_ralph_button()
-        self.set_focus(self.message_input)
         self._sync_retry_shortcut()
         logger.info("turn_ending_rendered ending=%s", event.ending)
         # The turn is closed and the session holds it. The message that stopped the turn opens the next turn.

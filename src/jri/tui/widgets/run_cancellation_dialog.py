@@ -14,6 +14,8 @@ type RunCancellationAnswer = Literal["stop", "keep"]
 
 # A run takes a long time, and a stop cannot be undone. Ask for an answer here instead of accepting a key press.
 class RunCancellationDialog(ModalScreen[RunCancellationAnswer]):
+    # The conversation window opens with no focus. This dialog asks a question, thus it gives its answers the keys.
+    AUTO_FOCUS = "Button"
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss('keep')", copy.RUN_CANCELLATION_DECLINE, show=False)
     ]
