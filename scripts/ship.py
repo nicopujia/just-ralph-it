@@ -1,6 +1,5 @@
 #!/usr/bin/env -S uv run --script
 
-import os
 import re
 import shutil
 import subprocess
@@ -13,15 +12,21 @@ from urllib.parse import urlsplit
 import check
 
 # The gate runs `compileall` and writes these files under `src` on each run. uv_build excludes them from the wheel
-# and sdist, so a release does not carry them.
-CACHE_PATHSPEC = ":(exclude,glob)**/__pycache__/**"
+# and sdist, so a release does not carry them. pyproject.toml names the other excluded paths in `source-exclude`.
+CACHE_GLOB = "**/__pycache__/**"
 # Git returns 0 and a repository name for a directory in a repository. It returns 128 for a directory it cannot
 # read or that has no repository. These cases have the same result here. Any other result means Git did not check
 # the directory. An empty result from that failure can make `check_remote` accept a remote, including this repository.
 DIRECTORY_ANSWERS = frozenset({0, 128})
-# `--only` writes only the named paths, but Git gives the pre-commit hook a temporary index in GIT_INDEX_FILE. A
-# formatter hook can stage changes in that index, including paths that the gate did not read. `os.devnull` has no hook.
-COMMIT_COMMAND = ("-c", f"core.hooksPath={os.devnull}", "commit", "--only", "--message", "chore: version")
+# The gate runs `ruff --fix` and can rewrite any file it reads. `--all` writes those rewrites with the version, so the
+# release commit holds the tree the gate passed.
+COMMIT_COMMAND = ("commit", "--all", "--message", "chore: version")
+# A release carries the commit, not the tree, so work in progress must leave the tree for the run and return after it.
+# `--include-untracked` takes new files too. Ignored files stay because `source-exclude` and .gitignore agree on them.
+STASH_COMMAND = ("stash", "push", "--include-untracked", "--message", "ship")
+# A release moves the branch, the index, the tree, and the stash of one repository. Two releases at once each undo
+# what the other wrote. Git leaves a name it does not know in the repository directory, so a release holds this one.
+LOCK_NAME = "ship.lock"
 NUMBER_PATTERN = re.compile(r"\d+\.\d+\.\d+")
 # These are the two Git modes for a file with the same bytes as its blob. Any other mode for a carried path, such as
 # a link or gitlink, points to bytes that the build reads from another location.
@@ -51,21 +56,47 @@ def main() -> None:
     check_remote(git, root, remote)
     check_number(git, root, remote, version)
     check_upstream(git, root, remote, ref)
-    check_changes(git, root, frozenset())
+    lock = hold_repository(git, root)
+    try:
+        release_version(uv, git, root, version, remote, ref)
+    finally:
+        # This run took the hold, so no other run holds it now and this run removes it.
+        lock.unlink()
+
+
+def release_version(uv: str, git: str, root: Path, version: str, remote: str, ref: str) -> None:
+    stash = stash_changes(git, root)
+    try:
+        push_release(uv, git, root, version, remote, ref)
+    finally:
+        # The tree returns to the person who ran the release, whether it went out, stopped, or failed.
+        restore_changes(git, root, stash)
+
+
+def push_release(uv: str, git: str, root: Path, version: str, remote: str, ref: str) -> None:
+    # The stash leaves the tree with what the commit holds. What the tree still holds is what a stash cannot take,
+    # such as an entry Git compares on neither side, and `uv build` can ship it although `git push` cannot.
+    check_changes(git, root)
     head = _read_git(git, root, "rev-parse", "HEAD")
+    tag = f"{TAG_PREFIX}{version}"
     pushed: str | None = None
     try:
-        bump_version(uv, root, version)
-        # publish.yml requires this exact gate run for a release. Stop the release here if it cannot pass the gate,
-        # before it creates a tag.
+        # publish.yml runs this same gate over the commit the tag points to, so the released tree is checked there.
+        # Run it here first: a tree that cannot pass stops before this run writes a version it must then undo.
         check.check_project(root, contracts=True)
-        # The gate allows `ruff --fix` to rewrite files. A commit with only the version would push a tree the gate
-        # did not check.
-        check_changes(git, root, frozenset(BUMPED_PATHS))
-        pushed = commit_bump(git, root)
-        # The refspec selects the branch and does not use `push.default`. Do not use `--follow-tags`: publish.yml
-        # releases each commit that a `v` tag points to, and no tag here passed the gate in this run.
-        subprocess.run([git, "push", "--no-follow-tags", remote, f"HEAD:{ref}"], cwd=root, check=True)
+        bump_version(uv, root, version)
+        pushed = commit_release(git, root, tag)
+        # The commit holds every change the gate and the bump wrote. What the tree still holds, `uv build` can ship
+        # and `git push` cannot.
+        check_changes(git, root)
+        # The refspecs select the branch and this one tag, and do not use `push.default`. Do not use `--follow-tags`:
+        # it would also push every other annotated tag, and no other tag passed the gate in this run. `--atomic` writes
+        # both refs or neither, so the remote never holds a release tag over a commit the branch does not reach.
+        subprocess.run(
+            [git, "push", "--atomic", "--no-follow-tags", remote, f"HEAD:{ref}", f"refs/tags/{tag}"],
+            cwd=root,
+            check=True,
+        )
     except BaseException:
         # This script creates the version bump and its commit. The remote can accept a commit while the gate runs. If
         # the release fails, remove both changes. This prevents a `chore: version` commit for a release that did not
@@ -75,13 +106,23 @@ def main() -> None:
         # commands and can then run for minutes. Ctrl-C must end the run like a failed check. Otherwise, the next run
         # rejects the version in pyproject.toml and the changes in the tree.
         #
-        # Use the remote, not the push result, to determine if the release failed. Git can fail after it updates the
-        # remote ref: `post-receive` or `receive-pack` can stop, or the connection can close after the ref update. In
-        # these cases, the push returns nonzero although it creates the release. Removing the bump would leave a remote
-        # release with no local commit and make later pushes fail. If the remote does not answer, it does not show that
-        # the release did not go out. Do not undo changes in this case. Leave the tree for a person to inspect.
-        if pushed is None or _read_upstream_commit(git, root, remote, ref) != pushed:
-            subprocess.run([git, "reset", "--soft", head], cwd=root, check=True)
+        # Read the tag on the remote, not the push result, to determine if the release failed. The tag is what
+        # publish.yml releases, and `--atomic` writes it with the branch. Git can fail after it updates both refs:
+        # `post-receive` or `receive-pack` can stop, or the connection can close after the ref update. In these cases,
+        # the push returns nonzero although it creates the release. Removing the bump would leave a remote release with
+        # no local commit and make later pushes fail. A run that creates no commit creates no tag either, so it does
+        # not ask a remote that a failure here can make unreachable.
+        if pushed is None or not _read_upstream_commit(git, root, remote, f"refs/tags/{tag}"):
+            # Move the branch back only from where this run left it. The hold stops another release, and a person can
+            # still commit while the gate runs for minutes. That commit is not this run's to remove.
+            if _read_git(git, root, "rev-parse", "HEAD") == (pushed or head):
+                # `--mixed` leaves the index empty, as the stash left it. The rewrites the gate wrote stay in the tree
+                # for the next release to carry, and `restore_changes` can write the stash over a tree it can read.
+                subprocess.run([git, "reset", "--mixed", head], cwd=root, check=True)
+            # `--list` writes the name a tag holds and writes nothing for a free name. A version whose tag another
+            # release holds does not reach this line: `check_number` rejects it before the bump.
+            if _read_git(git, root, "tag", "--list", tag):
+                subprocess.run([git, "tag", "--delete", tag], cwd=root, check=True)
             subprocess.run([git, "restore", "--staged", "--worktree", "--", *BUMPED_PATHS], cwd=root, check=True)
         raise
 
@@ -135,28 +176,30 @@ def check_upstream(git: str, root: Path, remote: str, ref: str) -> None:
         raise RuntimeError(f"{ref} on {remote} is at {upstream}, which this branch does not hold, so a push is refused")
 
 
-def check_changes(git: str, root: Path, allowed: frozenset[str]) -> None:
+def check_changes(git: str, root: Path) -> None:
     # `uv build` copies carried paths from the filesystem. It can ship an uncommitted file, regardless of .gitignore,
     # or a link or gitlink that points to bytes in another location. The gate does not read a change in the index but
-    # not in the worktree. `bump_version` can overwrite that change on a bumped path. Git compares neither side of an
-    # assume-unchanged or skip-worktree entry.
+    # not in the worktree. Git compares neither side of an assume-unchanged or skip-worktree entry.
     carried = _read_carried(root)
     changed = {
         *_read_git(git, root, "diff", "--name-only", "HEAD").splitlines(),
         *_read_git(git, root, "diff", "--name-only", "--cached", "HEAD").splitlines(),
         *_read_git(git, root, "ls-files", "--others", "--exclude-standard").splitlines(),
-        *_read_git(git, root, "ls-files", "--others", "--", *carried, CACHE_PATHSPEC).splitlines(),
+        *_read_git(git, root, "ls-files", "--others", "--", *carried).splitlines(),
         *(line[2:] for line in _read_git(git, root, "ls-files", "-v").splitlines() if not line.startswith("H ")),
         *_find_unheld(git, root, carried),
     }
-    if unexpected := sorted(changed - allowed):
+    if unexpected := sorted(changed):
         raise RuntimeError("A release carries what a commit holds and nothing else:\n" + "\n".join(unexpected))
 
 
 # Name the release from HEAD after the commit. Do not use the commit being created. The push writes HEAD to the
 # remote, so the remote result can be compared with HEAD.
-def commit_bump(git: str, root: Path) -> str:
-    subprocess.run([git, *COMMIT_COMMAND, "--", *BUMPED_PATHS], cwd=root, check=True)
+def commit_release(git: str, root: Path, tag: str) -> str:
+    subprocess.run([git, *COMMIT_COMMAND], cwd=root, check=True)
+    # publish.yml releases the commit this tag points to and reads the version from the tag name. The tag is annotated,
+    # like the tag of the release before this one, so it records who released and when.
+    subprocess.run([git, "tag", "--annotate", "--message", tag, tag], cwd=root, check=True)
     return _read_git(git, root, "rev-parse", "HEAD")
 
 
@@ -168,6 +211,40 @@ def bump_version(uv: str, root: Path, version: str) -> None:
         text = copy.read_text(encoding="utf-8")
         bumped = text.replace(spelling.format(version=current), spelling.format(version=version))
         copy.write_text(bumped, encoding="utf-8")
+    # `replace` writes the same text when a copy spells the version another way, and the release would then carry two
+    # versions. The gate reads the version before this line, so this is the reading the gate cannot make.
+    check.check_version(root)
+
+
+def hold_repository(git: str, root: Path) -> Path:
+    # `--git-common-dir` names the one directory that every linked worktree of this repository shares, so a release
+    # from any worktree meets the same name. A release that ends without removing it leaves the name for a person to
+    # remove, which stops a release over a tree that an earlier release left as it was.
+    lock = Path(_read_git(git, root, *REPOSITORY_COMMAND)) / LOCK_NAME
+    try:
+        lock.touch(exist_ok=False)
+    except FileExistsError:
+        raise RuntimeError(f"{lock} says another release holds this repository, so this release stops") from None
+    return lock
+
+
+def stash_changes(git: str, root: Path) -> str:
+    before = _read_stash(git, root)
+    subprocess.run([git, *STASH_COMMAND], cwd=root, check=True)
+    after = _read_stash(git, root)
+    # `stash push` writes no entry when the tree holds nothing to set aside. Name the entry this run created, so a
+    # run that set nothing aside restores nothing.
+    return after if after != before else ""
+
+
+def restore_changes(git: str, root: Path, stash: str) -> None:
+    if not stash:
+        return
+    # `pop` takes the newest entry. Another entry on top of this one belongs to somebody else. Leave every entry for
+    # that person instead of returning their work to this tree.
+    if _read_stash(git, root) != stash:
+        raise RuntimeError(f"The newest stash entry is no longer {stash}, so the changes it holds stay where they are")
+    subprocess.run([git, "stash", "pop"], cwd=root, check=True)
 
 
 def _find_unheld(git: str, root: Path, carried: tuple[str, ...]) -> Iterator[str]:
@@ -189,12 +266,15 @@ def _find_unheld(git: str, root: Path, carried: tuple[str, ...]) -> Iterator[str
 
 def _read_carried(root: Path) -> tuple[str, ...]:
     # The wheel takes the module from `src`. The sdist also includes pyproject.toml, the readme, and the licences.
-    # The wheel carries these files in its metadata and next to it.
-    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    # The wheel carries these files in its metadata and next to it. The exclude pathspecs drop the paths the build
+    # leaves behind, so no guard reads a file that no release carries.
+    settings = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    project = settings["project"]
     licences = [
         path.relative_to(root).as_posix() for pattern in project["license-files"] for path in root.glob(pattern)
     ]
-    return ("src", "pyproject.toml", project["readme"], *licences)
+    excluded = (CACHE_GLOB, *settings["tool"]["uv"]["build-backend"].get("source-exclude", ()))
+    return ("src", "pyproject.toml", project["readme"], *licences, *(f":(exclude,glob){glob}" for glob in excluded))
 
 
 def _read_releases(git: str, root: Path, remote: str) -> list[tuple[int, ...]]:
@@ -215,6 +295,18 @@ def _read_releases(git: str, root: Path, remote: str) -> list[tuple[int, ...]]:
 def _read_upstream_commit(git: str, root: Path, remote: str, ref: str) -> str:
     line = _read_git(git, root, "ls-remote", remote, ref)
     return line.split()[0] if line else ""
+
+
+# `--verify --quiet` writes the commit an existing ref points to and writes nothing for a repository with no stash.
+def _read_stash(git: str, root: Path) -> str:
+    read = subprocess.run(
+        [git, "rev-parse", "--verify", "--quiet", "refs/stash"],
+        cwd=root,
+        check=False,
+        stdout=subprocess.PIPE,
+        encoding="utf-8",
+    )
+    return read.stdout.strip()
 
 
 def _read_urls(git: str, root: Path, remote: str) -> Iterator[str]:
