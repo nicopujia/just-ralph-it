@@ -84,7 +84,7 @@ class App(TextualApp[None]):
         # Declare this binding instead of using Textual's. Textual calls it "palette".
         # The footer shows it on the right. Keep it hidden from the key list.
         Binding("ctrl+p", "command_palette", copy.COMMAND_PALETTE, show=False, priority=True),
-        Binding("ctrl+q", "quit", copy.QUIT, priority=True),
+        Binding("ctrl+q", "confirm_quit", copy.QUIT, priority=True),
         Binding("escape", "cancel_turn", copy.CANCEL_TURN, key_display=copy.CANCEL_TURN_KEY, show=False),
         Binding("ctrl+t", "toggle_reasoning", copy.THINKING_BLOCKS, show=False, priority=True),
     ]
@@ -118,6 +118,7 @@ class App(TextualApp[None]):
         self.is_restoring_history = False
         self.mounted_turns: list[tuple[Markdown, Vertical]] = []
         self.last_escape_at = 0.0
+        self.last_quit_at = 0.0
         self.pending_message: PendingMessage | None = None
         self.messages_container = MessagesContainer(self._stop_following_bottom, self._load_older_history)
         self.message_input = MessageInput(
@@ -268,6 +269,22 @@ class App(TextualApp[None]):
             self.screen.action_previous_command()
         elif self.use_command_palette:
             self.push_screen(CommandPalette(id="--command-palette"))
+
+    # A key press near the keys that send a message can be a slip. While work is active, warn before the window closes.
+    # The second press is the answer for a run too. Do not ask again in the stop dialog.
+    # The typed quit command stays immediate, because the user wrote it.
+    async def action_confirm_quit(self) -> None:
+        if self.is_busy:
+            now = monotonic()
+            if now - self.last_quit_at > 1:
+                self.last_quit_at = now
+                self.notify(copy.QUIT_CONFIRMATION, timeout=1)
+                return
+            # Ask the turn to stop, then close. Do not wait for the worker.
+            # A run continues without this window, and the next window closes the turn from the saved record.
+            await self._request_cancellation()
+        logger.info("quit_requested source=key")
+        await self.action_quit()
 
     def action_toggle_keymap_panel(self) -> None:
         if self.screen.query("HelpPanel"):
