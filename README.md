@@ -35,7 +35,7 @@ Just Ralph It (JRI) is a software that helps you think through your software pro
 ### 0. Prerequisites
 
 - [Python](https://www.python.org/downloads/) >=3.13 or [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- API key from [OpenRouter](https://openrouter.ai/keys) (the default), any other [OpenAI-compatible](https://github.com/openai/openai-python) LLM inference provider, OR a [ChatGPT](https://chatgpt.com/codex/pricing/) subscription
+- API key from [OpenRouter](https://openrouter.ai/keys) (the default), any other [OpenAI-compatible](https://github.com/openai/openai-python) LLM inference provider, or a [ChatGPT](https://chatgpt.com/codex/pricing/) subscription
 - [Git](https://git-scm.com/install/) >=2.x.x
 
 ### 1. Installation
