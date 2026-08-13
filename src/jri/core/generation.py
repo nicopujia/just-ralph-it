@@ -278,9 +278,8 @@ class Generation:
                 logger.exception("generation_record_removal_failed path=%r", path)
         self._drop_worktrees()
 
-    # A killed run leaves the worktrees it worked in beside the project. A run that ends removes its own worktrees,
-    # so every worktree that stands here now was left by a run that cannot come back for it.
-    # A run works in all of these at the same time, thus each one has a location of its own.
+    # A killed run leaves the directories it worked in. A run that ends removes its own, so every directory that
+    # stands here now was left by a run that cannot come back for it.
     def _drop_worktrees(self) -> None:
         for directory in (paths.WORKTREE_DIR, paths.SNAPSHOT_DIR, paths.PRE_IMAGE_DIR):
             files.remove_directory(self.workspace.root / directory)

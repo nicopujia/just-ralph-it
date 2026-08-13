@@ -1008,6 +1008,21 @@ def test_opens_a_worktree_where_a_killed_process_left_one(
     assert not location.exists()
 
 
+def test_copies_the_worktree_where_a_killed_process_left_one(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    location = tmp_path / "snapshot"
+    location.mkdir()
+    (location / "left-behind.md").write_bytes(b"what the killed process was reading\n")
+
+    with repository.open_worktree(None, location=location) as snapshot:
+        assert (snapshot.path / "README.md").read_bytes() == b"# Project\n"
+        assert not (snapshot.path / "left-behind.md").exists()
+
+    assert not location.exists()
+
+
 def test_rejects_initializing_without_a_git_executable(tmp_path: Path) -> None:
     with pytest.raises(git.NotInstalledError):
         git.Repository.init(tmp_path / "project", executable="missing-git-executable")

@@ -95,6 +95,34 @@ def test_keeps_the_previous_contents_when_the_write_fails(tmp_path: Path) -> Non
     assert target.read_text(encoding="utf-8") == "first"
 
 
+def test_removes_a_directory_and_all_data_below_it(tmp_path: Path) -> None:
+    directory = tmp_path / "worktree"
+    (directory / "nested").mkdir(parents=True)
+    (directory / "nested" / "file.txt").write_text("what a killed run left", encoding="utf-8")
+
+    files.remove_directory(directory)
+    files.remove_directory(directory)
+
+    assert not directory.exists()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
+)
+def test_leaves_the_directory_it_is_refused_the_removal_of(tmp_path: Path) -> None:
+    guarded = tmp_path / "guarded"
+    directory = guarded / "worktree"
+    directory.mkdir(parents=True)
+    guarded.chmod(0o500)
+
+    try:
+        files.remove_directory(directory)
+    finally:
+        guarded.chmod(0o700)
+
+    assert directory.exists()
+
+
 def test_names_the_files_of_a_read_from_where_the_reader_stands() -> None:
     root = Path.cwd()
 

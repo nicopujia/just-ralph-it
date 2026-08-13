@@ -477,7 +477,7 @@ class Specs:
             with self._open_pre_image(acceptance.accepted) as pre_image:
                 pre_image.apply_patch(acceptance.patch.encode())
                 return self.read(pre_image, paths.SPECS_DIR)
-        except (git.Error, SpecsError):
+        except (OSError, git.Error, SpecsError):
             logger.exception("acceptance_rebuild_failed accepted=%s", acceptance.accepted)
             return None
 
@@ -490,6 +490,8 @@ class Specs:
                 yield worktree
             return
         files.remove_directory(location)
+        # Refuse a location that survived the removal above. An empty repository over stale specifications
+        # would rebuild writes that no acceptance made.
         location.mkdir(parents=True)
         try:
             yield git.Repository.init(location, nested=True)

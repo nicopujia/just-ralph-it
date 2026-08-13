@@ -21,7 +21,8 @@ def describe_paths(paths: Sequence[str]) -> str:
     return f"{', '.join(described)} and {last}" if described else last
 
 
-# A directory that stays stops no caller. Thus report a failed removal, and do not raise it.
+# A failed removal is not the work that the caller asked for. The step that needs the location free reports
+# it. Thus log a failed removal, and do not raise it.
 def remove_directory(path: Path) -> None:
     try:
         shutil.rmtree(path)

@@ -295,13 +295,13 @@ class Repository:
     @contextmanager
     def open_worktree(self, revision: str | None = "HEAD", *, location: Path) -> Generator["Repository"]:
         remove_directory(location)
+        self._run("worktree", "prune", check=False)
         if revision is None:
             try:
                 yield self._copy_worktree(location)
             finally:
                 remove_directory(location)
             return
-        self._run("worktree", "prune", check=False)
         self._run("worktree", "add", "--detach", str(location), revision)
         try:
             yield type(self)(location, str(self.executable))
