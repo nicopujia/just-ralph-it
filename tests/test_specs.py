@@ -557,7 +557,7 @@ def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Pat
         ".jri/specs/functional/behavior.md",
     ]
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert run_git(tmp_path, "status", "--short").splitlines() == ["?? .gitignore", "?? README.md"]
+    assert run_git(tmp_path, "status", "--short") == "?? README.md"
 
 
 def test_commits_specifications_onto_a_repository_without_commits(tmp_path: Path, run_git: RunGit) -> None:

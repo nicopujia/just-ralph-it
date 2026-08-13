@@ -1,5 +1,3 @@
-PROJECT_GITIGNORE_FILE = ".gitignore"
-
 WORKSPACE_DIR = ".jri"
 
 SETTINGS_FILE = f"{WORKSPACE_DIR}/settings.yaml"

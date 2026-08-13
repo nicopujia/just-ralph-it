@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Workspace:
-    PROJECT_IGNORES: ClassVar[tuple[str, ...]] = (".DS_Store", ".env", ".env.*")
     # These are the workspace files that stay out of Git. An installation writes them all before it commits.
     # A chat and a run then find each rule already there, and no clone gets this file with a rule missing.
     # A rooted name applies only to the file below the workspace, not to a same-named file in a specification tree.
@@ -59,10 +58,6 @@ class Workspace:
     @property
     def gitignore_file(self) -> Path:
         return self.root / paths.GITIGNORE_FILE
-
-    @property
-    def project_gitignore_file(self) -> Path:
-        return self.root / paths.PROJECT_GITIGNORE_FILE
 
     @property
     def notebook_file(self) -> Path:
@@ -174,15 +169,7 @@ class Workspace:
             self.settings_file.write_text(settings, encoding="utf-8", newline="\n")
         Notebook(self.notebook_file)
         self.logs_dir.mkdir(exist_ok=True)
-
         self._ignore()
-
-        # A project-provided ignore file is not JRI-owned. Create one only with a new repository.
-        # Its patterns stay out of the user's first commit.
-        if repository_created and not self.project_gitignore_file.exists():
-            self.project_gitignore_file.write_text(
-                f"{'\n'.join(self.PROJECT_IGNORES)}\n", encoding="utf-8", newline="\n"
-            )
         # Commit a workspace this installation wrote, and one that no repository here holds yet.
         # An existing workspace can hold notes a chat wrote and settings the user changed.
         # That work belongs to the commit of the turn that made it, not to this one.

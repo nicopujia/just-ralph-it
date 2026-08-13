@@ -62,10 +62,9 @@ def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tm
     commit = repository.read_head()
     assert installation.commit == commit
     assert set(repository.read_tree(commit)) == set(paths.INSTALLED_PATHS)
-    assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text(encoding="utf-8") == ".DS_Store\n.env\n.env.*\n"
     # The project belongs to the user. Only the workspace files JRI wrote
     # itself are in its commit; everything else waits for the user.
-    assert {item.path for item in repository.read_status()} == {paths.PROJECT_GITIGNORE_FILE, "main.py"}
+    assert {item.path for item in repository.read_status()} == {".DS_Store", ".env", "main.py"}
 
 
 def test_commits_every_ignore_rule_a_chat_and_a_run_use(tmp_path: Path) -> None:
@@ -161,22 +160,15 @@ def test_leaves_the_workspace_uncommitted_off_a_branch(
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
 
 
-def test_keeps_an_existing_ignore_file_when_creating_the_repository(tmp_path: Path) -> None:
-    (tmp_path / paths.PROJECT_GITIGNORE_FILE).write_text("build/\n", encoding="utf-8")
-
-    install_workspace(tmp_path)
-
-    assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text(encoding="utf-8") == "build/\n"
-
-
-def test_writes_no_ignore_file_into_a_repository_it_did_not_create(tmp_path: Path, run_git: RunGit) -> None:
-    run_git(tmp_path, "init", "-q")
+def test_writes_no_ignore_file_into_the_project(tmp_path: Path) -> None:
     (tmp_path / "main.py").write_text("print('hello')\n", encoding="utf-8")
 
     installation = install_workspace(tmp_path)
 
-    assert not installation.repository_created
-    assert not (tmp_path / paths.PROJECT_GITIGNORE_FILE).exists()
+    # The project root belongs to the user, in a repository JRI created
+    # as much as in one it found. Only the workspace has JRI rules.
+    assert installation.repository_created
+    assert not (tmp_path / ".gitignore").exists()
 
 
 def test_finds_the_workspace_at_the_root_of_the_enclosing_repository(
@@ -697,7 +689,7 @@ def test_keeps_the_rest_of_the_project_when_resetting_the_workspace(tmp_path: Pa
 
     install_workspace(tmp_path, force=True)
 
-    kept = {".jri", ".git", paths.PROJECT_GITIGNORE_FILE}
+    kept = {".jri", ".git"}
     assert [
         (path.name, (path / "file.md").read_text(encoding="utf-8"))
         for path in sorted(tmp_path.iterdir())
