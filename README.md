@@ -64,7 +64,7 @@ That creates `.jri/settings.yaml`. Open it and follow its comments.
 # Run the TUI to start a chat session:
 jri chat
 
-# Show the notes graph:
+# Visualize the notes graph:
 jri view
 ```
 
