@@ -48,6 +48,13 @@ class InterviewerTurnState:
     cancelled: Event = field(default_factory=Event)
 
 
+# This is a message the user sent while a turn was active. The turn stops, then this message opens the next turn.
+@dataclass
+class PendingMessage:
+    text: str
+    history_index: int | None
+
+
 class CommandPalette(TextualCommandPalette):
     BINDINGS: ClassVar[list[BindingType]] = [
         *TextualCommandPalette.BINDINGS,
@@ -108,6 +115,7 @@ class App(TextualApp[None]):
         self.is_restoring_history = False
         self.mounted_turns: list[tuple[Markdown, Vertical]] = []
         self.last_escape_at = 0.0
+        self.pending_message: PendingMessage | None = None
         self.messages_container = MessagesContainer(self._stop_following_bottom, self._load_older_history)
         self.message_input = MessageInput(
             (turn.message for turn in self.restored_turns),
@@ -196,52 +204,22 @@ class App(TextualApp[None]):
             await self.action_quit()
             return
 
-        if self.is_busy:
-            logger.info("message_submission_ignored reason=turn_active")
-            return
-
         if not user_message:
             event.message_input.text = ""
             logger.info("message_submission_ignored reason=blank_message")
             return
 
-        logger.info("message_submitted characters=%d", len(user_message))
-        self.ralph_button.display = False
+        # A new message stops the active turn. `_finish_turn` sends the message when that turn is closed and saved.
+        # The empty input shows the user that JRI accepted the message.
+        # A run disables the message input behind its panel, thus a run keeps the turn to its end.
+        if self.is_busy:
+            self.pending_message = PendingMessage(user_message, event.history_index)
+            event.message_input.text = ""
+            logger.info("message_held characters=%d", len(user_message))
+            await self._request_cancellation()
+            return
 
-        if event.history_index is not None:
-            # If rewind is refused, do not send the message. Keep the current offer on screen.
-            # Display the provider name as text, not as terminal markup.
-            try:
-                self.conversation.rewind(event.history_index)
-            except PersistenceError as error:
-                logger.info("message_submission_ignored reason=rewind_refused")
-                self.notify(str(error), severity="error", markup=False)
-                await self._sync_ralph_button()
-                return
-            await self._remove_turns(event.history_index)
-            self.restored_turns = self.restored_turns[: event.history_index]
-            self.restored_turn_index = min(self.restored_turn_index, event.history_index)
-        await self._clear_retry_buttons()
-        event.message_input.remember(user_message)
-        event.message_input.placeholder = copy.MESSAGE_INPUT_PLACEHOLDER
-        self.last_escape_at = 0.0
-
-        user_message_widget = Markdown(user_message, classes=styles.USER_MESSAGE_CLASSES)
-        interviewer_turn = Vertical(classes=styles.INTERVIEWER_TURN_CLASSES)
-        placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
-        turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
-        self.active_turn_state = turn_state
-        # Textual can hit-test a block after `update()` detaches it. It then accesses a missing parent.
-        App.ALLOW_SELECT = False
-        self.mounted_turns.append((user_message_widget, interviewer_turn))
-
-        await self.messages_container.mount(user_message_widget)
-        await self.messages_container.mount(interviewer_turn)
-        await interviewer_turn.mount(placeholder)
-
-        self._hide_older_history()
-        self.messages_container.anchor()
-        self._run_turn(self.conversation.chat(user_message, turn_state.cancelled), turn_state)
+        await self._send_message(user_message, event.history_index)
 
     async def on_mount(self) -> None:
         self.watch(self.message_input, "is_shortcuts_open", self._sync_shortcut_hints)
@@ -356,6 +334,11 @@ class App(TextualApp[None]):
         self.set_focus(self.message_input)
         self._sync_retry_shortcut()
         logger.info("turn_ending_rendered ending=%s", event.ending)
+        # The turn is closed and the session holds it. The message that stopped the turn opens the next turn.
+        if self.pending_message is not None:
+            pending_message = self.pending_message
+            self.pending_message = None
+            await self._send_message(pending_message.text, pending_message.history_index)
 
     async def _load_older_history(self, *, reveal_hidden: bool = True) -> None:
         if self.is_restoring_history:
@@ -613,6 +596,45 @@ class App(TextualApp[None]):
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
         self._run_turn(self.conversation.retry(turn_state.cancelled, self.detached), turn_state)
+
+    async def _send_message(self, user_message: str, history_index: int | None) -> None:
+        logger.info("message_submitted characters=%d", len(user_message))
+        self.ralph_button.display = False
+
+        if history_index is not None:
+            # If rewind is refused, do not send the message. Keep the current offer on screen.
+            # Display the provider name as text, not as terminal markup.
+            try:
+                self.conversation.rewind(history_index)
+            except PersistenceError as error:
+                logger.info("message_submission_ignored reason=rewind_refused")
+                self.notify(str(error), severity="error", markup=False)
+                await self._sync_ralph_button()
+                return
+            await self._remove_turns(history_index)
+            self.restored_turns = self.restored_turns[:history_index]
+            self.restored_turn_index = min(self.restored_turn_index, history_index)
+        await self._clear_retry_buttons()
+        self.message_input.remember(user_message)
+        self.message_input.placeholder = copy.MESSAGE_INPUT_PLACEHOLDER
+        self.last_escape_at = 0.0
+
+        user_message_widget = Markdown(user_message, classes=styles.USER_MESSAGE_CLASSES)
+        interviewer_turn = Vertical(classes=styles.INTERVIEWER_TURN_CLASSES)
+        placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
+        turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
+        self.active_turn_state = turn_state
+        # Textual can hit-test a block after `update()` detaches it. It then accesses a missing parent.
+        App.ALLOW_SELECT = False
+        self.mounted_turns.append((user_message_widget, interviewer_turn))
+
+        await self.messages_container.mount(user_message_widget)
+        await self.messages_container.mount(interviewer_turn)
+        await interviewer_turn.mount(placeholder)
+
+        self._hide_older_history()
+        self.messages_container.anchor()
+        self._run_turn(self.conversation.chat(user_message, turn_state.cancelled), turn_state)
 
     # The panel covers the message input instead of replacing it. The input continues to set the container size.
     def _show_ralphing(self) -> None:
