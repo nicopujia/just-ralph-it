@@ -40,7 +40,9 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     assert installation.workspace.directory == tmp_path / paths.WORKSPACE_DIR
     assert installation.workspace.settings_file == tmp_path / paths.SETTINGS_FILE
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
-    assert (tmp_path / paths.GITIGNORE_FILE).read_text(encoding="utf-8") == "session.json\nlogs\nvisualization.html\n"
+    assert (tmp_path / paths.GITIGNORE_FILE).read_text(encoding="utf-8") == (
+        "session.json\nlogs\nvisualization.html\n/lock\n/lock.claim\n/generation/\n"
+    )
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text(encoding="utf-8")) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
         "connections": [],
@@ -64,6 +66,25 @@ def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tm
     # The project belongs to the user. Only the workspace files JRI wrote
     # itself are in its commit; everything else waits for the user.
     assert {item.path for item in repository.read_status()} == {paths.PROJECT_GITIGNORE_FILE, "main.py"}
+
+
+def test_commits_every_ignore_rule_a_chat_and_a_run_use(tmp_path: Path) -> None:
+    installation = install_workspace(tmp_path)
+    workspace = installation.workspace
+    repository = git.Repository(tmp_path)
+    assert installation.commit is not None
+    committed = repository.read_file(installation.commit, paths.GITIGNORE_FILE).decode()
+
+    hold = workspace.open_hold()
+    assert hold.take()
+    workspace.open_generation_dir()
+    hold.release()
+
+    # A rule written after the installation commit would leave this file
+    # modified until another turn committed it, and a clone taken before
+    # that turn would ignore neither the lock nor the run directory.
+    assert workspace.gitignore_file.read_text(encoding="utf-8") == committed
+    assert not repository.read_status((paths.GITIGNORE_FILE,))
 
 
 def test_leaves_the_changes_in_a_workspace_it_did_not_write_uncommitted(tmp_path: Path) -> None:
@@ -92,13 +113,14 @@ def test_commits_the_workspace_a_forced_start_over_replaced(tmp_path: Path, run_
 
 
 def test_commits_nothing_when_a_forced_start_over_changed_nothing(tmp_path: Path) -> None:
-    install_workspace(tmp_path)
+    installed = install_workspace(tmp_path)
+
     forced = install_workspace(tmp_path, force=True)
 
-    again = install_workspace(tmp_path, force=True)
-
-    assert again.commit is None
-    assert git.Repository(tmp_path).read_head() == forced.commit
+    # The reset rewrote every workspace file with what it already held,
+    # so Git has nothing to record and the first commit still stands.
+    assert forced.commit is None
+    assert git.Repository(tmp_path).read_head() == installed.commit
 
 
 def test_leaves_the_workspace_uncommitted_during_a_merge(
@@ -229,9 +251,9 @@ def test_preserves_an_existing_workspace_when_initializing_again(tmp_path: Path)
 
     assert not installation.created
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == "custom settings\n"
-    assert (tmp_path / paths.GITIGNORE_FILE).read_text(
-        encoding="utf-8"
-    ) == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
+    assert (tmp_path / paths.GITIGNORE_FILE).read_text(encoding="utf-8") == (
+        "custom-cache\nlogs\nsession.json\nvisualization.html\n/lock\n/lock.claim\n/generation/\n"
+    )
 
 
 def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path) -> None:
@@ -286,7 +308,7 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     # The reset paths never include the ignore file itself, only what it
     # lists. A forced reset must keep a rule the file already held.
     assert (base_dir / ".gitignore").read_text(encoding="utf-8") == (
-        "custom-cache\n/lock\n/lock.claim\nsession.json\nlogs\nvisualization.html\n"
+        "custom-cache\nsession.json\nlogs\nvisualization.html\n/lock\n/lock.claim\n/generation/\n"
     )
 
 

@@ -788,7 +788,6 @@ def test_undoes_the_acceptance_a_killed_run_left_staged(
     create_repository(tmp_path)
     kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
     assert git.Repository(tmp_path).read_status() == (
-        git.Status(".jri/.gitignore", " ", "M"),
         git.Status(".jri/specs/architecture/design.md", " ", "A"),
         git.Status(".jri/specs/functional/behavior.md", " ", "A"),
     )
@@ -850,8 +849,7 @@ def test_keeps_the_acceptance_a_killed_run_wrote_before_git_copied_the_index(
     accepted = find_accepted_commit(tmp_path)
     assert accepted == run_git(tmp_path, "rev-parse", "HEAD")
     assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/specs/functional/behavior.md",
+        ".jri/specs/functional/behavior.md"
     ]
     (tmp_path / ".git/index.lock").unlink()
 
@@ -893,8 +891,7 @@ def test_settles_the_index_beside_a_record_it_cannot_read(
     (tmp_path / ".git/index.lock").unlink()
     Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
     assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/specs/functional/behavior.md",
+        ".jri/specs/functional/behavior.md"
     ]
 
     baseline = Specs(tmp_path).prepare()
@@ -1373,7 +1370,6 @@ def test_commits_specifications_while_the_project_has_uncommitted_work(
     list(conversation.ralph())
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
-        ".jri/.gitignore",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
@@ -1398,7 +1394,6 @@ def test_commits_specifications_while_the_project_has_work_staged(
     list(conversation.ralph())
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
-        ".jri/.gitignore",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
@@ -1421,7 +1416,6 @@ def test_commits_specifications_into_a_project_that_ignores_the_workspace(
     list(conversation.ralph())
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
-        ".jri/.gitignore",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]

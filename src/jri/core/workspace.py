@@ -28,6 +28,18 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Workspace:
     PROJECT_IGNORES: ClassVar[tuple[str, ...]] = (".DS_Store", ".env", ".env.*")
+    # These are the workspace files that stay out of Git. An installation writes them all before it commits.
+    # A chat and a run then find each rule already there, and no clone gets this file with a rule missing.
+    # A rooted name applies only to the file below the workspace, not to a same-named file in a specification tree.
+    # A slash ends a directory name.
+    WORKSPACE_IGNORES: ClassVar[tuple[str, ...]] = (
+        Path(paths.SESSION_FILE).name,
+        Path(paths.LOGS_DIR).name,
+        Path(paths.VISUALIZATION_FILE).name,
+        f"/{Path(paths.LOCK_FILE).name}",
+        f"/{Path(paths.CLAIM_FILE).name}",
+        f"/{Path(paths.GENERATION_DIR).name}/",
+    )
 
     root: Path
 
@@ -105,17 +117,13 @@ class Workspace:
     # Never delete these files because a live window can hold either one.
     def open_hold(self) -> "Hold":
         self.directory.mkdir(exist_ok=True, parents=True)
-        # Use rooted, explicit names.
-        # These rules apply only to these files, not same-named files in a specification tree.
-        self._ignore(*(f"/{Path(path).name}" for path in (paths.LOCK_FILE, paths.CLAIM_FILE)))
+        self._ignore()
         return Hold(self)
 
     # This directory holds run data while it works. It never holds committed data.
     def open_generation_dir(self) -> Path:
         self.generation_dir.mkdir(exist_ok=True, parents=True)
-        # Root this rule at the workspace and end it with a slash.
-        # It matches this directory, not `generation` in a specification tree.
-        self._ignore(f"/{self.generation_dir.name}/")
+        self._ignore()
         return self.generation_dir
 
     # Return a reset only after every refusal check passes. Check both conditions before return.
@@ -167,7 +175,7 @@ class Workspace:
         Notebook(self.notebook_file)
         self.logs_dir.mkdir(exist_ok=True)
 
-        self._ignore(*(path.name for path in (self.session_file, self.logs_dir, self.visualization_file)))
+        self._ignore()
 
         # A project-provided ignore file is not JRI-owned. Create one only with a new repository.
         # Its patterns stay out of the user's first commit.
@@ -230,9 +238,9 @@ class Workspace:
     # Read and add rules on every call. An existing file can lose a rule after replacement.
     # JRI commits this file, so Git reports a missing rule.
     # A rule inside the hidden directory would hide its own absence.
-    def _ignore(self, *patterns: str) -> None:
+    def _ignore(self) -> None:
         content = self.gitignore_file.read_text(encoding="utf-8") if self.gitignore_file.exists() else ""
-        missing = [pattern for pattern in patterns if pattern not in content.splitlines()]
+        missing = [pattern for pattern in self.WORKSPACE_IGNORES if pattern not in content.splitlines()]
         if not missing:
             return
         separator = "" if not content or content.endswith("\n") else "\n"
