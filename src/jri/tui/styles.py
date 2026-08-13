@@ -14,6 +14,10 @@ RALPHING_CLASSES = "ralphing"
 
 RETRY_BUTTON_CLASSES = "retry-button"
 
+RUN_CANCELLATION_ANSWERS_CLASSES = "run-cancellation-answers"
+RUN_CANCELLATION_CONFIRM_BUTTON_ID = "run-cancellation-confirm-button"
+RUN_CANCELLATION_DIALOG_ID = "run-cancellation-dialog"
+
 SHORTCUT_HINTS_CLASSES = "shortcut-hints"
 
 THEME_DARK = "ansi-dark"
@@ -148,5 +152,30 @@ Header {{
 .{TOOL_CALL_ROW_FAILED_CLASSES} {{
     color: ansi_bright_red;
     text-opacity: 100%;
+}}
+
+/* The dialog is a screen over the conversation. Put its box in the middle of that screen. */
+RunCancellationDialog {{
+    align: center middle;
+}}
+
+/* A narrow terminal gets the full width. A wide terminal keeps the question in one column. */
+#{RUN_CANCELLATION_DIALOG_ID} {{
+    width: 100%;
+    max-width: 60;
+    height: auto;
+    padding: 1 2;
+    border: tall $border;
+    background: $surface;
+}}
+
+.{RUN_CANCELLATION_ANSWERS_CLASSES} {{
+    height: auto;
+    margin-top: 1;
+    align-horizontal: right;
+}}
+
+.{RUN_CANCELLATION_ANSWERS_CLASSES} Button {{
+    margin-left: 2;
 }}
 """.strip()

@@ -79,6 +79,13 @@ REDO_MESSAGE_LETTER = "r"
 RETRY = "Try again"
 RETRY_KEY = "^x t"
 RETRY_LETTER = "t"
+RUN_CANCELLATION_CONFIRM = "Stop the run"
+RUN_CANCELLATION_DECLINE = "Keep ralphing"
+RUN_CANCELLATION_QUESTION = (
+    "[b]Stop this run?[/b]\n\n"
+    "[dim]It stops where it stands and puts nothing into your project. A later run starts again from the "
+    "specifications this one drafted.[/dim]"
+)
 
 SEND_MESSAGE = "Send message"
 SHORTCUTS = "Shortcuts"

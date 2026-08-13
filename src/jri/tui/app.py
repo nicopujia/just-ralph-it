@@ -29,7 +29,7 @@ from jri.core.exceptions import PersistenceError, RunDetached
 from jri.lib import appearance
 
 from . import copy, styles
-from .widgets import MessageInput, MessagesContainer, ToolCallRow
+from .widgets import MessageInput, MessagesContainer, RunCancellationAnswer, RunCancellationDialog, ToolCallRow
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +244,14 @@ class App(TextualApp[None]):
     # --- Action methods --------------------------------------------- #
 
     async def action_cancel_turn(self) -> None:
-        if not self.is_busy:
+        turn_state = self.active_turn_state
+        if turn_state is None:
+            return
+        # A reply comes back in seconds, and a second key press is a sufficient answer to stop it.
+        # A run takes much longer, thus its stop asks in a dialog that gives the cost. Keep one dialog on screen.
+        if turn_state.is_ralphing:
+            if not isinstance(self.screen, RunCancellationDialog):
+                self.push_screen(RunCancellationDialog(), self._answer_run_cancellation)
             return
         now = monotonic()
         if now - self.last_escape_at <= 1:
@@ -304,6 +311,11 @@ class App(TextualApp[None]):
 
     # --- Callback methods ------------------------------------------- #
 
+    # The dialog is the only asker here, so a kept run and its turn continue exactly as they are.
+    async def _answer_run_cancellation(self, answer: RunCancellationAnswer | None) -> None:
+        if answer == "stop":
+            await self._request_cancellation()
+
     def _finish_restoring_history(self, old_scroll_y: float, old_max_scroll_y: int) -> None:
         self.messages_container.scroll_to(
             y=old_scroll_y + self.messages_container.max_scroll_y - old_max_scroll_y, animate=False, immediate=True
@@ -327,6 +339,9 @@ class App(TextualApp[None]):
         if turn_state.is_ralphing:
             self.ralphing.display = False
             self.message_input.disabled = False
+            # The run ended by itself. Close its stop question, which now has nothing to stop.
+            if isinstance(self.screen, RunCancellationDialog):
+                self.screen.dismiss("keep")
         self._follow_bottom(turn_state)
         self.active_turn_state = None
         App.ALLOW_SELECT = True
