@@ -339,6 +339,7 @@ class App(TextualApp[None]):
         if turn_state.is_ralphing:
             self.ralphing.display = False
             self.message_input.disabled = False
+            self._mark_run(is_active=False)
             # The run ended by itself. Close its stop question, which now has nothing to stop.
             if isinstance(self.screen, RunCancellationDialog):
                 self.screen.dismiss("keep")
@@ -551,6 +552,11 @@ class App(TextualApp[None]):
         for index, (user_message, interviewer_turn) in enumerate(self.mounted_turns):
             user_message.display = interviewer_turn.display = index >= len(self.mounted_turns) - self.HISTORY_BATCH_SIZE
 
+    # This class carries the run colors of the panel and the scrollbar. The stylesheet keeps those colors together.
+    # Mark the conversation screen, not the screen on top, because the stop dialog can be over it.
+    def _mark_run(self, *, is_active: bool) -> None:
+        self.screen_stack[0].set_class(is_active, styles.RUN_ACTIVE_CLASSES)
+
     def _preview_history(self) -> None:
         if self.message_input.history_index == self.message_input.message_count:
             self._hide_older_history()
@@ -655,6 +661,7 @@ class App(TextualApp[None]):
     def _show_ralphing(self) -> None:
         self.message_input.disabled = True
         self.ralphing.display = True
+        self._mark_run(is_active=True)
 
     async def _start_ralphing(self) -> None:
         if self.is_busy or not self.mounted_turns:

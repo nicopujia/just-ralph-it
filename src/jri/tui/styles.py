@@ -14,6 +14,7 @@ RALPHING_CLASSES = "ralphing"
 
 RETRY_BUTTON_CLASSES = "retry-button"
 
+RUN_ACTIVE_CLASSES = "run-active"
 RUN_CANCELLATION_ANSWERS_CLASSES = "run-cancellation-answers"
 RUN_CANCELLATION_CONFIRM_BUTTON_ID = "run-cancellation-confirm-button"
 RUN_CANCELLATION_DIALOG_ID = "run-cancellation-dialog"
@@ -82,6 +83,22 @@ Header {{
 .{RALPHING_CLASSES} Static {{
     width: auto;
     height: 1;
+}}
+
+/* A run gives the panel border, its dots, and the scrollbar the color of the Ralph button.
+   The window then shows in one color that this run holds it. */
+.{RUN_ACTIVE_CLASSES} .{RALPHING_CLASSES} {{
+    border: tall $warning;
+}}
+
+.{RUN_ACTIVE_CLASSES} .{RALPHING_CLASSES} LoadingIndicator {{
+    color: $warning;
+}}
+
+.{RUN_ACTIVE_CLASSES} #{MESSAGES_CONTAINER_ID} {{
+    scrollbar-color: $warning;
+    scrollbar-color-active: $warning;
+    scrollbar-color-hover: $warning;
 }}
 
 .{SHORTCUT_HINTS_CLASSES} {{
