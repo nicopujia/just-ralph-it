@@ -122,13 +122,12 @@ class Workspace:
         self._ignore()
         return self.generation_dir
 
-    # This directory receives the Git worktrees a run works in. The ignore rule is written before the first worktree,
-    # because Git reads a worktree here as project content without it.
+    # This directory is the Git worktree a run works in, and Git creates it. The ignore rule is written before that
+    # worktree, because Git reads a worktree here as project content without it.
     def open_worktree_dir(self) -> Path:
-        worktree_dir = self.root / paths.WORKTREE_DIR
-        worktree_dir.mkdir(exist_ok=True, parents=True)
+        self.directory.mkdir(exist_ok=True, parents=True)
         self._ignore()
-        return worktree_dir
+        return self.root / paths.WORKTREE_DIR
 
     # Return a reset only after every refusal check passes. Check both conditions before return.
     # A `--force` warning then appears only when JRI can perform the reset.

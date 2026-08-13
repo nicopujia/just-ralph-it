@@ -362,23 +362,24 @@ def test_lets_go_of_the_journal_before_it_forgets_a_record_it_could_not_read(
     assert not generation.exists
 
 
-def test_forgets_the_worktree_a_killed_run_left(tmp_path: Path) -> None:
+def test_forgets_the_worktrees_a_killed_run_left(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
-    leftover = generation.workspace.open_worktree_dir() / "git-worktree-killed" / "HEAD"
-    leftover.mkdir(parents=True)
-    (leftover / "main.py").write_text("what a killed run was reading\n", encoding="utf-8")
+    leftovers = (tmp_path / paths.WORKTREE_DIR, tmp_path / paths.SNAPSHOT_DIR, tmp_path / paths.PRE_IMAGE_DIR)
+    for leftover in leftovers:
+        leftover.mkdir(parents=True)
+        (leftover / "main.py").write_text("what a killed run was reading\n", encoding="utf-8")
 
     generation.discard()
 
-    assert not (tmp_path / paths.WORKTREE_DIR).exists()
+    assert not any(leftover.exists() for leftover in leftovers)
 
 
 def test_keeps_the_worktree_of_a_run_still_writing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
-    worktree = generation.workspace.open_worktree_dir() / "git-worktree-live"
-    worktree.mkdir()
+    worktree = tmp_path / paths.WORKTREE_DIR
+    worktree.mkdir(parents=True)
     monkeypatch.setattr(Generation, "FREED_WITHIN", 0.2)
 
     with hold(tmp_path / paths.GENERATION_LOCK_FILE):

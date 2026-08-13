@@ -1,7 +1,6 @@
 import os
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -296,7 +295,7 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_git_that_neve
     with (
         open_a_window(tmp_path, "worktree", window),
         pytest.raises(git.Error),
-        repository.open_worktree("HEAD", parent=tmp_path),
+        repository.open_worktree("HEAD", location=tmp_path / "checkout"),
     ):
         pass
 
@@ -912,23 +911,23 @@ def test_opens_a_detached_worktree_at_the_requested_revision(
 ) -> None:
     repository = create_repository(tmp_path / "repo")
 
-    with repository.open_worktree(parent=tmp_path) as worktree:
-        assert worktree.path.is_relative_to(tmp_path)
+    with repository.open_worktree(location=tmp_path / "checkout") as worktree:
+        assert worktree.path == (tmp_path / "checkout").resolve()
         assert worktree.read_head() == repository.read_head()
         assert run_git(worktree.path, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"
 
 
-def test_opens_two_worktrees_at_once_in_one_parent(tmp_path: Path, create_repository: CreateRepository) -> None:
+def test_opens_two_worktrees_at_once_at_two_locations(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
 
     with (
-        repository.open_worktree(parent=tmp_path) as checkout,
-        repository.open_worktree(None, parent=tmp_path) as snapshot,
+        repository.open_worktree(location=tmp_path / "checkout") as checkout,
+        repository.open_worktree(None, location=tmp_path / "snapshot") as snapshot,
     ):
         locations = (checkout.path, snapshot.path)
 
-        assert checkout.path != snapshot.path
-        assert all(location.is_relative_to(tmp_path) for location in locations)
+        assert checkout.path == (tmp_path / "checkout").resolve()
+        assert snapshot.path == (tmp_path / "snapshot").resolve()
 
     assert not any(location.exists() for location in locations)
 
@@ -943,7 +942,7 @@ def test_snapshots_the_working_tree_when_no_revision_is_given(
     (repository.path / ".gitignore").write_bytes(b"*.log\n")
     (repository.path / "noise.log").write_bytes(b"ignored\n")
 
-    with repository.open_worktree(None, parent=tmp_path) as snapshot:
+    with repository.open_worktree(None, location=tmp_path / "snapshot") as snapshot:
         assert (snapshot.path / "README.md").read_text() == "uncommitted edit\n"
         assert (snapshot.path / "docs" / "new.md").read_text() == "# New\n"
         assert not (snapshot.path / "noise.log").exists()
@@ -956,7 +955,7 @@ def test_keeps_the_project_untouched_while_a_snapshot_worktree_is_open(
 ) -> None:
     repository = create_repository(tmp_path / "repo")
 
-    with repository.open_worktree(None, parent=tmp_path) as snapshot:
+    with repository.open_worktree(None, location=tmp_path / "snapshot") as snapshot:
         location = snapshot.path
         (snapshot.path / "README.md").write_bytes(b"changed in the snapshot\n")
 
@@ -970,7 +969,7 @@ def test_removes_the_worktree_once_it_closes(
 ) -> None:
     repository = create_repository(tmp_path / "repo")
 
-    with repository.open_worktree(parent=tmp_path) as worktree:
+    with repository.open_worktree(location=tmp_path / "checkout") as worktree:
         location = worktree.path
 
     assert not location.exists()
@@ -987,8 +986,29 @@ def test_clears_worktrees_leaked_by_a_killed_process(
 
     assert leaked.as_posix() in run_git(repository.path, "worktree", "list", "--porcelain")
 
-    with repository.open_worktree(parent=tmp_path):
+    with repository.open_worktree(location=tmp_path / "checkout"):
         assert leaked.as_posix() not in run_git(repository.path, "worktree", "list", "--porcelain")
+
+
+# A killed process leaves its worktree, and the process after it asks for that same location. Git refuses a
+# location that holds files, and it refuses one that an entry of its own still names.
+@pytest.mark.parametrize("leftover", ["directory", "entry"])
+def test_opens_a_worktree_where_a_killed_process_left_one(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, leftover: str
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    location = tmp_path / "checkout"
+    run_git(repository.path, "worktree", "add", "--detach", str(location), "HEAD")
+    (location / "left-behind.md").write_bytes(b"what the killed process was reading\n")
+    if leftover == "entry":
+        shutil.rmtree(location)
+
+    with repository.open_worktree(location=location) as worktree:
+        assert worktree.read_head() == repository.read_head()
+        assert (worktree.path / "README.md").read_bytes() == b"# Project\n"
+        assert not (worktree.path / "left-behind.md").exists()
+
+    assert not location.exists()
 
 
 def test_rejects_initializing_without_a_git_executable(tmp_path: Path) -> None:
@@ -1155,7 +1175,7 @@ def test_removes_the_worktree_when_the_body_raises(
     locations: list[Path] = []
 
     def fail_inside_the_worktree() -> None:
-        with repository.open_worktree(parent=tmp_path) as worktree:
+        with repository.open_worktree(location=tmp_path / "checkout") as worktree:
             locations.append(worktree.path)
             raise ZeroDivisionError
 
@@ -1171,22 +1191,18 @@ def test_survives_a_worktree_that_was_already_removed(
 ) -> None:
     repository = create_repository(tmp_path / "repo")
 
-    with repository.open_worktree(parent=tmp_path) as worktree:
+    with repository.open_worktree(location=tmp_path / "checkout") as worktree:
         location = worktree.path
         run_git(repository.path, "worktree", "remove", "--force", str(location))
 
     assert not location.exists()
 
 
-def test_rejects_opening_a_worktree_at_an_unknown_revision(
-    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_rejects_opening_a_worktree_at_an_unknown_revision(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     scratch = tmp_path / "scratch"
-    scratch.mkdir()
-    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
 
-    with pytest.raises(git.Error), repository.open_worktree("no-such-revision", parent=scratch):
+    with pytest.raises(git.Error), repository.open_worktree("no-such-revision", location=scratch):
         pass
 
-    assert list(scratch.iterdir()) == []
+    assert not scratch.exists()

@@ -965,8 +965,8 @@ def test_studies_the_project_as_it_stands_on_disk(
     instructions = read_explorer_prompt(client)
     directory = Path(instructions.split("<working_directory>\n")[1].split("\n</working_directory>")[0])
     # The explorer works in a disposable copy of the repository, not the project directory itself. That copy stands
-    # in the workspace worktree directory, so its own reported working directory is never the real project path.
-    assert directory.is_relative_to((tmp_path / paths.WORKTREE_DIR).resolve())
+    # in the run snapshot directory, so its own reported working directory is never the real project path.
+    assert directory == (tmp_path / paths.SNAPSHOT_DIR).resolve()
     assert any(str(directory / paths.NOTEBOOK_FILE) in output for output in read_tool_outputs(client))
 
 

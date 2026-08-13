@@ -3,12 +3,13 @@ import os
 import shutil
 import signal
 import subprocess
-import tempfile
 from collections.abc import Collection, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, Self
+
+from jri.lib import files
 
 __all__ = [
     "ROOT_ANSWERS",
@@ -74,9 +75,9 @@ class Locks:
     def standing(self) -> frozenset[Path]:
         found: set[Path] = set()
         for root in set(self.directories):
-            for directory, names, files in os.walk(root):
+            for directory, names, file_names in os.walk(root):
                 names[:] = [name for name in names if name not in self.UNGUARDED]
-                found.update(Path(directory) / name for name in files if name.endswith(self.SUFFIX))
+                found.update(Path(directory) / name for name in file_names if name.endswith(self.SUFFIX))
         return frozenset(found)
 
     @property
@@ -284,35 +285,29 @@ class Repository:
         output = self._run("ls-files", "-co", "--exclude-standard", "-z").stdout
         return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
 
-    # Open a checkout of `revision` in `parent`, or a copy of the current worktree when `revision` is `None`.
-    # The caller names the directory that receives it. Each open takes a directory of its own, so two worktrees can
-    # stand at once. Git must ignore a `parent` inside this repository, or the copy below receives itself.
+    # Open a checkout of `revision` at `location`, or a copy of the current worktree there when `revision` is `None`.
+    # The caller names this directory and holds it alone: this method replaces what stands there and removes it at
+    # the end, thus a location that holds data of the user is not a location for this method. A stopped process
+    # leaves a directory, and for a checkout an entry that names it. Remove the directory before the prune below,
+    # because Git reclaims that entry only when its directory is gone. Git must ignore a `location` inside this
+    # repository, or the copy below receives itself.
     @contextmanager
-    def open_worktree(self, revision: str | None = "HEAD", *, parent: Path) -> Generator["Repository"]:
-        with tempfile.TemporaryDirectory(prefix="git-worktree-", dir=parent) as temporary_directory:
-            location = Path(temporary_directory) / (revision or "worktree")
-            if revision is None:
-                location.mkdir()
-                for relative_path in self.read_worktree_paths():
-                    source = self.path / relative_path
-                    if source.is_file():
-                        destination = location / relative_path
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(source, destination)
-                repository = type(self).init(location, str(self.executable), nested=True)
-                repository.stage((".",))
-                yield repository
-                return
-            # A stopped process cannot remove its worktree entries. Remove them now. Git reclaims an entry only after
-            # its directory is removed from disk.
-            self._run("worktree", "prune", check=False)
-            self._run("worktree", "add", "--detach", str(location), revision)
+    def open_worktree(self, revision: str | None = "HEAD", *, location: Path) -> Generator["Repository"]:
+        files.remove_directory(location)
+        if revision is None:
             try:
-                yield type(self)(location, str(self.executable))
+                yield self._copy_worktree(location)
             finally:
-                removal = self._run("worktree", "remove", "--force", str(location), check=False)
-                if removal.returncode:
-                    logger.warning("worktree_removal_failed location=%s", location)
+                files.remove_directory(location)
+            return
+        self._run("worktree", "prune", check=False)
+        self._run("worktree", "add", "--detach", str(location), revision)
+        try:
+            yield type(self)(location, str(self.executable))
+        finally:
+            removal = self._run("worktree", "remove", "--force", str(location), check=False)
+            if removal.returncode:
+                logger.warning("worktree_removal_failed location=%s", location)
 
     def apply_patch(
         self,
@@ -364,6 +359,19 @@ class Repository:
             arguments.extend(["--", *paths])
         self._run(*arguments, stdin=body.encode())
         return self.read_head()
+
+    # Copy the files that this worktree holds, tracked and untracked, and give the copy an index of its own.
+    def _copy_worktree(self, location: Path) -> "Repository":
+        location.mkdir(parents=True)
+        for relative_path in self.read_worktree_paths():
+            source = self.path / relative_path
+            if source.is_file():
+                destination = location / relative_path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+        repository = type(self).init(location, str(self.executable), nested=True)
+        repository.stage((".",))
+        return repository
 
     def _run(
         self, *arguments: str, stdin: bytes | None = None, check: bool = True

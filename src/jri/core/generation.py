@@ -1,6 +1,5 @@
 import logging
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -14,6 +13,7 @@ from typing import IO, Any, Literal, cast
 from pydantic import AwareDatetime, BaseModel, ConfigDict, RootModel, ValidationError
 
 from jri import __version__
+from jri.lib import files
 from jri.lib.lock import Lock, LockError
 
 from . import paths
@@ -120,6 +120,13 @@ class Generation:
         self.journal_file = workspace.root / paths.JOURNAL_FILE
         self.cancel_file = workspace.root / paths.CANCEL_FILE
         self.runner_log_file = workspace.root / paths.RUNNER_LOG_FILE
+        # A run works in these three worktrees. Each one has a location of its own, because all three can stand
+        # at the same time.
+        self.worktree_dirs = (
+            workspace.root / paths.WORKTREE_DIR,
+            workspace.root / paths.SNAPSHOT_DIR,
+            workspace.root / paths.PRE_IMAGE_DIR,
+        )
         self.lock = Lock(workspace.root / paths.GENERATION_LOCK_FILE)
 
     # This method defines the runner lifetime. The lock states that it is alive, the journal states what it did,
@@ -278,17 +285,13 @@ class Generation:
                 logger.exception("generation_record_removal_failed path=%r", path)
         self._drop_worktrees()
 
-    # A killed run leaves the worktree it worked in beside the project. A run that ends removes its own worktree,
+    # A killed run leaves the worktrees it worked in beside the project. A run that ends removes its own worktrees,
     # so every worktree that stands here now was left by a run that cannot come back for it.
-    # Report a failed removal instead of raising it. A leftover worktree stops no later run.
+    # The next run opens its worktrees at these same locations, and it removes what stands there before it does.
+    # Report a failed removal instead of raising it. A worktree that stays stops no later run.
     def _drop_worktrees(self) -> None:
-        worktree_dir = self.workspace.root / paths.WORKTREE_DIR
-        if not worktree_dir.exists():
-            return
-        try:
-            shutil.rmtree(worktree_dir)
-        except OSError:
-            logger.exception("worktree_removal_failed path=%r", worktree_dir)
+        for directory in self.worktree_dirs:
+            files.remove_directory(directory)
 
     # Yield each run record and its ending when present. Close the reader before return or failure.
     # A suspended reader keeps the journal open. Windows cannot remove a file that this process still has open.

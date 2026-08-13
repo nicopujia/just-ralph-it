@@ -5,7 +5,6 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from tempfile import TemporaryDirectory
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 from yaml import YAMLError, safe_dump, safe_load
@@ -483,14 +482,21 @@ class Specs:
             return None
 
     # Open the commit named by the record in its own worktree. For a first acceptance, use an empty repository.
+    # This worktree can stand while the run worktree stands, thus it takes a location of its own.
     @contextmanager
     def _open_pre_image(self, accepted: str | None) -> Generator[git.Repository]:
+        self.workspace.open_generation_dir()
+        location = self.workspace.root / paths.PRE_IMAGE_DIR
         if accepted is not None:
-            with self.repository.open_worktree(accepted, parent=self.workspace.open_worktree_dir()) as worktree:
+            with self.repository.open_worktree(accepted, location=location) as worktree:
                 yield worktree
             return
-        with TemporaryDirectory(prefix="jri-rebuild-", dir=self.workspace.open_worktree_dir()) as directory:
-            yield git.Repository.init(directory, nested=True)
+        files.remove_directory(location)
+        location.mkdir(parents=True)
+        try:
+            yield git.Repository.init(location, nested=True)
+        finally:
+            files.remove_directory(location)
 
     # A partial write leaves either no file or an initial part of the target.
     # `git apply` removes a file before recreating it.

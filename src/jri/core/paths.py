@@ -28,9 +28,14 @@ CANCEL_FILE = f"{GENERATION_DIR}/cancel"
 # This file holds runner output outside its log, such as an interpreter traceback or standard-error output.
 # It reports a crash before journaling starts.
 RUNNER_LOG_FILE = f"{GENERATION_DIR}/runner.log"
+# The explorer studies a disposable copy of the project here.
+# An interrupted acceptance rebuilds the specifications it meant to write in a checkout here.
+# Both stand while the run checkout below stands, thus each one takes a location of its own.
+SNAPSHOT_DIR = f"{GENERATION_DIR}/snapshot"
+PRE_IMAGE_DIR = f"{GENERATION_DIR}/pre-image"
 
-# A run opens each Git worktree it works in under here, beside the project rather than in a system temporary
-# directory. Every worktree here belongs to a run, and a run that ends removes the one it opened.
+# A run works in this Git worktree, beside the project rather than in a system temporary directory.
+# It belongs to the run that opened it, and that run removes it when it ends.
 WORKTREE_DIR = f"{WORKSPACE_DIR}/worktree"
 
 LOGS_DIR = f"{WORKSPACE_DIR}/logs"

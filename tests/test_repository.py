@@ -38,7 +38,7 @@ def test_credits_ralph_from_a_worktree_too(
     create_repository(tmp_path)
     repository = Repository(tmp_path)
 
-    with repository.open_worktree(parent=tmp_path) as worktree:
+    with repository.open_worktree(location=tmp_path / "worktree") as worktree:
         assert isinstance(worktree, Repository)
         (worktree.path / "README.md").write_text("second\n")
         worktree.stage(["README.md"])

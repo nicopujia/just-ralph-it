@@ -71,12 +71,11 @@ def test_opens_a_worktree_directory_that_stays_out_of_the_project(tmp_path: Path
     workspace = install_workspace(tmp_path).workspace
     repository = git.Repository(tmp_path)
 
-    worktree_dir = workspace.open_worktree_dir()
-    checkout = worktree_dir / "git-worktree-1" / "HEAD"
+    checkout = workspace.open_worktree_dir()
     checkout.mkdir(parents=True)
     (checkout / "main.py").write_text("print('a copy of the project')\n", encoding="utf-8")
 
-    assert worktree_dir == tmp_path / paths.WORKTREE_DIR
+    assert checkout == tmp_path / paths.WORKTREE_DIR
     # A run works in this directory while Git reads the project. Git reports nothing it holds, and no later read
     # of the project files finds a copy of the project among them.
     assert repository.read_status() == ()

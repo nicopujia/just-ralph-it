@@ -1,12 +1,16 @@
+import logging
+import shutil
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-__all__ = ["describe_paths", "shorten_path", "write_atomically"]
+__all__ = ["describe_paths", "remove_directory", "shorten_path", "write_atomically"]
 
 # Show paths that identify the read. More paths make a column, not a sentence.
 MAX_DESCRIBED_PATHS = 3
 NEW_FILE_PERMISSIONS = 0o644
+
+logger = logging.getLogger(__name__)
 
 
 def describe_paths(paths: Sequence[str]) -> str:
@@ -15,6 +19,17 @@ def describe_paths(paths: Sequence[str]) -> str:
         described.append(f"{remaining} more")
     last = described.pop() if described else ""
     return f"{', '.join(described)} and {last}" if described else last
+
+
+# Remove a directory and all data below it. A directory that stays stops no caller that only needs it gone,
+# thus report a failed removal instead of raising it.
+def remove_directory(path: Path) -> None:
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        return
+    except OSError:
+        logger.exception("directory_removal_failed path=%r", path)
 
 
 def shorten_path(path: Path) -> str:

@@ -35,7 +35,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
 
     # Use one worktree for the run. Each round edits its draft.
     # Save each change so a later run can continue. The draft is the agreement between rounds.
-    with specs.repository.open_worktree(baseline.commit, parent=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
         yield from _resume(specs, staging)
         functional_context = _build_functional_context(specs, baseline, staging)
 
@@ -92,7 +92,8 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 yield ai.ToolCallStarted("explorer", "Studying your existing project", "🔎")
                 # This row is nested under the explorer row. Closing it closes nested rows.
                 # Study a disposable copy of the current project, not JRI's current commit.
-                with specs.repository.open_worktree(None, parent=specs.workspace.open_worktree_dir()) as project:
+                snapshot = specs.workspace.root / paths.SNAPSHOT_DIR
+                with specs.repository.open_worktree(None, location=snapshot) as project:
                     explorer_report = (
                         yield from ai.Explorer(settings, project.path).report(
                             "Study this repository generally. Report its structure, architecture, established "
