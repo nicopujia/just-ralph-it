@@ -69,6 +69,12 @@ Header {{
     border: tall $border;
 }}
 
+/* The text area makes its own placeholder color from the text color.
+   The theme muted color makes the hint agree with the other muted text in the window. */
+#{MESSAGE_INPUT_ID} > .text-area--placeholder {{
+    color: $text-muted;
+}}
+
 /* The panel is over the message input, so it uses this input container.
    The text area owns the border and padding below. These rules cannot change them.
    The input still sets the size for both items. A resize rewraps and moves both items together. */
