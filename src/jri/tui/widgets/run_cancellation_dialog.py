@@ -9,6 +9,7 @@ from textual.widgets import Button, Static
 from jri.tui import copy, styles
 
 # The dialog gives this answer to its caller. The caller stops the run only for `stop`.
+# A boolean answer would read as a trap to the linter, both here and at the caller.
 type RunCancellationAnswer = Literal["stop", "keep"]
 
 
@@ -30,4 +31,6 @@ class RunCancellationDialog(ModalScreen[RunCancellationAnswer]):
                 yield Button(copy.RUN_CANCELLATION_CONFIRM, id=styles.RUN_CANCELLATION_CONFIRM_BUTTON_ID, compact=True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        # This answer is for the dialog. The conversation window has a handler for the buttons it puts in a turn.
+        event.stop()
         self.dismiss("stop" if event.button.id == styles.RUN_CANCELLATION_CONFIRM_BUTTON_ID else "keep")
