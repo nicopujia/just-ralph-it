@@ -93,6 +93,8 @@ class Session(BaseModel):
     failed_call_ids: list[str] = Field(default_factory=list)
     ready_graph: Graph | None = None
     show_thinking_blocks: bool = False
+    # No theme means the window follows the system appearance. A theme is the one the user selected.
+    theme: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 

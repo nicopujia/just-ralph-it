@@ -8,12 +8,13 @@ from typing import Any, ClassVar, cast, override
 from textual import work
 from textual.app import App as TextualApp
 from textual.app import ComposeResult, SystemCommand
-from textual.binding import Binding, BindingType
+from textual.binding import ActiveBinding, Binding, BindingType
 from textual.command import CommandPalette as TextualCommandPalette
 from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import Reactive
 from textual.screen import Screen as TextualScreen
-from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, Static
+from textual.theme import Theme
+from textual.widgets import Button, Footer, Header, HelpPanel, KeyPanel, LoadingIndicator, Markdown, Static
 
 from jri.core.ai import (
     AgentEvent,
@@ -29,7 +30,14 @@ from jri.core.exceptions import PersistenceError, RunDetached
 from jri.lib import appearance
 
 from . import copy, styles
-from .widgets import MessageInput, MessagesContainer, RunCancellationAnswer, RunCancellationDialog, ToolCallRow
+from .widgets import (
+    MessageInput,
+    MessagesContainer,
+    RunCancellationAnswer,
+    RunCancellationDialog,
+    ThinkingLabel,
+    ToolCallRow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +45,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class InterviewerTurnState:
     container: Vertical
-    placeholder: Markdown | None
+    placeholder: ThinkingLabel | None
     active_markdown: Markdown | None = None
     active_markdown_text: str = ""
     active_reasoning: Markdown | None = None
@@ -66,6 +74,21 @@ class CommandPalette(TextualCommandPalette):
 
 
 class Screen(TextualScreen[None]):
+    # The keymap panel takes the keys, because a reader scrolls a long list. Textual builds that list from the widget
+    # that has the keys, thus the panel would list only its own scroll keys. Read the list from the message input,
+    # which is the widget that the reader asks about. Only the list uses this. Key presses go to the panel.
+    @property
+    @override
+    def active_bindings(self) -> dict[str, ActiveBinding]:
+        focused = self.focused
+        if not isinstance(focused, KeyPanel):
+            return super().active_bindings
+        self.set_reactive(TextualScreen.focused, self.query_one(MessageInput))
+        try:
+            return super().active_bindings
+        finally:
+            self.set_reactive(TextualScreen.focused, focused)
+
     # The message input owns the shortcuts. It handles them only while this screen is active.
     # A screen over this screen takes the keys. Close the mode here to avoid hints for unavailable keys.
     def on_screen_suspend(self) -> None:
@@ -73,9 +96,9 @@ class Screen(TextualScreen[None]):
 
 
 class App(TextualApp[None]):
-    # The window opens with no focus. The user gives the message input the keys with a click or Tab.
-    # The app bindings stay available, because a screen with no focus sends its keys to the screen and the app.
-    AUTO_FOCUS = None
+    # The window opens on the message input, because the user came here to write. Typing needs no click or Tab.
+    # The app bindings stay available, because they have priority over the text-area keys.
+    AUTO_FOCUS = f"#{styles.MESSAGE_INPUT_ID}"
     # The footer shows only the three exits from the current view.
     # All other bindings have `show=False` and are in the keymap panel.
     # A permanent hint has little value. The footer is the only terminal line that remains reserved.
@@ -107,11 +130,14 @@ class App(TextualApp[None]):
 
     def __init__(self, conversation: Conversation) -> None:
         super().__init__()
-        self.theme = styles.THEME_LIGHT if appearance.read() == "light" else styles.THEME_DARK
         self.conversation = conversation
         # Set this event when the window closes. It signals a run that continues after the window.
         self.detached = Event()
         self.restored_turns = conversation.restore()
+        # A saved theme is the selection the user made in this project. The system appearance opens the first window.
+        self.theme = conversation.session.theme or (
+            styles.THEME_LIGHT if appearance.read() == "light" else styles.THEME_DARK
+        )
         self.is_reasoning_visible = conversation.session.show_thinking_blocks
         # Restored turns mount newest first. This is the conversation index of the first mounted turn.
         self.restored_turn_index = len(self.restored_turns)
@@ -149,7 +175,7 @@ class App(TextualApp[None]):
 
     @override
     def get_default_screen(self) -> Screen:
-        # Textual uses this id for its default screen. This screen only adds a suspend event method.
+        # Textual uses this id for its default screen. This screen only adds a key list and a suspend event method.
         # Code that uses the first screen id still finds it.
         return Screen(id="_default")
 
@@ -230,6 +256,9 @@ class App(TextualApp[None]):
 
     async def on_mount(self) -> None:
         self.watch(self.message_input, "is_shortcuts_open", self._sync_shortcut_hints)
+        # This signal reports the themes the user selects. The theme this window opened with does not reach it,
+        # so a window that follows the system appearance keeps following it.
+        self.theme_changed_signal.subscribe(self, self._save_theme)
         await self._restore_history()
         # Resume a pending run through its normal start path. This renders its rows, reply, and ending as usual.
         # On the first read, finish a run that ended without a window.
@@ -288,13 +317,21 @@ class App(TextualApp[None]):
         logger.info("quit_requested source=key")
         await self.action_quit()
 
-    def action_toggle_keymap_panel(self) -> None:
-        if self.screen.query("HelpPanel"):
-            self.action_hide_help_panel()
+    async def action_toggle_keymap_panel(self) -> None:
+        if keymap_panel := self.screen.query(HelpPanel):
+            await keymap_panel.remove()
+            self.message_input.focus()
             logger.info("keymap_panel_toggled visible=False")
-        else:
-            self.action_show_help_panel()
-            logger.info("keymap_panel_toggled visible=True")
+            return
+        await self.screen.mount(HelpPanel())
+        # The panel is a reading list, and it can be longer than the window. Give it the keys, thus arrows,
+        # Page keys, Home, and End scroll it. Textual gives its key list no focus, so make this one take the keys.
+        key_panel = self.screen.query_one(KeyPanel)
+        key_panel.can_focus = True
+        key_panel.focus()
+        # The letters of the open shortcuts go to the panel now. Close the mode to avoid hints for unavailable keys.
+        self.message_input.is_shortcuts_open = False
+        logger.info("keymap_panel_toggled visible=True")
 
     def action_toggle_reasoning(self) -> None:
         self.is_reasoning_visible = not self.is_reasoning_visible
@@ -359,6 +396,10 @@ class App(TextualApp[None]):
         if turn_state.is_ralphing:
             self.ralphing.display = False
             self.message_input.disabled = False
+            # A disabled widget cannot hold the keys, thus the run took them. Give them back, as at the window start.
+            # A reader of the keymap panel keeps them, because the panel scrolls with the keys.
+            if not isinstance(self.focused, KeyPanel):
+                self.message_input.focus()
             self._mark_run(is_active=False)
             # The run ended by itself. Close its stop question, which now has nothing to stop.
             if isinstance(self.screen, RunCancellationDialog):
@@ -426,14 +467,18 @@ class App(TextualApp[None]):
     async def _render_interviewer_status(
         self, turn_state: InterviewerTurnState, content: str, classes: str = styles.INTERVIEWER_MESSAGE_CLASSES
     ) -> None:
-        if turn_state.placeholder is None:
-            turn_state.active_markdown = None
-            turn_state.active_markdown_text = ""
-            await turn_state.container.mount(Markdown(content, classes=classes))
-        else:
-            turn_state.placeholder.set_classes(classes)
-            await turn_state.placeholder.update(content)
+        # The status takes the place of the thinking label, which shows a wait that is now over.
+        if turn_state.placeholder is not None:
+            await turn_state.placeholder.remove()
+            turn_state.placeholder = None
+        turn_state.active_markdown = None
+        turn_state.active_markdown_text = ""
+        await turn_state.container.mount(Markdown(content, classes=classes))
         self._follow_bottom(turn_state)
+
+    def _save_theme(self, theme: Theme) -> None:
+        self.conversation.update_session(theme=theme.name)
+        logger.info("theme_saved theme=%s", theme.name)
 
     def _stop_following_bottom(self) -> None:
         if self.active_turn_state is not None:
@@ -446,7 +491,8 @@ class App(TextualApp[None]):
             turn_state.active_markdown, turn_state.active_markdown_text = None, ""
             turn_state.active_reasoning = Markdown("", classes=styles.INTERVIEWER_REASONING_CLASSES)
             turn_state.active_reasoning.display = self.is_reasoning_visible
-            await turn_state.container.mount(turn_state.active_reasoning)
+            # The label reports a wait that continues below the thought. Keep it last, under the new block.
+            await turn_state.container.mount(turn_state.active_reasoning, before=turn_state.placeholder)
 
         turn_state.active_reasoning_text += event.text
         await turn_state.active_reasoning.update(turn_state.active_reasoning_text)
@@ -472,10 +518,7 @@ class App(TextualApp[None]):
                 del turn_state.tool_rows[nested_call_id]
         turn_state.tool_rows[event.call_id].mark_complete(event.label, event.outcome, event.detail)
         if event.depth == 0:
-            turn_state.placeholder = Markdown(
-                copy.INTERVIEWER_STOPPING if turn_state.cancelled.is_set() else copy.INTERVIEWER_THINKING,
-                classes=styles.INTERVIEWER_MESSAGE_CLASSES,
-            )
+            turn_state.placeholder = ThinkingLabel(is_stopping=turn_state.cancelled.is_set())
             await turn_state.container.mount(turn_state.placeholder)
 
     @staticmethod
@@ -603,7 +646,7 @@ class App(TextualApp[None]):
         self.notify(copy.CANCEL_TURN_STARTED, timeout=1)
         logger.info("interviewer_turn_cancellation_requested")
         if turn_state.placeholder is not None:
-            await turn_state.placeholder.update(copy.INTERVIEWER_STOPPING)
+            turn_state.placeholder.mark_stopping()
 
     async def _restore_history(self) -> None:
         if self.restored_turns:
@@ -628,7 +671,7 @@ class App(TextualApp[None]):
         else:
             for child in list(container.children):
                 await child.remove()
-        placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
+        placeholder = ThinkingLabel()
         await container.mount(placeholder)
         turn_state = InterviewerTurnState(container=container, placeholder=placeholder, is_ralphing=is_ralphing)
         self.active_turn_state = turn_state
@@ -661,7 +704,7 @@ class App(TextualApp[None]):
 
         user_message_widget = Markdown(user_message, classes=styles.USER_MESSAGE_CLASSES)
         interviewer_turn = Vertical(classes=styles.INTERVIEWER_TURN_CLASSES)
-        placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
+        placeholder = ThinkingLabel()
         turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
         self.active_turn_state = turn_state
         # Textual can hit-test a block after `update()` detaches it. It then accesses a missing parent.

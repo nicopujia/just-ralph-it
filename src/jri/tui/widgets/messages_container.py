@@ -8,8 +8,8 @@ from jri.tui import styles
 
 
 class MessagesContainer(VerticalScroll):
-    # The window opens with no focus, thus the first Tab must go to the message input.
-    # A scroll area that accepts focus becomes an unwanted first stop.
+    # Tab moves between the message input and the buttons in the turns.
+    # A scroll area that accepts focus becomes an unwanted stop.
     # The reader scrolls with the mouse and with the anchor that follows a reply.
     can_focus = False
 

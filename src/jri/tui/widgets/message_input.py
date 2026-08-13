@@ -10,6 +10,9 @@ from textual.widgets import TextArea
 
 from jri.tui import copy
 
+# The text area deletes to the end of the line with the key that the app uses for the keymap panel.
+TEXT_AREA_CTRL_K_ACTION = "delete_to_end_of_line_or_delete_line"
+
 
 class MessageInput(TextArea):
     SHORTCUT_ACTIONS = frozenset({"previous_message", "next_message", "retry_message", "ralph"})
@@ -69,6 +72,11 @@ class MessageInput(TextArea):
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        # The app owns this key and has priority over this text-area action, thus the action is unreachable.
+        # Stand it down. The footer lists each key where its first owner declares it, and an entry here would
+        # move the app key to this widget and change the footer order when the input takes the focus.
+        if action == TEXT_AREA_CTRL_K_ACTION:
+            return False
         if action == "open_shortcuts":
             return not self.is_turn_active and not self.is_shortcuts_open
         # Escape closes shortcuts only when they are open. When closed, it lets `esc esc` reach the turn.

@@ -52,8 +52,8 @@ INIT_RECREATED = (
 INIT_REPOSITORY = "Initialized a Git repository here."
 INSERT_NEWLINE = "Insert newline"
 INTERNAL_ERROR = "Something unexpected went wrong. Check the JRI log for details."
-INTERVIEWER_STOPPING = "_Stopping..._"
-INTERVIEWER_THINKING = "_Thinking..._"
+INTERVIEWER_STOPPING = "Stopping..."
+INTERVIEWER_THINKING = "Thinking..."
 
 KEYMAP_PANEL = "Full keymap"
 

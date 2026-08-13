@@ -23,6 +23,7 @@ SHORTCUT_HINTS_CLASSES = "shortcut-hints"
 
 THEME_DARK = "ansi-dark"
 THEME_LIGHT = "ansi-light"
+THINKING_LABEL_CLASSES = "thinking-label"
 TOOL_CALL_ROW_CLASSES = "tool-call-row"
 TOOL_CALL_ROW_FAILED_CLASSES = "tool-call-row-failed"
 
@@ -56,7 +57,7 @@ Header {{
     layers: message ralphing;
 }}
 
-/* The window opens with no focus. A muted border tells the reader that the input does not take the keys.
+/* A muted border tells the reader that the input does not take the keys.
    The theme blurred border is the background color of the terminal, which shows no box at all. */
 #{MESSAGE_INPUT_ID} {{
     layer: message;
@@ -69,10 +70,10 @@ Header {{
     border: tall $border;
 }}
 
-/* The text area makes its own placeholder color from the text color.
-   The theme muted color makes the hint agree with the other muted text in the window. */
+/* The ANSI themes give muted text the color of normal text, thus no color can mute this hint.
+   The terminal makes this gray from its own palette, as it does for the tool call rows. */
 #{MESSAGE_INPUT_ID} > .text-area--placeholder {{
-    color: $text-muted;
+    text-style: dim;
 }}
 
 /* The panel is over the message input, so it uses this input container.
@@ -145,6 +146,15 @@ Header {{
     padding-left: 2;
     text-opacity: 70%;
     text-style: dim italic;
+}}
+
+/* This label replaces a Markdown block, and it keeps the space that block used.
+   The letters take their shades from the content, thus this rule sets only the slant. */
+.{THINKING_LABEL_CLASSES} {{
+    margin-bottom: 1;
+    padding-right: 2;
+    padding-left: 2;
+    text-style: italic;
 }}
 
 .{INTERVIEWER_ERROR_CLASSES} {{
