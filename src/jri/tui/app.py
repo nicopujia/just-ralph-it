@@ -272,18 +272,18 @@ class App(TextualApp[None]):
         elif self.use_command_palette:
             self.push_screen(CommandPalette(id="--command-palette"))
 
-    # A key press near the keys that send a message can be a slip. While work is active, warn before the window closes.
-    # The second press is the answer for a run too. Do not ask again in the stop dialog.
+    # A key press near the keys that send a message can be a slip, and a reply goes with the window that shows it.
+    # Warn before that, then stop the reply and close on the second press. Do not wait for the worker.
+    # A run outlives its window, as its panel states, so a quit during a run only closes the window.
     # The typed quit command stays immediate, because the user wrote it.
     async def action_confirm_quit(self) -> None:
-        if self.is_busy:
+        turn_state = self.active_turn_state
+        if turn_state is not None and not turn_state.is_ralphing:
             now = monotonic()
             if now - self.last_quit_at > 1:
                 self.last_quit_at = now
                 self.notify(copy.QUIT_CONFIRMATION, timeout=1)
                 return
-            # Ask the turn to stop, then close. Do not wait for the worker.
-            # The run reads the stop from its record after this window goes, and the next window ends the turn.
             await self._request_cancellation()
         logger.info("quit_requested source=key")
         await self.action_quit()
