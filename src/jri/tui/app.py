@@ -125,6 +125,9 @@ class App(TextualApp[None]):
         Binding("escape", "cancel_turn", copy.CANCEL_TURN, key_display=copy.CANCEL_TURN_KEY, show=False),
         Binding("ctrl+t", "toggle_reasoning", copy.THINKING_BLOCKS, show=False, priority=True),
     ]
+    # A key that stops a reply asks first. This is the number of seconds the question stays open, and also the
+    # time that its notice stays on the screen, thus the question and its notice end together.
+    CONFIRMATION_WINDOW = 1.0
     HISTORY_BATCH_SIZE = 15
     TITLE = copy.TITLE
     CSS = styles.STYLESHEET
@@ -159,6 +162,7 @@ class App(TextualApp[None]):
         self.mounted_turns: list[tuple[Markdown, Vertical]] = []
         self.last_escape_at = 0.0
         self.last_quit_at = 0.0
+        self.last_submit_at = 0.0
         self.pending_message: PendingMessage | None = None
         self.messages_container = MessagesContainer(self._stop_following_bottom, self._load_older_history)
         self.message_input = MessageInput(
@@ -260,6 +264,14 @@ class App(TextualApp[None]):
         # The empty input shows the user that JRI accepted the message.
         # A run disables the message input behind its panel, thus a run keeps the turn to its end.
         if self.is_busy:
+            # This press stops the reply on the screen, and a key this near the text can be a slip.
+            # Ask first and keep the text, because JRI does not hold the message yet.
+            now = monotonic()
+            if now - self.last_submit_at > self.CONFIRMATION_WINDOW:
+                self.last_submit_at = now
+                self.notify(copy.SEND_MESSAGE_CONFIRMATION, timeout=self.CONFIRMATION_WINDOW)
+                logger.info("message_submission_confirmation_requested")
+                return
             self.pending_message = PendingMessage(user_message, event.history_index)
             event.message_input.text = ""
             logger.info("message_held characters=%d", len(user_message))
@@ -302,11 +314,11 @@ class App(TextualApp[None]):
             self.push_screen(RunCancellationDialog(), self._answer_run_cancellation)
             return
         now = monotonic()
-        if now - self.last_escape_at <= 1:
+        if now - self.last_escape_at <= self.CONFIRMATION_WINDOW:
             await self._request_cancellation()
             return
         self.last_escape_at = now
-        self.notify(copy.CANCEL_TURN_CONFIRMATION, timeout=1)
+        self.notify(copy.CANCEL_TURN_CONFIRMATION, timeout=self.CONFIRMATION_WINDOW)
 
     @override
     def action_command_palette(self) -> None:
@@ -323,9 +335,9 @@ class App(TextualApp[None]):
         turn_state = self.active_turn_state
         if turn_state is not None and not turn_state.is_ralphing:
             now = monotonic()
-            if now - self.last_quit_at > 1:
+            if now - self.last_quit_at > self.CONFIRMATION_WINDOW:
                 self.last_quit_at = now
-                self.notify(copy.QUIT_CONFIRMATION, timeout=1)
+                self.notify(copy.QUIT_CONFIRMATION, timeout=self.CONFIRMATION_WINDOW)
                 return
             await self._request_cancellation()
         logger.info("quit_requested source=key")
@@ -681,6 +693,7 @@ class App(TextualApp[None]):
         await turn_state.show_thinking()
         self.active_turn_state = turn_state
         self.last_escape_at = 0.0
+        self.last_submit_at = 0.0
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
         self._run_turn(self.conversation.retry(turn_state.cancelled, self.detached), turn_state)
@@ -706,6 +719,7 @@ class App(TextualApp[None]):
         self.message_input.remember(user_message)
         self.message_input.placeholder = copy.MESSAGE_INPUT_PLACEHOLDER
         self.last_escape_at = 0.0
+        self.last_submit_at = 0.0
 
         user_message_widget = Markdown(user_message, classes=styles.USER_MESSAGE_CLASSES)
         interviewer_turn = Vertical(classes=styles.INTERVIEWER_TURN_CLASSES)

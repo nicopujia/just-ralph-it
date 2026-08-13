@@ -89,6 +89,7 @@ RUN_CANCELLATION_QUESTION = (
 )
 
 SEND_MESSAGE = "Send message"
+SEND_MESSAGE_CONFIRMATION = "Press Enter again to stop this and send"
 SHORTCUTS = "Shortcuts"
 SHOW_THINKING_BLOCKS = "Show thinking blocks"
 
