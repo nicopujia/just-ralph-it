@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class InterviewerTurnState:
     container: Vertical
-    placeholder: ThinkingLabel | None
+    placeholder: ThinkingLabel | None = None
     active_markdown: Markdown | None = None
     active_markdown_text: str = ""
     active_reasoning: Markdown | None = None
@@ -54,6 +54,20 @@ class InterviewerTurnState:
     follow_bottom: bool = True
     is_ralphing: bool = False
     cancelled: Event = field(default_factory=Event)
+
+    # A turn shows one thinking label. Each turn removes only the label that this field holds, thus a label that
+    # this field releases stays on the screen for the remainder of the window. Mount and remove the label here,
+    # where each new label removes the label before it.
+    async def hide_thinking(self) -> None:
+        if self.placeholder is None:
+            return
+        await self.placeholder.remove()
+        self.placeholder = None
+
+    async def show_thinking(self) -> None:
+        await self.hide_thinking()
+        self.placeholder = ThinkingLabel(is_stopping=self.cancelled.is_set())
+        await self.container.mount(self.placeholder)
 
 
 # This is a message the user sent while a turn was active. The turn stops, then this message opens the next turn.
@@ -386,11 +400,10 @@ class App(TextualApp[None]):
         content, classes = _describe_ending(event.ending, event.detail)
         if content:
             await self._render_interviewer_status(turn_state, content, classes)
-        elif turn_state.placeholder is not None:
+        else:
             # A turn with no content removes its thinking notice. The saved record has no notice.
             # The restored view uses that record.
-            await turn_state.placeholder.remove()
-            turn_state.placeholder = None
+            await turn_state.hide_thinking()
         if event.ending in RETRYABLE_ENDINGS:
             await self._show_retry_button(turn_state)
         if turn_state.is_ralphing:
@@ -468,9 +481,7 @@ class App(TextualApp[None]):
         self, turn_state: InterviewerTurnState, content: str, classes: str = styles.INTERVIEWER_MESSAGE_CLASSES
     ) -> None:
         # The status takes the place of the thinking label, which shows a wait that is now over.
-        if turn_state.placeholder is not None:
-            await turn_state.placeholder.remove()
-            turn_state.placeholder = None
+        await turn_state.hide_thinking()
         turn_state.active_markdown = None
         turn_state.active_markdown_text = ""
         await turn_state.container.mount(Markdown(content, classes=classes))
@@ -499,9 +510,7 @@ class App(TextualApp[None]):
 
     @staticmethod
     async def _render_text_delta(turn_state: InterviewerTurnState, event: TextDelta) -> None:
-        if turn_state.placeholder is not None:
-            await turn_state.placeholder.remove()
-            turn_state.placeholder = None
+        await turn_state.hide_thinking()
         turn_state.active_reasoning, turn_state.active_reasoning_text = None, ""
         if turn_state.active_markdown is None:
             turn_state.active_markdown = Markdown("", classes=styles.INTERVIEWER_MESSAGE_CLASSES)
@@ -518,14 +527,11 @@ class App(TextualApp[None]):
                 del turn_state.tool_rows[nested_call_id]
         turn_state.tool_rows[event.call_id].mark_complete(event.label, event.outcome, event.detail)
         if event.depth == 0:
-            turn_state.placeholder = ThinkingLabel(is_stopping=turn_state.cancelled.is_set())
-            await turn_state.container.mount(turn_state.placeholder)
+            await turn_state.show_thinking()
 
     @staticmethod
     async def _render_tool_call_started(turn_state: InterviewerTurnState, event: ToolCallStarted) -> None:
-        if turn_state.placeholder is not None:
-            await turn_state.placeholder.remove()
-            turn_state.placeholder = None
+        await turn_state.hide_thinking()
         turn_state.active_markdown, turn_state.active_markdown_text = None, ""
         turn_state.active_reasoning, turn_state.active_reasoning_text = None, ""
         row = ToolCallRow(event.label, symbol=event.symbol, depth=event.depth)
@@ -671,9 +677,8 @@ class App(TextualApp[None]):
         else:
             for child in list(container.children):
                 await child.remove()
-        placeholder = ThinkingLabel()
-        await container.mount(placeholder)
-        turn_state = InterviewerTurnState(container=container, placeholder=placeholder, is_ralphing=is_ralphing)
+        turn_state = InterviewerTurnState(container=container, is_ralphing=is_ralphing)
+        await turn_state.show_thinking()
         self.active_turn_state = turn_state
         self.last_escape_at = 0.0
         App.ALLOW_SELECT = False
@@ -704,8 +709,7 @@ class App(TextualApp[None]):
 
         user_message_widget = Markdown(user_message, classes=styles.USER_MESSAGE_CLASSES)
         interviewer_turn = Vertical(classes=styles.INTERVIEWER_TURN_CLASSES)
-        placeholder = ThinkingLabel()
-        turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
+        turn_state = InterviewerTurnState(container=interviewer_turn)
         self.active_turn_state = turn_state
         # Textual can hit-test a block after `update()` detaches it. It then accesses a missing parent.
         App.ALLOW_SELECT = False
@@ -713,7 +717,7 @@ class App(TextualApp[None]):
 
         await self.messages_container.mount(user_message_widget)
         await self.messages_container.mount(interviewer_turn)
-        await interviewer_turn.mount(placeholder)
+        await turn_state.show_thinking()
 
         self._hide_older_history()
         self.messages_container.anchor()
@@ -735,7 +739,7 @@ class App(TextualApp[None]):
         # Do not show a hint in the rows. It could tell readers who show reasoning to hide it.
         if not self.is_reasoning_visible:
             self.notify(copy.RALPHING_THINKING_HINT)
-        turn_state = InterviewerTurnState(container=self.mounted_turns[-1][1], placeholder=None, is_ralphing=True)
+        turn_state = InterviewerTurnState(container=self.mounted_turns[-1][1], is_ralphing=True)
         self.active_turn_state = turn_state
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
