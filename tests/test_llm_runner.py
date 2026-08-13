@@ -8,7 +8,7 @@ import pytest
 from openai import omit
 from pydantic import BaseModel
 
-from jri.core.ai import BLOCK_NOTICE, LLMRunner, ReasoningDelta, TextDelta
+from jri.core.ai import BLOCK_NOTICE, LLMRunner, PendingToolCalls, ReasoningDelta, TextDelta
 from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavailableError, UsageLimitError
 from jri.core.settings import ReasoningEffort
 from tests.doubles.openai import (
@@ -52,16 +52,18 @@ def build_runner(parsed: object) -> LLMRunner:
 # A parsed call sends model reasoning as a stream.
 # Its return value is the parsed output.
 # Read all reasoning before reading that output.
-def drain(parse: Generator[ReasoningDelta, None, "Output | None"]) -> tuple[list[ReasoningDelta], "Output | None"]:
+def drain(
+    parse: Generator[ReasoningDelta, None, "Output | PendingToolCalls | None"],
+) -> tuple[list[ReasoningDelta], "Output | PendingToolCalls | None"]:
     thoughts: list[ReasoningDelta] = []
     while True:
         try:
             thoughts.append(next(parse))
         except StopIteration as stop:
-            return thoughts, cast("Output | None", stop.value)
+            return thoughts, cast("Output | PendingToolCalls | None", stop.value)
 
 
-def read_parsed(runner: LLMRunner, cancelled: Event | None = None) -> "Output | None":
+def read_parsed(runner: LLMRunner, cancelled: Event | None = None) -> "Output | PendingToolCalls | None":
     return drain(runner.parse([], Output, cancelled))[1]
 
 

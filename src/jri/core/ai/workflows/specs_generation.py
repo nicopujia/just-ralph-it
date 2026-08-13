@@ -6,13 +6,12 @@ from pathlib import Path, PurePosixPath
 from threading import Event
 
 from jri.core import ai, paths
+from jri.core.ai import architect, functional_analyst
 from jri.core.exceptions import PersistenceError, SpecsError
 from jri.core.notes import Notebook
 from jri.core.settings import Settings
 from jri.core.specs import Baseline, Specs
 from jri.lib import git
-
-from . import architect, functional_analyst
 
 # This stream reports opened and closed rows and model reasoning. It excludes `TextDelta`.
 # Only the interviewer sends replies to the user.
@@ -29,8 +28,6 @@ logger = logging.getLogger(__name__)
 def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Progress, None, SpecsResult | None]:
     cancelled = cancelled or Event()
     specs = Specs(Path.cwd())
-    analyst = functional_analyst.FunctionalAnalyst(settings)
-    designer = architect.Architect(settings)
     baseline = specs.prepare()
     explorer_report: str | None = None
 
@@ -51,6 +48,13 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             yield ai.ToolCallStarted(
                 f"functional-{cycle}", _describe_writing(cycle, len(functional_context.architect_feedback or ())), "✍️"
             )
+            # A fresh agent per cycle keeps each call stateless, matching the fresh input built for it.
+            analyst = functional_analyst.FunctionalAnalyst(
+                settings,
+                staging,
+                existing=functional_context.current_specs_index is not None,
+                feedback=bool(functional_context.architect_feedback),
+            )
             functional_result = yield from analyst.write(functional_context, cancelled)
             if functional_result is None:
                 return None
@@ -64,7 +68,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
 
             specs.write(
                 staging,
-                {file.path: file.content for file in functional_result.files},
+                {file.path: Specs.format(file) for file in functional_result.files},
                 functional_result.deleted_paths,
                 paths.FUNCTIONAL_SPECS_ROOT,
             )
@@ -105,10 +109,11 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 yield ai.ToolCallFinished("explorer", "Studied your existing project", "done")
 
             yield ai.ToolCallStarted(f"architecture-{cycle}", _describe_designing(cycle), "📐")
-            architecture_result = yield from (designer.finish if cycle == MAX_CYCLES else designer.design)(
+            designer = architect.Architect(settings, staging, final=cycle == MAX_CYCLES)
+            architecture_result = yield from designer.design(
                 architect.Input(
-                    functional_specs=specs.render(functional),
-                    current_architecture=specs.render(specs.read(staging, paths.ARCHITECTURE_SPECS_DIR)),
+                    functional_specs_index=specs.index(functional),
+                    current_architecture_index=specs.index(specs.read(staging, paths.ARCHITECTURE_SPECS_DIR)),
                     tracked_repository_tree=list(specs.repository.read_worktree_paths()),
                     explorer_report=explorer_report,
                 ),
@@ -125,13 +130,16 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                     "done",
                 )
                 functional_context = functional_context.model_copy(
-                    update={"current_specs": specs.render(functional), "architect_feedback": architecture_result.issues}
+                    update={
+                        "current_specs_index": specs.index(functional),
+                        "architect_feedback": architecture_result.issues,
+                    }
                 )
                 continue
 
             specs.write(
                 staging,
-                {file.path: file.content for file in architecture_result.files},
+                {file.path: Specs.format(file) for file in architecture_result.files},
                 architecture_result.deleted_paths,
                 paths.ARCHITECTURE_SPECS_ROOT,
             )
@@ -195,6 +203,7 @@ def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Rep
     # Use the same state as a first generation: no accepted baseline.
     except PersistenceError:
         accepted_notebook = ""
+    existing = specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)
     return functional_analyst.Input(
         notebook=notebook,
         notebook_diff="".join(
@@ -205,8 +214,8 @@ def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Rep
                 tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
             )
         ),
-        # Give a first pass no specification tree at all. It writes the specifications that the project has none of.
-        current_specs=specs.render(existing) if (existing := specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)) else None,
+        # Give a first pass no specification index at all. It writes the specifications that the project has none of.
+        current_specs_index=specs.index(existing) if existing else None,
     )
 
 

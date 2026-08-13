@@ -49,6 +49,12 @@ class Response:
         return [self.outputs_by_index[index] for index in sorted(self.outputs_by_index)]
 
 
+# A structured round ended with tool calls instead of a final, schema-matching result.
+@dataclass(frozen=True)
+class PendingToolCalls:
+    outputs: list[dict[str, Any]]
+
+
 @dataclass(kw_only=True)
 class LLMRunner:
     MAX_ATTEMPTS: ClassVar[int] = 4
@@ -83,17 +89,23 @@ class LLMRunner:
 
     # A stopped structured response has no result. Check for a stop before each retry to avoid a call for a stopped run.
     # Store the result in `parsed` because callers cannot read a generator return value while they drain its events.
+    # A round that calls a tool returns `PendingToolCalls` instead of `output_type`; the caller runs the tools,
+    # extends `context` with their outputs, and calls `parse` again for the next round — mirroring `respond`.
     def parse(
-        self, context: ResponseInputParam, output_type: type[Result], cancelled: Event | None = None
-    ) -> Generator[ReasoningDelta, None, Result | None]:
+        self,
+        context: ResponseInputParam,
+        output_type: type[Result],
+        cancelled: Event | None = None,
+        tools: Sequence[FunctionToolParam] = (),
+    ) -> Generator[ReasoningDelta, None, Result | PendingToolCalls | None]:
         self._check_size(context)
         cancelled = cancelled or Event()
         attempt = 1
-        parsed: list[Result | None] = []
+        parsed: list[Result | PendingToolCalls | None] = []
         while not cancelled.is_set():
             streamed = False
             try:
-                for thought in self._parse(context, output_type, cancelled, parsed):
+                for thought in self._parse(context, output_type, tools, cancelled, parsed):
                     streamed = True
                     yield thought
             except OpenAIError as error:
@@ -139,12 +151,19 @@ class LLMRunner:
                 return
 
     def _parse(
-        self, context: ResponseInputParam, output_type: type[Result], cancelled: Event, parsed: list[Result | None]
+        self,
+        context: ResponseInputParam,
+        output_type: type[Result],
+        tools: Sequence[FunctionToolParam],
+        cancelled: Event,
+        parsed: list[Result | PendingToolCalls | None],
     ) -> Generator[ReasoningDelta]:
         logger.info("parse_started model=%s input_items=%d", self.model, len(context))
+        outputs_by_index: dict[int, dict[str, Any]] = {}
         with self.client.responses.stream(
             model=self.model,
             input=context,
+            tools=tools,
             text_format=output_type,
             reasoning=self.reasoning,
             temperature=self.sampling,
@@ -163,6 +182,8 @@ class LLMRunner:
                         yield ReasoningDelta(event.delta)
                     case "response.output_text.delta":
                         streamed_text += event.delta
+                    case "response.output_item.done":
+                        outputs_by_index[event.output_index] = cast("dict[str, Any]", event.item.to_dict())
                     case "response.completed":
                         if usage := event.response.usage:
                             logger.info("context_usage input_tokens=%d", usage.input_tokens)
@@ -173,6 +194,11 @@ class LLMRunner:
                     parsed.append(None)
                     return
             response = stream.get_final_response()
+        function_calls = [item for item in outputs_by_index.values() if item.get("type") == "function_call"]
+        if function_calls:
+            logger.info("parse_tool_calls model=%s calls=%d", self.model, len(function_calls))
+            parsed.append(PendingToolCalls([outputs_by_index[index] for index in sorted(outputs_by_index)]))
+            return
         text = response.output_text or streamed_text
         if response.output_parsed is not None:
             result = response.output_parsed

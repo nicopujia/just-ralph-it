@@ -1,5 +1,18 @@
 from . import prompts
-from .agents import DEFAULT_SYMBOL, Agent, Explorer, Interviewer, Invocation, Tool, ToolOutput, tool
+from .agents import (
+    DEFAULT_SYMBOL,
+    Agent,
+    Architect,
+    Explorer,
+    FunctionalAnalyst,
+    Interviewer,
+    Invocation,
+    Tool,
+    ToolOutput,
+    architect,
+    functional_analyst,
+    tool,
+)
 from .events import (
     AgentEvent,
     Ending,
@@ -11,21 +24,23 @@ from .events import (
     TurnEvent,
     TurnFinished,
 )
-from .llm_runner import BLOCK_NOTICE, LLMRunner
+from .llm_runner import BLOCK_NOTICE, LLMRunner, PendingToolCalls
 from .workflows import specs_generation
-from .workflows.specs_generation import architect, functional_analyst
 
 __all__ = [
     "BLOCK_NOTICE",
     "DEFAULT_SYMBOL",
     "Agent",
     "AgentEvent",
+    "Architect",
     "Ending",
     "Explorer",
+    "FunctionalAnalyst",
     "Interviewer",
     "Invocation",
     "LLMRunner",
     "Outcome",
+    "PendingToolCalls",
     "ReasoningDelta",
     "TextDelta",
     "Tool",

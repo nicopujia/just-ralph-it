@@ -115,11 +115,18 @@ def commit_specs() -> None:
     assert isinstance(commit, str)
 
 
+def summarize(path: str) -> str:
+    return f"Specification for {path}."
+
+
 def written_specs(
     files: Mapping[str, str] = FUNCTIONAL_FILES, deleted: Sequence[str] = (), unresolved: Sequence[str] = ()
 ) -> functional_analyst.Specifications:
     return functional_analyst.Specifications(
-        files=[functional_analyst.File(path=path, content=content) for path, content in files.items()],
+        files=[
+            functional_analyst.File(path=path, content=content, summary=summarize(path))
+            for path, content in files.items()
+        ],
         deleted_paths=list(deleted),
         unresolved=list(unresolved),
     )
@@ -136,7 +143,7 @@ def drafted_architecture(
 ) -> architect.Architecture:
     return architect.Architecture(
         outcome="architecture",
-        files=[architect.File(path=path, content=content) for path, content in files.items()],
+        files=[architect.File(path=path, content=content, summary=summarize(path)) for path, content in files.items()],
         deleted_paths=list(deleted),
     )
 
@@ -259,7 +266,7 @@ def test_resumes_the_specifications_a_pass_wrote_before_it_asked(
         ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
         ("ToolCallFinished", "resume", "Picked up a draft of 1 specification file"),
     ]
-    assert FUNCTIONAL_FILES["functional/behavior.md"] in read_prompts(client)[1]
+    assert "functional/behavior.md" in read_prompts(client)[1]
 
 
 def test_writes_specifications_from_the_topics_the_user_kept(
@@ -593,7 +600,7 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
 
     revision = next(prompt for prompt in read_prompts(client) if "<architect_feedback>" in prompt)
     assert "functional/behavior.md" in revision
-    assert "# Behavior" in revision
+    assert summarize("functional/behavior.md") in revision
     assert "<architect_feedback>\n  - Undefined totals.\n  - Unclear export." in revision
     assert "Rejected functional draft:" not in revision
 
@@ -619,7 +626,7 @@ def test_keeps_the_accepted_specification_a_round_left_out(
     )
 
     assert isinstance(result, str)
-    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").read_text() == "# Exports\n"
+    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").read_text().endswith("# Exports\n")
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/notebook.yaml",
         ".jri/specs/functional/behavior.md",
@@ -645,9 +652,11 @@ def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_reposito
     assert isinstance(result, str)
     polish = next(prompt for prompt in read_prompts(client) if "<architect_feedback>" in prompt)
     assert "functional/exports.md" in polish
-    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").read_text() == "# Exports\n"
-    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == (
-        UPDATED_FUNCTIONAL_FILES["functional/behavior.md"]
+    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").read_text().endswith("# Exports\n")
+    assert (
+        (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md")
+        .read_text()
+        .endswith(UPDATED_FUNCTIONAL_FILES["functional/behavior.md"])
     )
 
 
@@ -665,8 +674,8 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     generate(client)
 
     first = read_prompts(client)[1]
-    assert "<current_functional_specifications>" in first
-    assert FUNCTIONAL_FILES["functional/behavior.md"] in first
+    assert "<current_functional_specifications_index>" in first
+    assert "functional/behavior.md" in first
     assert UPDATED_FUNCTIONAL_FILES["functional/behavior.md"] not in first
 
 
@@ -792,8 +801,10 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
         ("ToolCallFinished", "resume", "The drafted specifications no longer fit your project"),
     ]
     assert not (tmp_path / paths.DRAFT_FILE).exists()
-    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == (
-        UPDATED_FUNCTIONAL_FILES["functional/behavior.md"]
+    assert (
+        (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md")
+        .read_text()
+        .endswith(UPDATED_FUNCTIONAL_FILES["functional/behavior.md"])
     )
     assert not run_git(tmp_path, "status", "--short")
 
@@ -822,8 +833,10 @@ def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
         ("ToolCallFinished", "resume", "The drafted specifications no longer fit your project"),
     ]
     assert not (tmp_path / paths.DRAFT_FILE).exists()
-    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == (
-        UPDATED_FUNCTIONAL_FILES["functional/behavior.md"]
+    assert (
+        (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md")
+        .read_text()
+        .endswith(UPDATED_FUNCTIONAL_FILES["functional/behavior.md"])
     )
     assert refused not in "".join(read_prompts(client))
     assert run_git(tmp_path, "ls-tree", "-r", "--name-only", result, "--", paths.SPECS_DIR).splitlines() == [
@@ -847,7 +860,7 @@ def test_runs_through_a_draft_it_can_neither_read_nor_replace(
         ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
         ("ToolCallFinished", "resume", "The drafted specifications no longer fit your project"),
     ]
-    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text().endswith("# Behavior\n")
     assert not run_git(tmp_path, "status", "--short")
 
 

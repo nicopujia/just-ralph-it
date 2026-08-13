@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 
 from pydantic import BaseModel, ConfigDict, ValidationError
+from yaml import YAMLError, safe_dump, safe_load
 
 from jri.lib import files, git, prompt
 from jri.lib.lock import Lock
@@ -33,8 +34,19 @@ WINDOWS_DEVICE_NAMES = frozenset({
     *(f"COM{port}" for port in "123456789"),
     *(f"LPT{port}" for port in "123456789"),
 })
+# A written file carries its summary as YAML frontmatter, so the index can never drift from the file it describes.
+FRONTMATTER = re.compile(r"\A---\n(?P<meta>.*?)\n---\n\n?", re.DOTALL)
 
 logger = logging.getLogger(__name__)
+
+
+# What a model reads or writes: a specification's path, its full body, and a one-line summary for the index.
+class File(BaseModel):
+    path: str
+    content: str
+    summary: str
+
+    model_config = ConfigDict(extra="forbid")
 
 
 @dataclass(frozen=True)
@@ -167,12 +179,17 @@ class Specs:
     # A specification must be a plain file. The file system and Git represent links differently.
     # A Windows checkout can show a Git `120000` link as a normal file with target text.
     # Check Git links as well as file-system links. A run reads this tree for the model and later commits it.
+    # `selected` names files the same way `render`/`index` show them: relative to `paths.SPECS_DIR`, root included.
+    # Omit it to read every specification under `directory`.
     @staticmethod
-    def read(repository: git.Repository, directory: str) -> dict[str, bytes]:
+    def read(repository: git.Repository, directory: str, selected: Iterable[str] | None = None) -> dict[str, bytes]:
+        allowed = frozenset(selected) if selected is not None else None
         linked = frozenset(repository.read_staged_paths((directory,), linked=True))
         specifications: dict[str, bytes] = {}
         for path in sorted((repository.path / directory).rglob("*.md")):
             relative = path.relative_to(repository.path).as_posix()
+            if allowed is not None and relative.removeprefix(f"{paths.SPECS_DIR}/") not in allowed:
+                continue
             # A link is not a specification to Git or the file system.
             # Directories, pipes, and sockets are not specifications either.
             # Report the path inside the tree, not a temporary worktree path that the user did not request.
@@ -185,22 +202,27 @@ class Specs:
                 raise SpecsError(f"JRI could not read the specification `{relative}`: {error.strerror}") from error
         return specifications
 
+    # Full content, frontmatter stripped, for files a model chose to read in full.
     @staticmethod
     def render(files: dict[str, bytes]) -> str:
-        prefix = f"{paths.SPECS_DIR}/"
         rendered: list[str] = []
-        for path, content in sorted(files.items()):
-            name = path.removeprefix(prefix)
-            try:
-                body = content.decode()
-            # JRI writes UTF-8 here. Non-UTF-8 bytes from Git were not written by JRI.
-            # Deciding their model text belongs to the user.
-            except UnicodeDecodeError as error:
-                raise SpecsError(f"Specifications are UTF-8 text, and `{name}` is not.") from error
+        for name, _, body in Specs._decode_all(files):
             # The model names the file and writes its body. Quote the name for the same reason as the body.
             # An unquoted name with a line break can create a second `file` block inside JRI text.
             rendered.append(prompt.render(file=name, content=body))
         return "\n\n".join(rendered) or "(empty)"
+
+    # Path and one-line summary only, for every file — cheap enough to always include in full.
+    @staticmethod
+    def index(files: dict[str, bytes]) -> str:
+        entries = {name: summary or "(no summary)" for name, summary, _ in Specs._decode_all(files)}
+        return prompt.render(specifications=entries) if entries else "(empty)"
+
+    # Frontmatter carries the summary a model gave a file when it wrote it.
+    @staticmethod
+    def format(file: File) -> str:
+        frontmatter = safe_dump({"summary": file.summary}, sort_keys=False, allow_unicode=True, width=10**9)
+        return f"---\n{frontmatter}---\n\n{file.content}"
 
     # Save the current run work for the next run and return the patch that this run would commit.
     # Git creates a delta from the project specifications. Remove an empty draft because it carries no new work.
@@ -273,6 +295,34 @@ class Specs:
         self.workspace.drop_draft()
         logger.info("specs_committed commit=%s", commit)
         return commit
+
+    @staticmethod
+    def _decode_all(files: dict[str, bytes]) -> list[tuple[str, str, str]]:
+        prefix = f"{paths.SPECS_DIR}/"
+        decoded: list[tuple[str, str, str]] = []
+        for path, content in sorted(files.items()):
+            name = path.removeprefix(prefix)
+            try:
+                body = content.decode()
+            # JRI writes UTF-8 here. Non-UTF-8 bytes from Git were not written by JRI.
+            # Deciding their model text belongs to the user.
+            except UnicodeDecodeError as error:
+                raise SpecsError(f"Specifications are UTF-8 text, and `{name}` is not.") from error
+            summary, body = Specs._split_frontmatter(body)
+            decoded.append((name, summary, body))
+        return decoded
+
+    @staticmethod
+    def _split_frontmatter(body: str) -> tuple[str, str]:
+        match = FRONTMATTER.match(body)
+        if not match:
+            return "", body
+        try:
+            meta = safe_load(match["meta"])
+        # A file JRI did not write, or a corrupted one, has no readable frontmatter. Treat its whole body as content.
+        except YAMLError:
+            return "", body
+        return meta.get("summary", "") if isinstance(meta, dict) else "", body[match.end() :]
 
     # A killed acceptance can leave JRI specifications in the worktree without a commit.
     # Later runs refuse to start over them.

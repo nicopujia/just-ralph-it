@@ -148,14 +148,20 @@ new file mode 100644
 """
 # This test data supports the tests below.
 # This test data supports the tests below.
-UPDATE_DRAFT = """\
-diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
---- a/.jri/specs/functional/behavior.md
-+++ b/.jri/specs/functional/behavior.md
-@@ -1 +1,2 @@
- # Behavior
-+Total output is supported.
-"""
+# The context lines carry the frontmatter `successful_client` writes ahead of the body, since a draft applies
+# against the file as JRI actually wrote it, summary block included.
+UPDATE_DRAFT = (
+    "diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md\n"
+    "--- a/.jri/specs/functional/behavior.md\n"
+    "+++ b/.jri/specs/functional/behavior.md\n"
+    "@@ -1,5 +1,6 @@\n"
+    " ---\n"
+    " summary: Specification for functional/behavior.md.\n"
+    " ---\n"
+    " \n"
+    " # Behavior\n"
+    "+Total output is supported.\n"
+)
 # This test data supports the tests below.
 # This test data supports the tests below.
 LINKED_DRAFT = """\
@@ -225,6 +231,9 @@ diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/referenc
 +Reporting requirement 1 of the ledger.
 """
 WRITE_BOUND = 2048
+# A written file's frontmatter carries its summary. Stripping it here lets a test compare a specification's body
+# the same way whether it was written through the full generation flow or directly through `Specs.write`.
+SPEC_FRONTMATTER = re.compile(r"\A---\n.*?\n---\n\n?", re.DOTALL)
 # This test data supports the tests below.
 # This test data supports the tests below.
 # This test data supports the tests below.
@@ -383,9 +392,15 @@ def write_draft(path: Path, patch: str) -> None:
 
 def read_specifications(worktree: Path) -> dict[str, str]:
     return {
-        path.relative_to(worktree / ".jri/specs").as_posix(): path.read_text(encoding="utf-8")
+        path.relative_to(worktree / ".jri/specs").as_posix(): SPEC_FRONTMATTER.sub(
+            "", path.read_text(encoding="utf-8"), count=1
+        )
         for path in sorted((worktree / ".jri/specs").rglob("*.md"))
     }
+
+
+def summarize(path: str) -> str:
+    return f"Specification for {path}."
 
 
 def build_client(
@@ -399,14 +414,20 @@ def build_client(
         [streamed_reply("Repository report"), response(reply("Specifications ready."))],
         parsed=[
             functional_analyst.Specifications(
-                files=[functional_analyst.File(path=path, content=content) for path, content in functional.items()],
+                files=[
+                    functional_analyst.File(path=path, content=content, summary=summarize(path))
+                    for path, content in functional.items()
+                ],
                 deleted_paths=list(functional_deleted),
                 unresolved=[],
             ),
             architect.Output(
                 result=architect.Architecture(
                     outcome="architecture",
-                    files=[architect.File(path=path, content=content) for path, content in architecture.items()],
+                    files=[
+                        architect.File(path=path, content=content, summary=summarize(path))
+                        for path, content in architecture.items()
+                    ],
                     deleted_paths=list(architecture_deleted),
                 )
             ),
@@ -441,8 +462,8 @@ def test_commits_complete_specification_bundle(
 
     list(conversation.ralph())
 
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert run_git(tmp_path, "show", "-s", "--format=%B") == (
         "jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>\nJRI-Specifications: accepted"
     )
@@ -493,8 +514,12 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(
     ]
     assert changelog.read_text() == "# Changelog\n"
     assert (tmp_path / "README.md").read_text() == "# Project\n"
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == ("# Behavior\nTotal output is supported.\n")
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == ("# Design\nAdd a total accumulator.\n")
+    assert (
+        (tmp_path / ".jri/specs/functional/behavior.md")
+        .read_text()
+        .endswith("# Behavior\nTotal output is supported.\n")
+    )
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\nAdd a total accumulator.\n")
     assert run_git(tmp_path, "show", "--format=", "--name-only", second_spec_commit).splitlines() == [
         ".jri/notebook.yaml",
         ".jri/specs/architecture/design.md",
@@ -596,7 +621,7 @@ def test_leaves_the_project_untouched_when_a_hook_refuses_the_commit(
     assert not (tmp_path / ".jri/specs").exists()
     hook.unlink()
     list(build_conversation(tmp_path, successful_client()).ralph())
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
 
 
 def test_keeps_the_content_the_user_staged_when_a_hook_refuses_the_commit(
@@ -625,14 +650,14 @@ def test_undoes_the_acceptance_a_killed_run_left_in_the_worktree(
 ) -> None:
     create_repository(tmp_path)
     kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert find_accepted_commit(tmp_path) is None
 
     assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
 
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -641,14 +666,14 @@ def test_undoes_the_acceptance_a_killed_run_left_half_applied(
 ) -> None:
     create_repository(tmp_path)
     kill_a_run(tmp_path, "apply_patch", kill_the_run_amid_applying)
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
 
     assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
 
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -657,14 +682,14 @@ def test_undoes_the_acceptance_a_killed_write_left_empty(
 ) -> None:
     create_repository(tmp_path)
     kill_a_run(tmp_path, "apply_patch", kill_the_run_amid_writing)
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == b""
 
     assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
 
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -686,8 +711,12 @@ def test_undoes_the_acceptance_a_killed_rewrite_left_unwritten(
     assert read_ending(restarted.ralph()) == "replied"
 
     assert find_accepted_commit(tmp_path) not in {None, accepted}
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\nAdd a total accumulator.\n"
+    assert (
+        (tmp_path / ".jri/specs/functional/behavior.md")
+        .read_text()
+        .endswith("# Behavior\nTotal output is supported.\n")
+    )
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\nAdd a total accumulator.\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -716,7 +745,7 @@ def test_undoes_the_acceptance_a_kernel_file_bound_cut_short(
     assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
 
     assert reference.read_bytes() == accepted
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -756,7 +785,7 @@ def test_puts_back_the_specification_a_killed_acceptance_deleted(
 
     Specs(tmp_path).prepare()
 
-    assert exports.read_text() == "# Exports\n"
+    assert exports.read_text().endswith("# Exports\n")
     assert find_accepted_commit(tmp_path) == accepted
     assert not run_git(tmp_path, "status", "--short")
 
@@ -778,8 +807,8 @@ def test_leaves_the_leftovers_of_an_acceptance_it_cannot_rebuild(
     assert ending == "blocked"
     # JRI cannot tell original content from a model's write when it cannot rebuild the intended one. Guessing
     # could delete real work, so it leaves the files for the user to resolve.
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
 
 
 def test_undoes_the_acceptance_a_killed_run_left_staged(
@@ -795,7 +824,7 @@ def test_undoes_the_acceptance_a_killed_run_left_staged(
     assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
 
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -810,8 +839,8 @@ def test_keeps_the_acceptance_a_killed_run_had_already_committed(
 
     assert baseline.accepted == accepted
     assert find_accepted_commit(tmp_path) == accepted
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -827,8 +856,8 @@ def test_keeps_the_acceptance_the_git_a_hook_killed_had_already_committed(
 
     assert ending == "replied"
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert not run_git(tmp_path, "status", "--short")
     assert not Workspace(tmp_path).acceptance_file.exists()
 
@@ -836,7 +865,11 @@ def test_keeps_the_acceptance_the_git_a_hook_killed_had_already_committed(
     restarted.restore()
 
     assert read_ending(restarted.ralph()) == "replied"
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert (
+        (tmp_path / ".jri/specs/functional/behavior.md")
+        .read_text()
+        .endswith("# Behavior\nTotal output is supported.\n")
+    )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
@@ -857,7 +890,7 @@ def test_keeps_the_acceptance_a_killed_run_wrote_before_git_copied_the_index(
 
     assert baseline.accepted == accepted
     assert not Workspace(tmp_path).acceptance_file.exists()
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -875,7 +908,7 @@ def test_keeps_the_acceptance_a_second_killed_git_could_not_be_asked_about(
         commit = specs.accept(ACCEPTANCE_PATCH, baseline)
 
     assert commit == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert not run_git(tmp_path, "status", "--short")
     assert not Workspace(tmp_path).acceptance_file.exists()
 
@@ -898,7 +931,7 @@ def test_settles_the_index_beside_a_record_it_cannot_read(
 
     assert baseline.accepted == accepted
     assert not Workspace(tmp_path).acceptance_file.exists()
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -922,8 +955,8 @@ def test_keeps_the_leftovers_of_an_acceptance_it_cannot_read(
     )
 
     assert ending == "blocked"
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert Workspace(tmp_path).acceptance_file.read_bytes() == damage
 
@@ -937,7 +970,7 @@ def test_keeps_the_leftovers_it_cannot_read_of_a_project_holding_no_commit(tmp_p
     ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
 
     assert ending == "blocked"
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert Workspace(tmp_path).acceptance_file.read_bytes() == TRUNCATED_RECORD
 
 
@@ -993,7 +1026,11 @@ def test_starts_over_a_record_it_cannot_read(
     assert read_ending(restarted.ralph()) == "replied"
 
     assert not record.exists()
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert (
+        (tmp_path / ".jri/specs/functional/behavior.md")
+        .read_text()
+        .endswith("# Behavior\nTotal output is supported.\n")
+    )
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -1011,7 +1048,11 @@ def test_starts_over_a_record_the_operating_system_refuses(
     assert read_ending(restarted.ralph()) == "replied"
 
     assert not record.exists()
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert (
+        (tmp_path / ".jri/specs/functional/behavior.md")
+        .read_text()
+        .endswith("# Behavior\nTotal output is supported.\n")
+    )
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -1045,7 +1086,7 @@ def test_ignores_a_record_of_an_acceptance_the_worktree_no_longer_holds(
     assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
 
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -1078,7 +1119,7 @@ def test_names_the_locks_an_acceptance_a_kill_reached_left_in_git(
 
     assert read_git_locks(tmp_path) == ()
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -1124,7 +1165,11 @@ def test_frees_the_locks_the_git_a_run_that_lives_on_started_died_holding(
 
     assert read_ending(restarted.ralph()) == "replied"
     assert find_accepted_commit(tmp_path) not in {None, accepted}
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert (
+        (tmp_path / ".jri/specs/functional/behavior.md")
+        .read_text()
+        .endswith("# Behavior\nTotal output is supported.\n")
+    )
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -1155,7 +1200,7 @@ def test_keeps_the_acceptance_a_run_that_is_still_there_is_carrying_out(
 
     assert ending == "blocked"
     assert Workspace(tmp_path).acceptance_file.read_bytes() == record
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
@@ -1223,7 +1268,7 @@ def test_leaves_a_leftover_the_user_changed_for_the_user_to_sort_out(
 
     assert ending == "blocked"
     assert leftover.read_text() == "# Behavior\nEdited by hand.\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert find_accepted_commit(tmp_path) is None
 
 
@@ -1340,7 +1385,7 @@ def test_commits_specifications_after_a_rebase_that_finished(
     list(conversation.ralph())
 
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
 
 
 def test_commits_specifications_onto_a_project_that_moved_during_generation(
@@ -1356,7 +1401,7 @@ def test_commits_specifications_onto_a_project_that_moved_during_generation(
 
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
     assert run_git(tmp_path, "log", "-2", "--format=%s").splitlines() == ["jri: update specifications", "concurrent"]
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
 
 
 def test_commits_specifications_while_the_project_has_uncommitted_work(
@@ -1759,7 +1804,7 @@ def test_removes_the_specification_files_a_model_deleted(
     list(restarted.ralph())
 
     assert not (tmp_path / ".jri/specs/functional/exports.md").exists()
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/exports.md",
@@ -1792,7 +1837,11 @@ def test_ends_a_generation_that_changed_nothing_without_leaving_a_record(
     list(changed.ralph())
 
     assert find_accepted_commit(tmp_path) not in {None, accepted}
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert (
+        (tmp_path / ".jri/specs/functional/behavior.md")
+        .read_text()
+        .endswith("# Behavior\nTotal output is supported.\n")
+    )
 
 
 def test_keeps_the_accepted_specifications_when_a_generation_fails(
@@ -1808,7 +1857,7 @@ def test_keeps_the_accepted_specifications_when_a_generation_fails(
     assert read_ending(conversation.ralph(), r"cannot change `functional/behavior\.txt`") == "failed"
 
     assert find_accepted_commit(tmp_path) == first_spec_commit
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert [note.text for note in conversation.notebook.graph.notes] == ["Report the totals too."]
 
 
@@ -1856,7 +1905,7 @@ def test_accepts_specifications_that_read_like_patch_metadata(
 
     list(conversation.ralph())
 
-    assert (tmp_path / ".jri/specs" / path).read_text() == content
+    assert (tmp_path / ".jri/specs" / path).read_text().endswith(content)
     assert find_accepted_commit(tmp_path) is not None
 
 

@@ -62,7 +62,7 @@ class Invocation:
         self._outcome: ai.Outcome = "done"
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
-    def __iter__(self) -> Generator["ai.AgentEvent"]:
+    def __iter__(self) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished"]:
         while True:
             try:
                 item = next(self.stream)

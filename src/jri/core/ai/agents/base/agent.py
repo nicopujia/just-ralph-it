@@ -2,10 +2,11 @@ import logging
 from collections.abc import Generator
 from dataclasses import InitVar, dataclass, field
 from threading import Event
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, TypeVar, cast
 
 from openai import OpenAI
 from openai.types.responses import ResponseInputParam
+from pydantic import BaseModel
 
 from jri.core import ai
 from jri.core.exceptions import ModelError
@@ -18,6 +19,8 @@ if TYPE_CHECKING:
     from openai.types.responses import ResponseInputItemParam
 
 logger = logging.getLogger(__name__)
+
+Result = TypeVar("Result", bound=BaseModel)
 
 
 @dataclass(kw_only=True)
@@ -103,12 +106,53 @@ class Agent:
                 return
         raise ModelError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
 
+    # A structured-output sibling to `respond`, for an agent that must both call tools and return a typed result.
+    # Each call starts a fresh turn from the system prompt alone, discarding any history from an earlier call.
+    # Structured streaming carries no `TextDelta`; only a tool that itself leaks one could break that, and none does.
+    def parse(
+        self, message: str, output_type: type[Result], cancelled: Event | None = None
+    ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Result | None]:
+        cancelled = cancelled or Event()
+        self.history = self.history[:1]
+        self.history.append({"role": "user", "content": message})
+        logger.info("parse_started agent=%s model=%s", type(self).__name__, self.model)
+
+        tool_definitions = [tool.definition for tool in self.tools]
+        tools_by_name = {tool.name: tool for tool in self.tools}
+
+        for _ in range(self.MAX_ROUNDS):
+            context = self.get_context()
+            logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(context))
+            result = yield from self.runner.parse(context, output_type, cancelled, tools=tool_definitions)
+
+            if result is None:
+                self._record_cancellation()
+                return None
+
+            if not isinstance(result, ai.PendingToolCalls):
+                logger.info("parse_finished agent=%s", type(self).__name__)
+                return result
+
+            self.history.extend(cast("list[ResponseInputItemParam]", result.outputs))
+            logger.info("request_finished agent=%s output_items=%d", type(self).__name__, len(result.outputs))
+            for output in result.outputs:
+                if output.get("type") != "function_call":
+                    continue
+                tool = tools_by_name.get(cast("str", output["name"]))
+                yield from self._invoke(output, tool, cancelled)
+            if cancelled.is_set():
+                self._record_cancellation()
+                return None
+        raise ModelError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
+
     # A history item states what happened, not what to do next. The prompt owns what the agent does with a stop.
     def _record_cancellation(self) -> None:
         self.history.append({"role": "system", "content": self.CANCELLATION_RECORD})
         logger.info("message_cancelled agent=%s", type(self).__name__)
 
-    def _invoke(self, output: dict[str, object], tool: Tool | None, cancelled: Event) -> Generator["ai.AgentEvent"]:
+    def _invoke(
+        self, output: dict[str, object], tool: Tool | None, cancelled: Event
+    ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished"]:
         name = cast("str", output["name"])
         arguments = cast("str", output["arguments"])
         call_id = cast("str", output["call_id"])
