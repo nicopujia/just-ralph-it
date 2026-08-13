@@ -205,6 +205,9 @@ class App(TextualApp[None]):
 
         if user_message == copy.QUIT_COMMAND:
             logger.info("quit_requested source=message")
+            # Ask the turn to stop, as the quit key does. A worker thread that continues to read holds the process
+            # open after the window goes, and with it the hold on the project.
+            await self._request_cancellation()
             await self.action_quit()
             return
 
@@ -251,10 +254,9 @@ class App(TextualApp[None]):
         if turn_state is None:
             return
         # A reply comes back in seconds, and a second key press is a sufficient answer to stop it.
-        # A run takes much longer, thus its stop asks in a dialog that gives the cost. Keep one dialog on screen.
+        # A run takes much longer, thus its stop asks in a dialog that gives the cost.
         if turn_state.is_ralphing:
-            if not isinstance(self.screen, RunCancellationDialog):
-                self.push_screen(RunCancellationDialog(), self._answer_run_cancellation)
+            self.push_screen(RunCancellationDialog(), self._answer_run_cancellation)
             return
         now = monotonic()
         if now - self.last_escape_at <= 1:
@@ -281,7 +283,7 @@ class App(TextualApp[None]):
                 self.notify(copy.QUIT_CONFIRMATION, timeout=1)
                 return
             # Ask the turn to stop, then close. Do not wait for the worker.
-            # A run continues without this window, and the next window closes the turn from the saved record.
+            # The run reads the stop from its record after this window goes, and the next window ends the turn.
             await self._request_cancellation()
         logger.info("quit_requested source=key")
         await self.action_quit()
@@ -330,7 +332,6 @@ class App(TextualApp[None]):
 
     # --- Callback methods ------------------------------------------- #
 
-    # The dialog is the only asker here, so a kept run and its turn continue exactly as they are.
     async def _answer_run_cancellation(self, answer: RunCancellationAnswer | None) -> None:
         if answer == "stop":
             await self._request_cancellation()
@@ -570,7 +571,7 @@ class App(TextualApp[None]):
         for index, (user_message, interviewer_turn) in enumerate(self.mounted_turns):
             user_message.display = interviewer_turn.display = index >= len(self.mounted_turns) - self.HISTORY_BATCH_SIZE
 
-    # This class carries the run colors of the panel and the scrollbar. The stylesheet keeps those colors together.
+    # This CSS class carries the run colors of the panel and the scrollbar. The stylesheet keeps them together.
     # Mark the conversation screen, not the screen on top, because the stop dialog can be over it.
     def _mark_run(self, *, is_active: bool) -> None:
         self.screen_stack[0].set_class(is_active, styles.RUN_ACTIVE_CLASSES)
