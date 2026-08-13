@@ -120,13 +120,6 @@ class Generation:
         self.journal_file = workspace.root / paths.JOURNAL_FILE
         self.cancel_file = workspace.root / paths.CANCEL_FILE
         self.runner_log_file = workspace.root / paths.RUNNER_LOG_FILE
-        # A run works in these three worktrees. Each one has a location of its own, because all three can stand
-        # at the same time.
-        self.worktree_dirs = (
-            workspace.root / paths.WORKTREE_DIR,
-            workspace.root / paths.SNAPSHOT_DIR,
-            workspace.root / paths.PRE_IMAGE_DIR,
-        )
         self.lock = Lock(workspace.root / paths.GENERATION_LOCK_FILE)
 
     # This method defines the runner lifetime. The lock states that it is alive, the journal states what it did,
@@ -287,11 +280,10 @@ class Generation:
 
     # A killed run leaves the worktrees it worked in beside the project. A run that ends removes its own worktrees,
     # so every worktree that stands here now was left by a run that cannot come back for it.
-    # The next run opens its worktrees at these same locations, and it removes what stands there before it does.
-    # Report a failed removal instead of raising it. A worktree that stays stops no later run.
+    # A run works in all of these at the same time, thus each one has a location of its own.
     def _drop_worktrees(self) -> None:
-        for directory in self.worktree_dirs:
-            files.remove_directory(directory)
+        for directory in (paths.WORKTREE_DIR, paths.SNAPSHOT_DIR, paths.PRE_IMAGE_DIR):
+            files.remove_directory(self.workspace.root / directory)
 
     # Yield each run record and its ending when present. Close the reader before return or failure.
     # A suspended reader keeps the journal open. Windows cannot remove a file that this process still has open.

@@ -35,7 +35,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
 
     # Use one worktree for the run. Each round edits its draft.
     # Save each change so a later run can continue. The draft is the agreement between rounds.
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         yield from _resume(specs, staging)
         functional_context = _build_functional_context(specs, baseline, staging)
 

@@ -2099,7 +2099,7 @@ def test_refuses_a_draft_the_specifications_moved_past(
     baseline = specs.prepare()
     write_draft(tmp_path, STALE_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         restored = specs.resume(staging)
 
         assert restored is None
@@ -2137,7 +2137,7 @@ def test_refuses_a_draft_that_puts_a_link_where_a_specification_goes(
     baseline = specs.prepare()
     write_draft(tmp_path, LINKED_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         restored = specs.resume(staging)
 
         assert restored is None
@@ -2164,7 +2164,7 @@ def test_refuses_a_draft_cut_off_inside_its_hunk(
     baseline = specs.prepare()
     write_draft(tmp_path, TRUNCATED_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         restored = specs.resume(staging)
 
         assert restored is None
@@ -2188,7 +2188,7 @@ def test_refuses_a_draft_that_places_no_specification(
     baseline = specs.prepare()
     write_draft(tmp_path, FOREIGN_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         restored = specs.resume(staging)
 
         assert restored is None
@@ -2232,7 +2232,7 @@ def test_refuses_a_draft_naming_a_specification_jri_would_not_write(
     baseline = specs.prepare()
     write_draft(tmp_path, draft)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         restored = specs.resume(staging)
 
         assert restored is None
@@ -2263,7 +2263,7 @@ def test_refuses_a_worktree_a_drafted_specification_could_not_be_taken_out_of(
     write_draft(tmp_path, REDRAFTED_DEVICE_NAME_DRAFT)
     monkeypatch.setattr(git.Repository, "apply_patch", seal_the_specifications_after_applying)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         try:
             with pytest.raises(SpecsError, match="could not take a drafted specification back out"):
                 specs.resume(staging)
@@ -2287,7 +2287,7 @@ def test_leaves_a_specification_it_cannot_read_where_it_stands(
     baseline = specs.prepare()
     write_draft(tmp_path, DEVICE_NAME_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         unreadable = staging.path / ".jri/specs/functional/behavior.md"
         unreadable.chmod(0o000)
         try:
@@ -2329,7 +2329,7 @@ def test_keeps_a_draft_beside_a_specification_the_project_already_holds(
     baseline = specs.prepare()
     write_draft(tmp_path, UPDATE_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         restored = specs.resume(staging)
 
         assert restored == (".jri/specs/functional/behavior.md",)
@@ -2348,11 +2348,11 @@ def test_picks_up_the_draft_a_run_before_it_wrote(tmp_path: Path, create_reposit
     list(build_conversation(tmp_path, successful_client()).ralph())
     specs = Specs(tmp_path)
     baseline = specs.prepare()
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as drafting:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as drafting:
         specs.write(drafting, UPDATED_FUNCTIONAL_FILES, (), "functional")
         specs.save_draft(drafting, baseline)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         restored = specs.resume(staging)
 
         assert restored == (".jri/specs/functional/behavior.md",)
@@ -2371,7 +2371,7 @@ def test_keeps_a_draft_out_of_the_project(tmp_path: Path, create_repository: Cre
     specs = Specs(tmp_path)
     baseline = specs.prepare()
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as drafting:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as drafting:
         specs.write(drafting, UPDATED_FUNCTIONAL_FILES, (), "functional")
         specs.save_draft(drafting, baseline)
 
@@ -2392,7 +2392,7 @@ def test_forgets_a_draft_whose_specifications_the_project_already_holds(
     baseline = specs.prepare()
     write_draft(tmp_path, STALE_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.open_worktree_dir()) as staging:
+    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
         assert specs.save_draft(staging, baseline) == b""
 
     assert not Workspace(tmp_path).draft_file.exists()

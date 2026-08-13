@@ -482,10 +482,8 @@ class Specs:
             return None
 
     # Open the commit named by the record in its own worktree. For a first acceptance, use an empty repository.
-    # This worktree can stand while the run worktree stands, thus it takes a location of its own.
     @contextmanager
     def _open_pre_image(self, accepted: str | None) -> Generator[git.Repository]:
-        self.workspace.open_generation_dir()
         location = self.workspace.root / paths.PRE_IMAGE_DIR
         if accepted is not None:
             with self.repository.open_worktree(accepted, location=location) as worktree:

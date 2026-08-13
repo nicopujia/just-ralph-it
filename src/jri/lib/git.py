@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, Self
 
-from jri.lib import files
+from jri.lib.files import remove_directory
 
 __all__ = [
     "ROOT_ANSWERS",
@@ -75,9 +75,9 @@ class Locks:
     def standing(self) -> frozenset[Path]:
         found: set[Path] = set()
         for root in set(self.directories):
-            for directory, names, file_names in os.walk(root):
+            for directory, names, files in os.walk(root):
                 names[:] = [name for name in names if name not in self.UNGUARDED]
-                found.update(Path(directory) / name for name in file_names if name.endswith(self.SUFFIX))
+                found.update(Path(directory) / name for name in files if name.endswith(self.SUFFIX))
         return frozenset(found)
 
     @property
@@ -285,20 +285,21 @@ class Repository:
         output = self._run("ls-files", "-co", "--exclude-standard", "-z").stdout
         return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
 
-    # Open a checkout of `revision` at `location`, or a copy of the current worktree there when `revision` is `None`.
-    # The caller names this directory and holds it alone: this method replaces what stands there and removes it at
-    # the end, thus a location that holds data of the user is not a location for this method. A stopped process
-    # leaves a directory, and for a checkout an entry that names it. Remove the directory before the prune below,
-    # because Git reclaims that entry only when its directory is gone. Git must ignore a `location` inside this
-    # repository, or the copy below receives itself.
+    # Open a checkout of `revision` at `location`. When `revision` is `None`, copy the current worktree there.
+    # This method replaces what stands at `location`, and removes it at the end. Thus do not give it a location
+    # that holds user data.
+    # A stopped process leaves its directory. For a checkout, it also leaves the Git entry that names that
+    # directory. Remove the directory before the prune below, because Git reclaims the entry only after its
+    # directory is gone.
+    # Git must ignore a `location` inside this repository, or the copy below receives itself.
     @contextmanager
     def open_worktree(self, revision: str | None = "HEAD", *, location: Path) -> Generator["Repository"]:
-        files.remove_directory(location)
+        remove_directory(location)
         if revision is None:
             try:
                 yield self._copy_worktree(location)
             finally:
-                files.remove_directory(location)
+                remove_directory(location)
             return
         self._run("worktree", "prune", check=False)
         self._run("worktree", "add", "--detach", str(location), revision)

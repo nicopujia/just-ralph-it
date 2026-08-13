@@ -41,7 +41,7 @@ Both you and the user have a shared understanding of the underlying reasons bene
 - Record only current requirements; replace or delete superseded information instead of preserving history unless explicit migration or compatibility behavior requires it.
 <!--when a generation reports ambiguities-->
 - When a generation reports ambiguities, keep interviewing; once you take notes covering them, call `offer_ralphing` again.
-<!--when a generation reports none-->
+<!--when a generation reports no ambiguities-->
 - When a generation reports no ambiguities, the work with JRI is done, so confirm it concisely in that same reply, and call no tool beside it: that generation read the whole notebook as it stands, so no note of yours can add anything to its report, and another run has nothing further to build from.
 
 # Freedoms

@@ -122,9 +122,9 @@ class Workspace:
         self._ignore()
         return self.generation_dir
 
-    # This directory is the Git worktree a run works in, and Git creates it. The ignore rule is written before that
-    # worktree, because Git reads a worktree here as project content without it.
-    def open_worktree_dir(self) -> Path:
+    # Git creates the run worktree at this path. Write the ignore rule first, because Git reads a worktree here
+    # as project content without it.
+    def reserve_worktree_dir(self) -> Path:
         self.directory.mkdir(exist_ok=True, parents=True)
         self._ignore()
         return self.root / paths.WORKTREE_DIR

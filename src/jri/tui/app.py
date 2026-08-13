@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class InterviewerTurnState:
     container: Vertical
-    placeholder: ThinkingLabel | None = None
+    thinking_label: ThinkingLabel | None = None
     active_markdown: Markdown | None = None
     active_markdown_text: str = ""
     active_reasoning: Markdown | None = None
@@ -55,19 +55,19 @@ class InterviewerTurnState:
     is_ralphing: bool = False
     cancelled: Event = field(default_factory=Event)
 
-    # A turn shows one thinking label. Each turn removes only the label that this field holds, thus a label that
-    # this field releases stays on the screen for the remainder of the window. Mount and remove the label here,
-    # where each new label removes the label before it.
+    # A turn shows one thinking label at a time. This field holds it. A label that this field forgets stays on
+    # the screen until the window closes. Thus mount and remove the label only here. A new label first removes
+    # the label before it.
     async def hide_thinking(self) -> None:
-        if self.placeholder is None:
+        if self.thinking_label is None:
             return
-        await self.placeholder.remove()
-        self.placeholder = None
+        await self.thinking_label.remove()
+        self.thinking_label = None
 
     async def show_thinking(self) -> None:
         await self.hide_thinking()
-        self.placeholder = ThinkingLabel(is_stopping=self.cancelled.is_set())
-        await self.container.mount(self.placeholder)
+        self.thinking_label = ThinkingLabel(is_stopping=self.cancelled.is_set())
+        await self.container.mount(self.thinking_label)
 
 
 # This is a message the user sent while a turn was active. The turn stops, then this message opens the next turn.
@@ -125,8 +125,8 @@ class App(TextualApp[None]):
         Binding("escape", "cancel_turn", copy.CANCEL_TURN, key_display=copy.CANCEL_TURN_KEY, show=False),
         Binding("ctrl+t", "toggle_reasoning", copy.THINKING_BLOCKS, show=False, priority=True),
     ]
-    # A key that stops a reply asks first. This is the number of seconds the question stays open, and also the
-    # time that its notice stays on the screen, thus the question and its notice end together.
+    # A key that stops a reply asks first. The question stays open for this many seconds. Its notice stays on
+    # the screen for the same time, thus both end together.
     CONFIRMATION_WINDOW = 1.0
     HISTORY_BATCH_SIZE = 15
     TITLE = copy.TITLE
@@ -264,8 +264,8 @@ class App(TextualApp[None]):
         # The empty input shows the user that JRI accepted the message.
         # A run disables the message input behind its panel, thus a run keeps the turn to its end.
         if self.is_busy:
-            # This press stops the reply on the screen, and a key this near the text can be a slip.
-            # Ask first and keep the text, because JRI does not hold the message yet.
+            # The second press stops the reply on the screen. Enter also writes a line, thus a press can be a
+            # slip. Ask first, and keep the text: JRI does not hold the message yet.
             now = monotonic()
             if now - self.last_submit_at > self.CONFIRMATION_WINDOW:
                 self.last_submit_at = now
@@ -314,11 +314,11 @@ class App(TextualApp[None]):
             self.push_screen(RunCancellationDialog(), self._answer_run_cancellation)
             return
         now = monotonic()
-        if now - self.last_escape_at <= self.CONFIRMATION_WINDOW:
-            await self._request_cancellation()
+        if now - self.last_escape_at > self.CONFIRMATION_WINDOW:
+            self.last_escape_at = now
+            self.notify(copy.CANCEL_TURN_CONFIRMATION, timeout=self.CONFIRMATION_WINDOW)
             return
-        self.last_escape_at = now
-        self.notify(copy.CANCEL_TURN_CONFIRMATION, timeout=self.CONFIRMATION_WINDOW)
+        await self._request_cancellation()
 
     @override
     def action_command_palette(self) -> None:
@@ -515,7 +515,7 @@ class App(TextualApp[None]):
             turn_state.active_reasoning = Markdown("", classes=styles.INTERVIEWER_REASONING_CLASSES)
             turn_state.active_reasoning.display = self.is_reasoning_visible
             # The label reports a wait that continues below the thought. Keep it last, under the new block.
-            await turn_state.container.mount(turn_state.active_reasoning, before=turn_state.placeholder)
+            await turn_state.container.mount(turn_state.active_reasoning, before=turn_state.thinking_label)
 
         turn_state.active_reasoning_text += event.text
         await turn_state.active_reasoning.update(turn_state.active_reasoning_text)
@@ -663,8 +663,8 @@ class App(TextualApp[None]):
             row.mark_stopping()
         self.notify(copy.CANCEL_TURN_STARTED, timeout=1)
         logger.info("interviewer_turn_cancellation_requested")
-        if turn_state.placeholder is not None:
-            turn_state.placeholder.mark_stopping()
+        if turn_state.thinking_label is not None:
+            turn_state.thinking_label.mark_stopping()
 
     async def _restore_history(self) -> None:
         if self.restored_turns:
@@ -693,6 +693,7 @@ class App(TextualApp[None]):
         await turn_state.show_thinking()
         self.active_turn_state = turn_state
         self.last_escape_at = 0.0
+        self.last_quit_at = 0.0
         self.last_submit_at = 0.0
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
@@ -719,6 +720,7 @@ class App(TextualApp[None]):
         self.message_input.remember(user_message)
         self.message_input.placeholder = copy.MESSAGE_INPUT_PLACEHOLDER
         self.last_escape_at = 0.0
+        self.last_quit_at = 0.0
         self.last_submit_at = 0.0
 
         user_message_widget = Markdown(user_message, classes=styles.USER_MESSAGE_CLASSES)

@@ -67,12 +67,12 @@ def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tm
     assert {item.path for item in repository.read_status()} == {".DS_Store", ".env", "main.py"}
 
 
-def test_opens_a_worktree_directory_that_stays_out_of_the_project(tmp_path: Path) -> None:
+def test_keeps_the_worktree_directory_out_of_the_project(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
     repository = git.Repository(tmp_path)
 
-    checkout = workspace.open_worktree_dir()
-    checkout.mkdir(parents=True)
+    checkout = workspace.reserve_worktree_dir()
+    checkout.mkdir()
     (checkout / "main.py").write_text("print('a copy of the project')\n", encoding="utf-8")
 
     assert checkout == tmp_path / paths.WORKTREE_DIR

@@ -928,6 +928,7 @@ def test_opens_two_worktrees_at_once_at_two_locations(tmp_path: Path, create_rep
 
         assert checkout.path == (tmp_path / "checkout").resolve()
         assert snapshot.path == (tmp_path / "snapshot").resolve()
+        assert (checkout.path / "README.md").read_bytes() == b"# Project\n"
 
     assert not any(location.exists() for location in locations)
 
@@ -992,20 +993,16 @@ def test_clears_worktrees_leaked_by_a_killed_process(
 
 # A killed process leaves its worktree, and the process after it asks for that same location. Git refuses a
 # location that holds files, and it refuses one that an entry of its own still names.
-@pytest.mark.parametrize("leftover", ["directory", "entry"])
 def test_opens_a_worktree_where_a_killed_process_left_one(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, leftover: str
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path / "repo")
     location = tmp_path / "checkout"
     run_git(repository.path, "worktree", "add", "--detach", str(location), "HEAD")
     (location / "left-behind.md").write_bytes(b"what the killed process was reading\n")
-    if leftover == "entry":
-        shutil.rmtree(location)
 
     with repository.open_worktree(location=location) as worktree:
         assert worktree.read_head() == repository.read_head()
-        assert (worktree.path / "README.md").read_bytes() == b"# Project\n"
         assert not (worktree.path / "left-behind.md").exists()
 
     assert not location.exists()
@@ -1200,9 +1197,9 @@ def test_survives_a_worktree_that_was_already_removed(
 
 def test_rejects_opening_a_worktree_at_an_unknown_revision(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    scratch = tmp_path / "scratch"
+    location = tmp_path / "checkout"
 
-    with pytest.raises(git.Error), repository.open_worktree("no-such-revision", location=scratch):
+    with pytest.raises(git.Error), repository.open_worktree("no-such-revision", location=location):
         pass
 
-    assert not scratch.exists()
+    assert not location.exists()

@@ -21,8 +21,7 @@ def describe_paths(paths: Sequence[str]) -> str:
     return f"{', '.join(described)} and {last}" if described else last
 
 
-# Remove a directory and all data below it. A directory that stays stops no caller that only needs it gone,
-# thus report a failed removal instead of raising it.
+# A directory that stays stops no caller. Thus report a failed removal, and do not raise it.
 def remove_directory(path: Path) -> None:
     try:
         shutil.rmtree(path)

@@ -364,7 +364,6 @@ def test_lets_go_of_the_journal_before_it_forgets_a_record_it_could_not_read(
 
 def test_forgets_the_worktrees_a_killed_run_left(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
-    generation.workspace.open_generation_dir()
     leftovers = (tmp_path / paths.WORKTREE_DIR, tmp_path / paths.SNAPSHOT_DIR, tmp_path / paths.PRE_IMAGE_DIR)
     for leftover in leftovers:
         leftover.mkdir(parents=True)
