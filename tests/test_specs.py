@@ -3,8 +3,11 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
-from collections.abc import Callable, Iterable, Mapping, Sequence
+import time
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Never
 
@@ -13,15 +16,19 @@ import pytest
 from jri.core.ai import Ending, TurnEvent, TurnFinished, architect, functional_analyst
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError, SpecsError
-from jri.core.specs import ACCEPTANCE_TRAILER, Specs
+from jri.core.specs import ACCEPTANCE_TRAILER, File, Specs
 from jri.core.workspace import Workspace
 from jri.lib import git
 from tests.conftest import CreateLink, CreateRepository, RunGit
 from tests.doubles.acceptance import (
+    ACCEPTANCE,
     HEAD_QUESTION,
     KILL_THE_GIT,
     MARK_THE_WINDOW,
+    POLL,
+    TIMEOUT,
     USER_COMMIT,
+    WINDOW_MARKER,
     bound_the_acceptance_writes,
     hold_a_commit_of_the_user_s,
     install_a_killing_git,
@@ -231,6 +238,11 @@ SPEC_FRONTMATTER = re.compile(r"\A---\n.*?\n---\n\n?", re.DOTALL)
 # back the same way, and so does a record that something else wrote in.
 TRUNCATED_RECORD = b'{"accepted": "93db9f5480'
 FOREIGN_RECORD = b'{"accepted": null, "patch": "", "indexed": [], "held": 999999}'
+# A hook holds an acceptance where it stands with the commit written and every lock of that commit released. The
+# acceptance lock is then the one thing a second JRI can read the live run from.
+# `MARK_THE_WINDOW` makes the file below. The hook waits for the test to remove it, thus the acceptance stands
+# here for as long as the test reads the project, and not for a time that a loaded machine outruns.
+HOLD_THE_ACCEPTANCE = f'until [ ! -e ".git/{WINDOW_MARKER}" ]; do sleep 0.02; done\n'
 # A kill below stands in for these methods. Capture them first, so a stand-in can still call the real one.
 APPLY = git.Repository.apply_patch
 COMMIT = git.Repository.commit
@@ -364,6 +376,12 @@ def find_accepted_commit(path: Path) -> str | None:
     return git.Repository(path).find_commit(ACCEPTANCE_TRAILER)
 
 
+# A prompt is one text, and each block of it answers for a different input. Read the block a test is about, so a
+# match somewhere else in that text cannot stand in for it.
+def read_block(rendered: str, name: str) -> str:
+    return rendered.split(f"<{name}>", maxsplit=1)[1].split(f"</{name}>", maxsplit=1)[0]
+
+
 def write_draft(path: Path, patch: str) -> None:
     Workspace(path).open_generation_dir()
     Workspace(path).draft_file.write_text(patch, encoding="utf-8", newline="\n")
@@ -420,6 +438,28 @@ def successful_client() -> FakeClient:
 
 def updated_client() -> FakeClient:
     return build_client(UPDATED_FUNCTIONAL_FILES, UPDATED_ARCHITECTURE_FILES)
+
+
+# A real acceptance of JRI's own, alive in a process of its own for as long as the block lasts. What holds the
+# acceptance lock here is `Specs.accept`, and not a holder that a test made in its place.
+@contextmanager
+def hold_an_acceptance(path: Path, patch: bytes) -> Iterator[None]:
+    marker = path / ".git" / WINDOW_MARKER
+    with open_a_window(path, "past", MARK_THE_WINDOW + HOLD_THE_ACCEPTANCE):
+        acceptance = subprocess.Popen([sys.executable, "-c", ACCEPTANCE, str(path)], stdin=subprocess.PIPE)
+        assert acceptance.stdin is not None
+        acceptance.stdin.write(patch)
+        acceptance.stdin.close()
+        deadline = time.monotonic() + TIMEOUT
+        while not marker.exists():
+            assert acceptance.poll() is None, "the acceptance ended before it reached its commit"
+            assert time.monotonic() < deadline, "the acceptance never reached its commit"
+            time.sleep(POLL)
+        try:
+            yield
+        finally:
+            marker.unlink()
+            assert acceptance.wait(TIMEOUT) == 0
 
 
 # A run is a process of its own. A kill inside it reaches the window as a record with no ending, and not as
@@ -524,12 +564,18 @@ def test_shows_specifications_to_the_models_under_neutral_roots(
     prompts = [str(item) for item in client.responses.inputs]
     functional_input = next(item for item in prompts if "<notebook_diff_from_accepted_baseline>" in item)
     architect_input = next(item for item in prompts if "<tracked_repository_tree>" in item)
-    assert "functional/behavior.md" in functional_input
+    analyst_index = read_block(functional_input, "current_functional_specifications_index")
+    architect_functional_index = read_block(architect_input, "functional_specifications_index")
+    architect_architecture_index = read_block(architect_input, "current_architecture_index")
+    assert "functional/behavior.md" in analyst_index
     # The model never sees the real `.jri/specs/` storage prefix, so it cannot learn to reuse it.
     # `_locate_specification` also refuses that literal path if a model guesses it anyway.
     assert ".jri" not in functional_input
-    assert "functional/behavior.md" in architect_input
-    assert "architecture/design.md" in architect_input
+    assert "functional/behavior.md" in architect_functional_index
+    assert "architecture/design.md" in architect_architecture_index
+    # The repository tree beside these two blocks names the storage paths, so guard each index on its own.
+    assert ".jri" not in architect_functional_index
+    assert ".jri" not in architect_architecture_index
 
 
 def test_commits_modified_settings_with_specifications(
@@ -598,6 +644,9 @@ def test_leaves_the_project_untouched_when_a_hook_refuses_the_commit(
 
     assert run_git(tmp_path, "status", "--porcelain", "-uall") == before
     assert not (tmp_path / ".jri/specs").exists()
+    # A refused commit costs the run its commit and nothing else. The draft carries the whole generation, so the
+    # next run picks it up instead of paying for it again.
+    assert Workspace(tmp_path).draft_file.exists()
     hook.unlink()
     list(build_conversation(tmp_path, successful_client()).ralph())
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
@@ -637,6 +686,23 @@ def test_undoes_the_acceptance_a_killed_run_left_in_the_worktree(
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
+    assert not run_git(tmp_path, "status", "--short")
+
+
+# An undo rebuilds the writes it must take back in a scratch repository below the workspace. A first acceptance
+# has no commit to check out, so that scratch is a repository of its own, with a `.git` of its own, nested inside
+# the user's project. The undo is the last thing that can hold it, and a run that a kill ends after this point
+# never comes back for it.
+def test_removes_the_scratch_repository_the_undo_of_a_first_acceptance_rebuilt_its_writes_in(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
+    assert find_accepted_commit(tmp_path) is None
+
+    Specs(tmp_path).prepare()
+
+    assert not (tmp_path / ".jri/generation/pre-image").exists()
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -943,7 +1009,13 @@ def test_keeps_the_leftovers_of_an_acceptance_it_cannot_read(
 def test_keeps_the_leftovers_it_cannot_read_of_a_project_holding_no_commit(tmp_path: Path, run_git: RunGit) -> None:
     run_git(tmp_path, "init", "-q")
     (tmp_path / "README.md").write_text("# Project\n")
+    # A hook that refuses every commit leaves the installation uncommitted. The project then reaches the settlement
+    # below with no commit at all, and no worktree file of it can match one.
+    hook = tmp_path / ".git/hooks/pre-commit"
+    hook.write_bytes(b"#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
     kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
+    assert not run_git(tmp_path, "rev-parse", "--verify", "--quiet", "HEAD", check=False)
     Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
 
     ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
@@ -1180,6 +1252,28 @@ def test_keeps_the_acceptance_a_run_that_is_still_there_is_carrying_out(
     assert ending == "blocked"
     assert Workspace(tmp_path).acceptance_file.read_bytes() == record
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that holds its own Git needs a shell")
+def test_keeps_the_acceptance_a_live_run_of_its_own_took_the_lock_for(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+
+    with hold_an_acceptance(tmp_path, ACCEPTANCE_PATCH):
+        record = Workspace(tmp_path).acceptance_file.read_bytes()
+
+        Specs(tmp_path).prepare()
+
+        # The lock the live acceptance holds is the only mark of it. Nothing else here tells this project apart
+        # from one that a killed run left the same record and the same commit in.
+        assert Workspace(tmp_path).acceptance_file.read_bytes() == record
+
+    assert not Workspace(tmp_path).acceptance_file.exists()
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert not run_git(tmp_path, "status", "--short")
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
@@ -1662,6 +1756,29 @@ def test_renders_a_specification_whose_name_reads_like_a_file_header() -> None:
 def test_refuses_to_render_a_specification_that_is_not_utf_8() -> None:
     with pytest.raises(SpecsError, match=r"UTF-8 text, and `functional/behavior\.md` is not"):
         Specs.render({".jri/specs/functional/behavior.md": b"\xff\xfe# Behavior\n"})
+
+
+def test_indexes_a_specification_by_the_summary_it_was_written_with() -> None:
+    written = Specs.format(File(path="functional/behavior.md", content="# Behavior\n", summary="What the app does."))
+
+    indexed = Specs.index({".jri/specs/functional/behavior.md": written.encode()})
+
+    assert indexed == "<specifications>\n  functional/behavior.md: What the app does.\n</specifications>"
+
+
+# The index is the listing every model reads to choose which specifications to open. A file JRI never wrote, and a
+# file a stopped write cut short, carry no summary that JRI can read back.
+# The entry must say that in words. A blank value reads as a listing that was cut short, not as a file that
+# describes nothing.
+@pytest.mark.parametrize(
+    "content",
+    [b"# Behavior\n", b"---\nsummary: [\n---\n\n# Behavior\n", b"---\na plain line\n---\n\n# Behavior\n"],
+    ids=["no-frontmatter", "unreadable-frontmatter", "frontmatter-that-is-not-a-map"],
+)
+def test_indexes_a_specification_that_carries_no_summary(content: bytes) -> None:
+    indexed = Specs.index({".jri/specs/functional/behavior.md": content})
+
+    assert indexed == "<specifications>\n  functional/behavior.md: (no summary)\n</specifications>"
 
 
 # The tree is JRI's own machinery. What a run reads out of it is what a model is shown and what an acceptance
