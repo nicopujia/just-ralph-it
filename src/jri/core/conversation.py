@@ -270,9 +270,8 @@ class Conversation:
             self.session = Session.model_validate_json(self.workspace.session_file.read_bytes())
             # The session names the topic the interview was on. Look that topic up, and let the `LookupError` of a
             # notebook that no longer holds it report the session as unusable, beside every other unreadable part.
-            {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}[
-                self.session.active_topic_id
-            ]
+            topics = {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}
+            topics[self.session.active_topic_id]
             history = self._read_interview()
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
