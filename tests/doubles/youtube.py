@@ -3,8 +3,6 @@ from typing import Any, Literal, NamedTuple, cast
 
 from youtube_transcript_api import NoTranscriptFound, RequestBlocked, TranscriptsDisabled
 
-type FakeFailure = Literal["list", "fetch"]
-
 TRANSCRIPT = "English\nlines"
 FALLBACK_TRANSCRIPT = "Fallback\nlines"
 
@@ -53,7 +51,7 @@ class FakeApi:
         *,
         english: bool = True,
         available: bool = True,
-        failure: "FakeFailure | None" = None,
+        failure: Literal["list", "fetch"] | None = None,
     ) -> None:
         self.videos = videos
         self.texts = texts

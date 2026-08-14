@@ -153,7 +153,7 @@ class Settings(BaseModel):
         return "\n".join([*_wrap_comment(INTRO, ""), "", *body, ""])
 
     @classmethod
-    def suggest_setting(cls, path: tuple[int | str, ...]) -> str | None:
+    def suggest(cls, path: tuple[int | str, ...]) -> str | None:
         model: type[BaseModel] = cls
         for key in map(str, path[:-1]):
             annotation = model.model_fields[key].annotation if key in model.model_fields else None

@@ -36,7 +36,7 @@ FILLING_RECORD_BYTES = 32 * 1024
 # A lone surrogate is how Python represents a git ref byte sequence that is not valid UTF-8 (`surrogateescape`).
 LONE_SURROGATE_NAME = "refs/heads/caf\udce9.lock"
 OPENING_RECORD = "THE SESSION OPENED HERE"
-OVERSIZED_PADDING = "y" * (logs.LOG_RECORD_BYTES * 4)
+OVERSIZED_PADDING = "y" * (logs.RECORD_BYTES * 4)
 OVERSIZED_RECORDS = 40
 RECORD_PADDING = "x" * 200
 SABOTAGED_PATHS = tuple(itertools.product(LOG_PATHS, SABOTAGE_SHAPES))
@@ -55,7 +55,7 @@ SABOTAGED_PATHS_TO_CONTAIN = tuple(
     )
     for path, shape in SABOTAGED_PATHS
 )
-SMALL_LOG_FILE_BYTES = 64 * 1024
+SMALL_FILE_BYTES = 64 * 1024
 SMALL_RECORDS = 2000
 STAMP = re.compile(r"^\[([\d-]+ [\d:,]+)\]", re.MULTILINE)
 TURN_RECORDS = 3
@@ -96,12 +96,12 @@ def test_bounds_the_file_and_the_bytes_a_long_session_leaves(tmp_path: Path) -> 
 
     logs.configure(settings)
     logger = logging.getLogger("jri")
-    for _ in range(logs.LOG_FILE_BYTES // FILLING_RECORD_BYTES * FILLED_TIMES):
+    for _ in range(logs.FILE_BYTES // FILLING_RECORD_BYTES * FILLED_TIMES):
         logger.info("x" * FILLING_RECORD_BYTES)
 
     files = list_log_files(tmp_path)
     assert [file.name for file in files] == [Path(paths.LOG_FILE).name]
-    assert files[0].stat().st_size <= logs.LOG_FILE_BYTES
+    assert files[0].stat().st_size <= logs.FILE_BYTES
 
 
 def test_keeps_the_newest_records_of_a_session_that_fills_the_file_over_and_over(tmp_path: Path) -> None:
@@ -111,7 +111,7 @@ def test_keeps_the_newest_records_of_a_session_that_fills_the_file_over_and_over
     logs.configure(settings)
     logger = logging.getLogger("jri")
     logger.info(OPENING_RECORD)
-    for _ in range(logs.LOG_FILE_BYTES // FILLING_RECORD_BYTES * FILLED_TIMES):
+    for _ in range(logs.FILE_BYTES // FILLING_RECORD_BYTES * FILLED_TIMES):
         logger.info("x" * FILLING_RECORD_BYTES)
     logger.info(FAILURE_RECORD)
 
@@ -127,7 +127,7 @@ def test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be(
 ) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([]), level="INFO")
-    monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
+    monkeypatch.setattr(logs, "FILE_BYTES", SMALL_FILE_BYTES)
     logs.configure(settings)
     logger = logging.getLogger("jri")
     logger.info(OPENING_RECORD)
@@ -150,7 +150,7 @@ def test_writes_nothing_outside_the_workspace_directory_when_a_path_the_log_need
 ) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([]), level="INFO")
-    monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
+    monkeypatch.setattr(logs, "FILE_BYTES", SMALL_FILE_BYTES)
     logs.configure(settings)
     logger = logging.getLogger("jri")
 
@@ -174,33 +174,33 @@ def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path)
     logger = logging.getLogger("jri")
     logger.info("THE BUG HAPPENED HERE")
     # A fetched response is a realistic source of a record this large: a call can return an oversized body in one line.
-    logger.info("fetch_response response_body=%r", "z" * (logs.LOG_FILE_BYTES * 2))
+    logger.info("fetch_response response_body=%r", "z" * (logs.FILE_BYTES * 2))
 
     files = list_log_files(tmp_path)
-    assert all(file.stat().st_size <= logs.LOG_FILE_BYTES for file in files)
+    assert all(file.stat().st_size <= logs.FILE_BYTES for file in files)
     log = read_session_log(tmp_path)
     assert "THE BUG HAPPENED HERE" in log
     written = next(line for line in log.splitlines() if "fetch_response" in line)
-    assert len(written.encode()) <= logs.LOG_RECORD_BYTES
+    assert len(written.encode()) <= logs.RECORD_BYTES
     notice = re.search(r"\[(\d+) bytes dropped\]", written)
     assert notice
     # Confirm the dropped count is honest, not merely present, by checking it against the record's real size.
-    assert len(written.encode()) + int(notice.group(1)) > logs.LOG_FILE_BYTES * 2
+    assert len(written.encode()) + int(notice.group(1)) > logs.FILE_BYTES * 2
 
 
 def test_reads_back_in_the_order_two_runs_of_a_session_wrote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([]), level="INFO")
-    monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
+    monkeypatch.setattr(logs, "FILE_BYTES", SMALL_FILE_BYTES)
     # Fill the file to its bound so the first records the runs write force a trim, instead of waiting for one.
     # A trim keeps the newest records, so write the record that must survive it last.
-    filler = f"{'.' * (FILLER_LINE_BYTES - 1)}\n" * (SMALL_LOG_FILE_BYTES // FILLER_LINE_BYTES)
+    filler = f"{'.' * (FILLER_LINE_BYTES - 1)}\n" * (SMALL_FILE_BYTES // FILLER_LINE_BYTES)
     (tmp_path / paths.LOG_FILE).write_text(f"{filler}{EARLIER_RUN}\n")
     logs.configure(settings)
     logger = logging.getLogger("jri.chat")
     written: list[str] = []
 
-    with run_beside(tmp_path, bound=SMALL_LOG_FILE_BYTES, batches=[TURN_RECORDS] * TURNS) as turns:
+    with run_beside(tmp_path, bound=SMALL_FILE_BYTES, batches=[TURN_RECORDS] * TURNS) as turns:
         for turn in range(TURNS):
             for index in range(TURN_RECORDS):
                 logger.info("CHAT %d %d", turn, index)
@@ -219,7 +219,7 @@ def test_keeps_every_record_after_the_oldest_when_two_runs_of_a_session_write_at
 ) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([]), level="INFO")
-    monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
+    monkeypatch.setattr(logs, "FILE_BYTES", SMALL_FILE_BYTES)
     logs.configure(settings)
     logger = logging.getLogger("jri.chat")
     # The runs write in turns. Each run starts its turn while the other run writes.
@@ -227,7 +227,7 @@ def test_keeps_every_record_after_the_oldest_when_two_runs_of_a_session_write_at
     # The records of two turns are less than the part a trim keeps, so a trim keeps records of both runs.
     batches = [AT_ONCE_TURN_RECORDS] * AT_ONCE_TURNS
 
-    with run_beside(tmp_path, bound=SMALL_LOG_FILE_BYTES, batches=batches, padding=RECORD_PADDING) as turns:
+    with run_beside(tmp_path, bound=SMALL_FILE_BYTES, batches=batches, padding=RECORD_PADDING) as turns:
         for turn in range(AT_ONCE_TURNS):
             turns.start(turn)
             for index in range(AT_ONCE_TURN_RECORDS):
@@ -249,9 +249,7 @@ def test_reads_back_in_time_order_when_two_runs_write_at_once(tmp_path: Path) ->
     logs.configure(settings)
     logger = logging.getLogger("jri.chat")
 
-    with run_beside(
-        tmp_path, bound=logs.LOG_FILE_BYTES, batches=[OVERSIZED_RECORDS], padding=OVERSIZED_PADDING
-    ) as turns:
+    with run_beside(tmp_path, bound=logs.FILE_BYTES, batches=[OVERSIZED_RECORDS], padding=OVERSIZED_PADDING) as turns:
         turns.start(0)
         for index in range(SMALL_RECORDS):
             logger.info("CHAT 0 %d", index)
@@ -323,6 +321,6 @@ def test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_d
 
 
 def _fill_past_the_bound(logger: logging.Logger) -> None:
-    for _ in range(SMALL_LOG_FILE_BYTES // FILLING_RECORD_BYTES + 1):
+    for _ in range(SMALL_FILE_BYTES // FILLING_RECORD_BYTES + 1):
         logger.info("x" * FILLING_RECORD_BYTES)
     logger.info(FAILURE_RECORD)

@@ -212,7 +212,7 @@ def bound_the_acceptance_writes(root: Path, patch: bytes, limit: int) -> str:
 
 
 def kill_amid_staging(root: Path, patch: bytes) -> None:
-    with open_a_monitor_window(root, MARK_THE_WINDOW + HOLD_THE_WINDOW):
+    with _open_a_monitor_window(root, MARK_THE_WINDOW + HOLD_THE_WINDOW):
         _kill_inside_a_window(root, patch, WINDOW_MARKER)
 
 
@@ -286,8 +286,18 @@ def open_a_filter_window(root: Path, action: str, *, side: str) -> "Iterator[Non
         attributes.unlink()
 
 
+# A tracked file that the index can decide nothing about from what it recorded. The bytes are the bytes that the
+# index already holds, thus the size still matches and cannot decide it. The date is a date that no write of this
+# run could leave. Git must then read the file back through the clean side of the filter and hash it. That read is
+# where the window goes. Neither half is a race, unlike a write that lands in the second the index was written in.
+def stale_the_filtered_path(root: Path) -> None:
+    path = root / FILTERED_PATH
+    path.write_bytes(path.read_bytes())
+    os.utime(path, (0, 0))
+
+
 @contextmanager
-def open_a_monitor_window(root: Path, action: str) -> "Iterator[None]":
+def _open_a_monitor_window(root: Path, action: str) -> "Iterator[None]":
     directory = root / ".git"
     monitor = directory / WINDOW_MONITOR
     monitor.write_text(MONITOR_THE_INDEX_LOCK.format(directory=directory) + action, encoding="utf-8")
@@ -299,16 +309,6 @@ def open_a_monitor_window(root: Path, action: str) -> "Iterator[None]":
         # The setting closes this window. A monitor that Git no longer knows about is a file below `.git` like any
         # other.
         _configure(root, "--unset", "core.fsmonitor")
-
-
-# A tracked file that the index can decide nothing about from what it recorded. The bytes are the bytes that the
-# index already holds, thus the size still matches and cannot decide it. The date is a date that no write of this
-# run could leave. Git must then read the file back through the clean side of the filter and hash it. That read is
-# where the window goes. Neither half is a race, unlike a write that lands in the second the index was written in.
-def stale_the_filtered_path(root: Path) -> None:
-    path = root / FILTERED_PATH
-    path.write_bytes(path.read_bytes())
-    os.utime(path, (0, 0))
 
 
 def _configure(root: Path, *setting: str) -> None:

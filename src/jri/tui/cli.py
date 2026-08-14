@@ -166,7 +166,7 @@ def _describe_issue(issue: ErrorDetails) -> str:
     if issue["type"] != "extra_forbidden":
         return f"- {setting}: {issue['msg']}"
     # An undeclared setting key is probably a typo for its writer, not the Pydantic schema error.
-    suggestion = Settings.suggest_setting(issue["loc"])
+    suggestion = Settings.suggest(issue["loc"])
     return f"- {setting}: " + (
         copy.UNKNOWN_SETTING_SUGGESTION.format(setting=suggestion) if suggestion else copy.UNKNOWN_SETTING
     )

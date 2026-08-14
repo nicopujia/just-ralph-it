@@ -19,31 +19,31 @@ from .workspace import Workspace
 # A session outlives its serving process. `jri chat` restores its conversation, and `jri view` reads the same notes.
 # All session runs append to one file. A session reset clears this directory.
 # The file keeps the most recent records of the session. A long session loses its opening.
-LOG_FILE_BYTES = 10 * 1024 * 1024
+FILE_BYTES = 10 * 1024 * 1024
 # A trim keeps this share of the file limit. The remainder is the room that records fill before the next trim.
 # A trim writes the kept records again, so this share sets how much history stays and how often JRI pays for it.
-LOG_KEPT_SHARE = 0.5
+KEPT_SHARE = 0.5
 # `open` adds these flags to flags required by its mode. A link can write records outside `.jri`.
 # A pipe can block the open while the run holds the log lock. Windows has neither flag and follows a link.
-LOG_FILE_FLAGS = 0
+FILE_FLAGS = 0
 if sys.platform != "win32":
-    LOG_FILE_FLAGS = os.O_NOFOLLOW | os.O_NONBLOCK
+    FILE_FLAGS = os.O_NOFOLLOW | os.O_NONBLOCK
 # These are the permissions that `open` uses to create a file.
 # The umask still controls access for users other than the owner.
-LOG_FILE_PERMISSIONS = 0o666
+FILE_PERMISSIONS = 0o666
 # A record reaches the file whole or not at all. A record over the file limit would exceed that limit before a trim.
 # Fetched pages, read files, and model output can create such records.
 # Keep their beginning and state the removed byte count.
-# This limit must remain below `LOG_FILE_BYTES`.
-LOG_RECORD_BYTES = 64 * 1024
+# This limit must remain below `FILE_BYTES`.
+RECORD_BYTES = 64 * 1024
 # Stamp a record when it is written, not when it is created. Session runs write in lock order.
 # `%(asctime)s` is created before formatting. A large record can otherwise appear after a later record.
 # A fixed stamp width gives the record size limit before the stamp exists.
-LOG_STAMP = "[{time}] "
-LOG_STAMP_BYTES = len(LOG_STAMP.format(time="0000-00-00 00:00:00,000"))
+STAMP = "[{time}] "
+STAMP_BYTES = len(STAMP.format(time="0000-00-00 00:00:00,000"))
 # `%f` includes microseconds, but the log uses milliseconds. Remove the final three stamp digits.
-LOG_TIME_FORMAT = "%Y-%m-%d %H:%M:%S,%f"
-LOG_TIME_MICROSECOND_DIGITS = 3
+TIME_FORMAT = "%Y-%m-%d %H:%M:%S,%f"
+TIME_MICROSECOND_DIGITS = 3
 TRIM_NOTICE = "[earlier records dropped]"
 TRUNCATION_NOTICE = "... [{dropped} bytes dropped]"
 # This marks the source of a record that cannot be rendered.
@@ -79,10 +79,10 @@ class SessionLog(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         # Render a record before acquiring the lock. Rendering a large record while locked delays every other run.
         body = self._render(record)
-        if LOG_STAMP_BYTES + len(body) > LOG_RECORD_BYTES:
+        if STAMP_BYTES + len(body) > RECORD_BYTES:
             # Reserve space for the stamp and truncation notice. Calculate notice size from the full body length.
             # The kept body cannot exceed the record limit.
-            room = LOG_RECORD_BYTES - LOG_STAMP_BYTES - len(TRUNCATION_NOTICE.format(dropped=len(body)))
+            room = RECORD_BYTES - STAMP_BYTES - len(TRUNCATION_NOTICE.format(dropped=len(body)))
             kept = body[:room].decode("utf-8", errors="ignore").encode()
             dropped = len(body) - len(kept)
             body = kept + TRUNCATION_NOTICE.format(dropped=dropped).encode()
@@ -132,8 +132,8 @@ class SessionLog(logging.Handler):
         # `jri chat` and `jri view` can write this file at the same time. A trim can rewrite it under another run.
         # Stamp, size check, trim, and append must occur under one lock.
         with self.file_lock:
-            stamp = datetime.now(UTC).astimezone().strftime(LOG_TIME_FORMAT)[:-LOG_TIME_MICROSECOND_DIGITS]
-            line = LOG_STAMP.format(time=stamp).encode() + body + b"\n"
+            stamp = datetime.now(UTC).astimezone().strftime(TIME_FORMAT)[:-TIME_MICROSECOND_DIGITS]
+            line = STAMP.format(time=stamp).encode() + body + b"\n"
             try:
                 # Read the size of the file that the open below writes, not the target of a link at this path.
                 standing = self.file.lstat()
@@ -145,7 +145,7 @@ class SessionLog(logging.Handler):
                 if sys.platform == "win32" and stat.S_ISLNK(standing.st_mode):
                     raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), str(self.file))
                 size = standing.st_size
-            if size and size + len(line) > LOG_FILE_BYTES:
+            if size and size + len(line) > FILE_BYTES:
                 self._trim(size)
             with open(self.file, "ab", opener=_open_the_log) as stream:
                 stream.write(line)
@@ -154,7 +154,7 @@ class SessionLog(logging.Handler):
     # A run that wrote a record before the trim keeps it only if the record is in the kept part.
     def _trim(self, size: int) -> None:
         with open(self.file, "rb", opener=_open_the_log) as stream:
-            stream.seek(max(size - int(LOG_FILE_BYTES * LOG_KEPT_SHARE), 0))
+            stream.seek(max(size - int(FILE_BYTES * KEPT_SHARE), 0))
             kept = stream.read()
         # The cut lands inside a record. Remove the part of that record which stayed, and report the removal.
         _, _, kept = kept.partition(b"\n")
@@ -183,4 +183,4 @@ def _grant_owner_access(path: Path) -> None:
 
 
 def _open_the_log(path: str, flags: int) -> int:
-    return os.open(path, flags | LOG_FILE_FLAGS, LOG_FILE_PERMISSIONS)
+    return os.open(path, flags | FILE_FLAGS, FILE_PERMISSIONS)
