@@ -169,10 +169,16 @@ def test_reads_the_files_a_revision_tracks(tmp_path: Path, create_repository: Cr
 
 def test_diffs_the_worktree_against_a_revision(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    revision = repository.read_head()
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
+    repository.stage(["notes.md"])
+    revision = repository.commit("docs: add notes")
     (repository.path / "README.md").write_bytes(b"second\n")
+    (repository.path / "notes.md").write_bytes(b"# Renamed notes\n")
 
-    assert b"+second" in repository.diff(revision, paths=["README.md"])
+    patch = repository.diff(revision, paths=["README.md"])
+
+    assert b"+second" in patch
+    assert b"notes.md" not in patch
 
 
 def test_reports_changed_and_untracked_paths(tmp_path: Path, create_repository: CreateRepository) -> None:
@@ -268,6 +274,27 @@ def test_keeps_the_lock_a_running_command_holds_when_a_signal_ends_its_own_git(
         end_the_second_command(tmp_path)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that signals its own Git needs a shell and `kill`")
+@pytest.mark.parametrize("name", HANDLED_SIGNALS_A_COMMIT_DIES_OF)
+def test_keeps_the_index_lock_another_command_took_when_a_signal_ends_its_own_git(
+    tmp_path: Path, create_repository: CreateRepository, name: str
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    # `past` stands after the commit gave the index lock back, so the lock that the second command takes there is
+    # its own. Git removes its own locks at a signal it handles, thus what stands after belongs to that command.
+    window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + SIGNAL_THE_GIT.format(name=name)
+
+    with open_a_window(tmp_path, "past", window), pytest.raises(git.Error):
+        repository.commit("second", paths=("README.md",))
+
+    try:
+        assert is_the_second_command_running(tmp_path)
+        assert read_git_locks(tmp_path) == (tmp_path / ".git/index.lock",)
+    finally:
+        end_the_second_command(tmp_path)
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="a file that refuses a read is an access list `chmod` cannot write")
 def test_reports_git_refusing_a_repository_whose_head_cannot_be_read(
     tmp_path: Path, create_repository: CreateRepository
@@ -304,6 +331,19 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_git_that_neve
         assert read_git_locks(tmp_path) == (tmp_path / ".git" / lock,)
     finally:
         end_the_second_command(tmp_path)
+
+
+def test_reports_the_locks_over_the_files_a_command_of_its_own_writes(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
+    branch = tmp_path / ".git" / f"{run_git(tmp_path, 'symbolic-ref', 'HEAD')}.lock"
+    # A commit moves HEAD and the branch it stands on, and each write of the index locks the index. A lock over
+    # `config` belongs to no command of JRI, so it must stay out of the report.
+    for lock in (tmp_path / ".git/index.lock", tmp_path / ".git/HEAD.lock", branch, tmp_path / ".git/config.lock"):
+        lock.touch()
+
+    assert repository.locks.blocking == (tmp_path / ".git/index.lock", tmp_path / ".git/HEAD.lock", branch)
 
 
 @pytest.mark.skipif(
@@ -442,6 +482,42 @@ def test_frees_the_index_lock_the_staging_it_started_died_holding(
 
     assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
     assert read_git_locks(tmp_path) == ()
+    assert repository.commit("second", paths=("README.md",))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")
+def test_frees_the_index_lock_the_restore_it_started_died_holding(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    # Git runs the smudge side over what it is about to write back into the worktree, and only for a path whose
+    # bytes it must replace. The edit below makes README.md that path.
+    (tmp_path / "README.md").write_bytes(b"# Edited\n")
+
+    with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="smudge"), pytest.raises(git.Error):
+        repository.restore("HEAD", ["README.md"])
+
+    assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
+    assert read_git_locks(tmp_path) == ()
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    assert repository.commit("second", paths=("README.md",))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")
+def test_frees_the_index_lock_the_unstaging_it_started_died_holding(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    # An unstaging refreshes the index while it holds the index lock. Only a file that the index cannot date
+    # makes that refresh read the worktree back, which is where the kill below must land.
+    stale_the_filtered_path(tmp_path)
+
+    with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="clean"), pytest.raises(git.Error):
+        repository.unstage(["README.md"])
+
+    assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
+    assert read_git_locks(tmp_path) == ()
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
     assert repository.commit("second", paths=("README.md",))
 
 
@@ -622,8 +698,12 @@ def test_finds_the_last_commit_whose_message_holds_the_text(
     marked = repository.commit("jri: test", ["JRI-Test: accepted"])
     (repository.path / "README.md").write_bytes(b"third\n")
     run_git(repository.path, "commit", "-qam", "docs: a commit of the user's own")
+    (repository.path / "README.md").write_bytes(b"fourth\n")
+    repository.stage(["README.md"])
+    newest = repository.commit("jri: test again", ["JRI-Test: accepted"])
 
-    assert repository.find_commit("JRI-Test: accepted") == marked
+    assert repository.find_commit("JRI-Test: accepted") == newest
+    assert repository.find_commit("JRI-Test: accepted", "HEAD~2") == marked
     assert repository.find_commit("JRI-Test: rejected") is None
 
 
@@ -784,6 +864,23 @@ def test_reports_renames_with_their_original_path(
         ("docs.md", "R", "README.md"),
         ("untracked.md", "?", None),
     ]
+
+
+def test_reports_a_rename_the_worktree_alone_holds_with_its_original_path(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "old.md").write_bytes(b"# Old\nThe store keeps orders.\n")
+    repository.stage(["old.md"])
+    repository.commit("docs: add old")
+    (repository.path / "old.md").rename(repository.path / "renamed.md")
+    (repository.path / "other.md").write_bytes(b"# Other\nThe reporter renders totals.\n")
+
+    repository.stage(["other.md", "renamed.md"], intent_to_add=True)
+
+    # Git reports the rename in the worktree column, and puts the original path in a record of its own. A reader
+    # that misses that record reads it as the status of another path.
+    assert repository.read_status() == (git.Status("other.md", " ", "A"), git.Status("renamed.md", " ", "R", "old.md"))
 
 
 def test_applies_a_patch_to_the_worktree_and_the_index(tmp_path: Path, create_repository: CreateRepository) -> None:
