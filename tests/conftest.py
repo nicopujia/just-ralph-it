@@ -24,8 +24,9 @@ CONTRACT_MARKER = "contract"
 # This file gives `jri chat` its API keys.
 # A live call uses the same credential as the product.
 ENV_FILE = Path(__file__).parent.parent / ".env"
-# These are the ways out of this process. `httpx.get` is not among them: the catalog double below serves it, and
-# a guard here would only be replaced by that double in the same fixture.
+# These are the ways out of this process. A child process has ways of its own, and no guard here reaches them.
+# `httpx.get` is not among these: the catalog double below serves it, and a guard here would only be replaced by
+# that double in the same fixture.
 NETWORK = ((socket, "getaddrinfo"), (socket, "create_connection"), (socket, "socket"))
 
 
@@ -134,6 +135,8 @@ def isolate_logging() -> Iterator[None]:
 
 # `GIT_DIR` overrides the repository that a command's `-C` flag names. A test that inherits it from the
 # calling shell would run Git against that repository instead of its own `tmp_path` one.
+# Git also looks for a repository in every parent directory. On a machine whose temporary directory is inside a
+# repository, each test would find that one. The ceiling stops the search at the directory that holds the test tree.
 @pytest.fixture(autouse=True)
 def isolate_git(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
     config = tmp_path_factory.mktemp("git") / "config"
@@ -144,5 +147,6 @@ def isolate_git(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.Mo
     monkeypatch.setenv("GIT_AUTHOR_EMAIL", "test@example.com")
     monkeypatch.setenv("GIT_COMMITTER_NAME", "Test User")
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "test@example.com")
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path_factory.getbasetemp()))
     for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
         monkeypatch.delenv(name, raising=False)
