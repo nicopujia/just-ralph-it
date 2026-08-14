@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
 from jri.core.workspace import MAX_PID, Hold, Installation, Workspace
 from jri.lib import git
+from jri.lib.lock import Lock
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import ROOT_QUESTION, WINDOW_MARKER, install_a_killing_git
 from tests.doubles.lock import hold, take
@@ -470,12 +472,18 @@ def test_leaves_a_workspace_alone_while_a_window_has_the_project(tmp_path: Path)
         assert window.poll() is None
 
 
+# The window lets the project go when the operating system frees the lock it held, which Windows can take a
+# moment over. Wait for that, as `Hold.evict` does, rather than reading the lock the instant the process ends.
 def test_resets_the_project_the_window_holding_it_let_go_of(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
     (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n", encoding="utf-8")
     with hold_workspace(tmp_path) as window:
         window.kill()
         window.wait()
+        deadline = time.monotonic() + Hold.FREED_WITHIN
+        while Lock(tmp_path / paths.LOCK_FILE).is_held():
+            assert time.monotonic() < deadline, "the killed window never let the project go"
+            time.sleep(Hold.POLL)
 
     install_workspace(tmp_path, force=True)
 
