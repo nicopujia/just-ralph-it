@@ -135,7 +135,6 @@ def test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote(
     assert result == SPECIFICATIONS
 
 
-# The files and the questions travel together, so a pass reports both without choosing between them.
 def test_reports_the_questions_beside_the_specifications_it_wrote(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
