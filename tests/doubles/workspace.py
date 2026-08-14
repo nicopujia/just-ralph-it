@@ -14,6 +14,20 @@ from jri.lib.lock import Lock
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
+# This is a window that holds the project and then lets it go, as the operating system does for the lock of a
+# window it ended. It records a pid of the caller's choosing, so a test can watch whom a takeover signals while
+# the project is on its way to coming free.
+BRIEF_HOLDER = """
+import os, sys, time
+from pathlib import Path
+from jri.core import paths
+from jri.lib.lock import Lock
+
+root, ready, record, held_for = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], float(sys.argv[4])
+assert Lock(root / paths.LOCK_FILE).take(record)
+ready.write_text(str(os.getpid()))
+time.sleep(held_for)
+"""
 # This is a process that never took the project. It stands for whatever wears the number of a holder after the
 # operating system hands that number on. It ticks, thus a reader can see a process that is alive and not only a
 # process that is not yet dead. A process cannot outrun a signal, because the kernel ends it before the next
@@ -99,6 +113,12 @@ def install_workspace(path: Path, *, force: bool = False) -> Installation:
 @contextmanager
 def hold_workspace(root: Path, *, record: str = "", deaf: bool = False) -> "Iterator[Process]":
     with _run(HOLDER, root, "held", (record, "deaf" if deaf else "")) as holder:
+        yield holder
+
+
+@contextmanager
+def hold_workspace_briefly(root: Path, held_for: float, *, record: str) -> "Iterator[Process]":
+    with _run(BRIEF_HOLDER, root, "held", (record, str(held_for))) as holder:
         yield holder
 
 

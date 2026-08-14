@@ -264,6 +264,11 @@ class Hold:
     # A nonresponsive window can still hold the project.
     # A takeover waits for the operating system to release a dead process lock.
     FREED_WITHIN = 5.0
+    # The operating system frees the lock of a window it ended, and Windows takes a moment over it. That lock
+    # still records the window that left, and the operating system can already have given its number to another
+    # process. A lock still held after this long has a window behind it, and a signal reaches that window.
+    # Keep this below `FREED_WITHIN`, which the signal needs the rest of to work.
+    SIGNALLED_AFTER = 1.0
     POLL = 0.05
 
     def __init__(self, workspace: Workspace) -> None:
@@ -301,12 +306,13 @@ class Hold:
     # A free lock, not a sent signal, proves that the operating system ended the process.
     def evict(self) -> bool:
         signalled: int | None = None
-        deadline = time.monotonic() + self.FREED_WITHIN
+        started = time.monotonic()
+        deadline = started + self.FREED_WITHIN
         # Signal the PID read under the current claim, not a PID read before the user chose eviction.
         # A PID can be reused when its process exits. Signal only the process holding the project now.
         while not self.take():
             holder = self.holder
-            if signalled is None and holder is not None:
+            if signalled is None and holder is not None and time.monotonic() - started >= self.SIGNALLED_AFTER:
                 logger.info("hold_eviction_started holder=%d", holder)
                 try:
                     # Signal one process, not its group.

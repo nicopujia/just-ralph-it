@@ -19,12 +19,15 @@ from tests.doubles.settings import build_settings
 from tests.doubles.workspace import (
     end_a_window,
     hold_workspace,
+    hold_workspace_briefly,
     hold_workspace_slowly,
     install_workspace,
     run_a_bystander,
     watch_a_bystander,
 )
 
+# A window lets the project go well inside the wait a takeover gives the operating system before it signals.
+LETS_GO_AFTER = Hold.SIGNALLED_AFTER / 2
 # The claim stays locked until the slow holder writes its own pid.
 # `Hold.take` must wait on that release, or it could read the killed
 # holder's stale record instead of the current one.
@@ -550,6 +553,24 @@ def test_ends_no_process_but_the_one_holding_the_project(tmp_path: Path) -> None
         assert not hold.take()
         assert hold.holder == bystander.pid
         end_a_window(tmp_path, window)
+
+        assert hold.evict()
+
+        assert watch_a_bystander(tmp_path, bystander), "a process that never held the project was signalled"
+    hold.release()
+
+
+# The lock of a window the operating system ended comes free without a signal, and Windows takes a moment over
+# it. The record still names the window that left, and the operating system can already have given that number
+# to another process. A takeover that signals it at once ends whatever wears the number now.
+def test_ends_no_process_while_the_project_is_still_coming_free(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    with (
+        run_a_bystander(tmp_path) as bystander,
+        hold_workspace_briefly(tmp_path, LETS_GO_AFTER, record=str(bystander.pid)),
+    ):
+        hold = Workspace(tmp_path).open_hold()
 
         assert hold.evict()
 
