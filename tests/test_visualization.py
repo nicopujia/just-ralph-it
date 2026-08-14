@@ -25,23 +25,34 @@ def read_diagram(page: str) -> str:
     return page.split('<pre class="mermaid">')[1].split("</pre>", maxsplit=1)[0]
 
 
+# Mermaid reads the diagram type from the first line, and a `:::topic` node needs that class declared.
+# A page missing either shows a parse error instead of the graph.
+def test_opens_the_diagram_with_its_type_and_the_topic_style() -> None:
+    diagram = read_diagram(render(build_graph()))
+
+    assert diagram.strip().startswith("flowchart TD\n    classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px\n")
+
+
 def test_draws_every_topic_note_and_connection() -> None:
     diagram = read_diagram(render(build_graph()))
 
     assert 't1(["Delivery<br/>[open]<br/>How it ships"]):::topic' in diagram
     assert 'n1["Runs in a terminal."]' in diagram
+    assert 'n2["Ships as a wheel."]' in diagram
     assert 'n1 -->|"supports"| n2' in diagram
 
 
-def test_hangs_a_note_off_its_topic_only_where_nothing_else_connects_them() -> None:
+def test_hangs_a_note_off_its_topic_only_where_the_topic_does_not_already_point_at_it() -> None:
     graph = build_graph()
     graph.connections.append(Connection(source_id="t1", target_id="n1", label="asks about"))
+    graph.connections.append(Connection(source_id="n2", target_id="t1", label="answers"))
 
     diagram = read_diagram(render(graph))
 
     assert 't1 -->|"contains"| n1' not in diagram
     assert 't1 -->|"contains"| n2' in diagram
     assert 't1 -->|"asks about"| n1' in diagram
+    assert 'n2 -->|"answers"| t1' in diagram
 
 
 # These labels are texts that a user can write.
@@ -122,11 +133,20 @@ def test_names_the_tracker_the_project_declares_for_reports() -> None:
     assert tracker in render(build_graph())
 
 
+# The page has two failure paths and one place to write a message in.
+# A viewer that could not fetch its libraries must read the necessary user action.
+# It must not read a request to report a drawing failure that did not occur.
+# The message can use different words around that action.
 def test_says_what_went_wrong_where_the_page_can_show_it() -> None:
     page = render(build_graph())
 
-    assert LOAD_ERROR in page
-    assert DRAW_ERROR in page
+    before_drawing, while_drawing = page.split("await mermaid.run();")
+
+    assert LOAD_ERROR in before_drawing
+    assert LOAD_ERROR not in while_drawing
+    assert DRAW_ERROR in while_drawing
+    assert DRAW_ERROR not in before_drawing
+    assert "`jri view`" in before_drawing
     assert "<!--" not in page
 
 

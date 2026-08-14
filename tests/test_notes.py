@@ -35,10 +35,30 @@ def test_advances_topic_and_note_ids_independently(tmp_path: Path) -> None:
     assert notebook.add_topic("Fifth topic").id == "t5"
 
 
+# JRI only appends a topic, so a gap between topic IDs can come from a hand-edited file. A count of the topics
+# would allocate an ID that a later topic already holds.
+def test_allocates_a_topic_id_after_the_highest_one_in_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "notebook.yaml"
+    path.write_text(
+        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\n"
+        "- id: t3\n  name: Delivery\n  status: open\n  notes: {}\n"
+        "connections: []\nnext_note_id: n2",
+        encoding="utf-8",
+    )
+
+    assert Notebook(path).add_topic("Security").id == "t4"
+
+
 @pytest.mark.parametrize(
     "data",
     [
-        {**VALID_GRAPH, "topics": [{"id": "n1", "name": "Overview", "status": "open"}]},
+        {
+            **VALID_GRAPH,
+            "topics": [
+                {"id": "t1", "name": "Overview", "status": "open"},
+                {"id": "tx", "name": "Delivery", "status": "open"},
+            ],
+        },
         {
             **VALID_GRAPH,
             "notes": [
@@ -164,6 +184,19 @@ def test_restores_notebook_changes_after_restart(tmp_path: Path) -> None:
     assert Notebook(notebook.path).graph.connections == []
 
 
+# The file stores each note under its topic in the order the graph holds them, so a load that sorts the IDs as
+# text puts `n10` before `n2` and the next save rewrites the user's notebook in that order.
+def test_keeps_notes_in_the_order_they_were_added_after_a_restart(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    added = [note.id for note in notebook.add([f"Note {index}" for index in range(12)], "t1")]
+
+    notebook = Notebook(notebook.path)
+    notebook.add(["One more"], "t1")
+
+    assert [note.id for note in notebook.graph.notes] == [*added, "n13"]
+    assert list(safe_load(notebook.path.read_text(encoding="utf-8"))["topics"][0]["notes"]) == [*added, "n13"]
+
+
 def test_stores_notes_in_a_compact_schema(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     delivery = notebook.add_topic("Delivery")
@@ -176,22 +209,25 @@ def test_stores_notes_in_a_compact_schema(tmp_path: Path) -> None:
         Connection(source_id=first.id, target_id=third.id, label="strongly supports"),
     ])
 
-    data = safe_load(notebook.path.read_text(encoding="utf-8"))
-
-    assert data == {
-        "topics": [
-            {"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "First", "n3": "Third"}},
-            {
-                "id": "t2",
-                "name": "Delivery",
-                "status": "done",
-                "summary": "Delivery is fully defined.",
-                "notes": {"n2": "Second 🚀"},
-            },
-        ],
-        "connections": ["n1 supports n2", "n1 strongly supports n3"],
-        "next_note_id": "n4",
-    }
+    assert notebook.path.read_text(encoding="utf-8") == (
+        "topics:\n"
+        "- id: t1\n"
+        "  name: Project overview\n"
+        "  status: open\n"
+        "  notes:\n"
+        "    n1: First\n"
+        "    n3: Third\n"
+        "- id: t2\n"
+        "  name: Delivery\n"
+        "  status: done\n"
+        "  summary: Delivery is fully defined.\n"
+        "  notes:\n"
+        "    n2: Second 🚀\n"
+        "connections:\n"
+        "- n1 supports n2\n"
+        "- n1 strongly supports n3\n"
+        "next_note_id: n4\n"
+    )
     assert Notebook(notebook.path).graph == notebook.graph
 
 
@@ -347,6 +383,7 @@ def test_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
     "contents",
     [
         ": invalid yaml",
+        "a bare string",
         "topics: []",
         "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: []\nconnections: []\nnext_note_id: n1",
         (
@@ -366,6 +403,7 @@ def test_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
     ],
     ids=[
         "malformed-yaml",
+        "not-a-mapping",
         "truncated",
         "notes-not-a-mapping",
         "malformed-connection",
