@@ -346,6 +346,21 @@ def test_reports_the_locks_over_the_files_a_command_of_its_own_writes(
     assert repository.locks.blocking == (tmp_path / ".git/index.lock", tmp_path / ".git/HEAD.lock", branch)
 
 
+# Git answers with the common directory as a path from the directory the command ran in. A repository opened at a
+# subdirectory must join that answer onto that same directory. Joined onto the top level, it points above the
+# repository, and the branch lock that stops a commit stands at a path nothing looks at.
+def test_reports_the_locks_of_a_repository_it_opened_at_a_subdirectory(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    nested = tmp_path / "packages" / "app"
+    nested.mkdir(parents=True)
+    branch = tmp_path / ".git" / f"{run_git(tmp_path, 'symbolic-ref', 'HEAD')}.lock"
+    branch.touch()
+
+    assert git.Repository(nested).locks.blocking == (branch,)
+
+
 @pytest.mark.skipif(
     sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
 )
