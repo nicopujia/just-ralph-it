@@ -31,31 +31,30 @@ class Specifications(BaseModel):
 
 
 class FunctionalAnalyst(Agent):
-    PROMPT = ai.prompts.read("functional_analyst", functional_specs_root=FUNCTIONAL_SPECS_ROOT)
     DIFF_PROMPT = ai.prompts.read("functional_analyst_diff")
     EXISTING_PROMPT = ai.prompts.read("functional_analyst_existing")
     FEEDBACK_PROMPT = ai.prompts.read("functional_analyst_feedback")
 
     # Send each set of rules only with the input it speaks about. A run with no accepted baseline has no notebook diff,
     # a first pass has no specification index, and a pass with no feedback has no round to answer.
+    # Each set speaks about what this pass receives, so it goes in the slot the template keeps for it, above the
+    # output and constraint rules. A rule that arrives after those sections reads as an afterthought to both.
     def __init__(
         self, settings: Settings, repository: git.Repository, *, changed: bool, existing: bool, feedback: bool
     ) -> None:
         self.repository = repository
-        instructions = [self.PROMPT]
-        if changed:
-            instructions.append(self.DIFF_PROMPT)
-        if existing:
-            instructions.append(self.EXISTING_PROMPT)
-        if feedback:
-            instructions.append(self.FEEDBACK_PROMPT)
+        rules = ((self.DIFF_PROMPT, changed), (self.EXISTING_PROMPT, existing), (self.FEEDBACK_PROMPT, feedback))
         profile = settings.agents.functional_analyst
         super().__init__(
             client=settings.llm.client,
             model=profile.model,
             reasoning_effort=profile.reasoning_effort,
             temperature=profile.temperature,
-            prompt="\n\n".join(instructions),
+            prompt=ai.prompts.read(
+                "functional_analyst",
+                functional_specs_root=FUNCTIONAL_SPECS_ROOT,
+                pass_rules="".join(f"\n{rule}\n" for rule, sent in rules if sent),
+            ),
         )
 
     def write(

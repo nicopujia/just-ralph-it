@@ -38,13 +38,21 @@ class Output(BaseModel):
 
 
 class Architect(Agent):
-    INSTRUCTIONS = ai.prompts.read(
-        "architect", architecture_specs_root=ARCHITECTURE_SPECS_ROOT, workspace_dir=WORKSPACE_DIR
+    # Both cycles read the same instructions and differ in one output rule. The last cycle takes the decisions
+    # that a review would send back, so it always returns an architecture. Every other cycle can send functional
+    # specification issues back instead.
+    PROMPT = ai.prompts.read(
+        "architect",
+        architecture_specs_root=ARCHITECTURE_SPECS_ROOT,
+        workspace_dir=WORKSPACE_DIR,
+        pass_rule=ai.prompts.read("architect_issues"),
     )
-    # The last cycle takes the decisions that a review would send back, so it receives its own rule and always
-    # returns an architecture. Every other cycle can send functional specification issues back instead.
-    PROMPT = "\n\n".join((INSTRUCTIONS, ai.prompts.read("architect_issues")))
-    FINAL_PROMPT = "\n\n".join((INSTRUCTIONS, ai.prompts.read("architect_final")))
+    FINAL_PROMPT = ai.prompts.read(
+        "architect",
+        architecture_specs_root=ARCHITECTURE_SPECS_ROOT,
+        workspace_dir=WORKSPACE_DIR,
+        pass_rule=ai.prompts.read("architect_final"),
+    )
 
     def __init__(self, settings: Settings, repository: git.Repository, *, final: bool) -> None:
         self.repository = repository
