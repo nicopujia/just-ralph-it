@@ -49,8 +49,8 @@ while True:
 # A holder stays alive while its test reads the project. A parallel run loads the machine, thus this window
 # must outlive the slowest test by a large margin. Each holder ends when its test ends.
 HELD_FOR = 300
-# This is a window that holds the project for the full test. `deaf` makes it ignore `SIGTERM`, thus a test can see
-# what an eviction does against a window that does not answer.
+# This is a window that holds the project for the full test. `deaf` makes it turn each `SIGTERM` down and write one
+# byte for it, thus a test can see how many times an eviction asked a window that does not answer to go.
 HOLDER = f"""
 import os, signal, sys, time
 from pathlib import Path
@@ -58,9 +58,14 @@ from jri.core import paths
 from jri.core.workspace import Workspace
 from jri.lib.lock import Lock
 
-root, ready, record, deaf = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4] == "deaf"
+root, ready, record = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+deaf, requests = sys.argv[4] == "deaf", Path(sys.argv[5])
 if deaf:
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    def turn_down(*_):
+        with requests.open("ab") as asked:
+            asked.write(b".")
+
+    signal.signal(signal.SIGTERM, turn_down)
 # A record of JRI's names the process that wrote it, and one of
 # anything else stands for a holder JRI has no way of being.
 taken = Lock(root / paths.LOCK_FILE).take(record) if record else Workspace(root).open_hold().take()
@@ -69,6 +74,8 @@ ready.write_text(str(os.getpid()))
 time.sleep({HELD_FOR})
 """
 POLL = 0.01
+# A signal reaches a sleeping window at once. Only a machine under load uses any of this time.
+REQUESTS_WITHIN = 5.0
 # This is a window that takes the lock and records its own pid later. It holds the claim across that delay. The lock
 # file still names the window before it while the delay runs. Only a reader that waits for the claim gets the pid
 # of the window that holds the project now.
@@ -112,7 +119,9 @@ def install_workspace(path: Path, *, force: bool = False) -> Installation:
 # about a holder inside this process.
 @contextmanager
 def hold_workspace(root: Path, *, record: str = "", deaf: bool = False) -> "Iterator[Process]":
-    with _run(HOLDER, root, "held", (record, "deaf" if deaf else "")) as holder:
+    requests = _requests(root)
+    requests.unlink(missing_ok=True)
+    with _run(HOLDER, root, "held", (record, "deaf" if deaf else "", str(requests))) as holder:
         yield holder
 
 
@@ -150,6 +159,17 @@ def watch_a_bystander(root: Path, bystander: "Process") -> bool:
     return True
 
 
+# This counts the requests to let the project go that reached a deaf window. It waits for the first one, because a
+# request that a loaded machine has not delivered yet is not a request that never went out.
+def read_requests_to_go(root: Path) -> int:
+    requests = _requests(root)
+    deadline = time.monotonic() + REQUESTS_WITHIN
+    while not (asked := requests.stat().st_size if requests.exists() else 0):
+        assert time.monotonic() < deadline, "no request to let the project go reached the window"
+        time.sleep(POLL)
+    return asked
+
+
 # End a window and wait for the project to come free. The operating system, not the window, frees the lock of a
 # process it ended, and Windows can take a moment over it. A read of the project the instant the process dies
 # calls that moment a live window. `Hold.evict` waits for the same release rather than reading the lock one time.
@@ -183,6 +203,11 @@ class Process:
 def _beat(root: Path) -> Path:
     # This stays outside the project, thus a workspace holds only what the code under test put there.
     return root.parent / f"{root.name}.ticks"
+
+
+def _requests(root: Path) -> Path:
+    # This stays outside the project, thus a workspace holds only what the code under test put there.
+    return root.parent / f"{root.name}.requests"
 
 
 def _read_pid(marker: Path) -> int:

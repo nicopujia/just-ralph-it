@@ -22,6 +22,7 @@ from tests.doubles.workspace import (
     hold_workspace_briefly,
     hold_workspace_slowly,
     install_workspace,
+    read_requests_to_go,
     run_a_bystander,
     watch_a_bystander,
 )
@@ -164,6 +165,29 @@ def test_leaves_the_workspace_uncommitted_during_a_merge(
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
 
 
+def test_stages_nothing_while_the_user_settles_a_conflicted_cherry_pick(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
+    run_git(tmp_path, "checkout", "-qb", "other")
+    (tmp_path / "README.md").write_bytes(b"# Other\n")
+    run_git(tmp_path, "commit", "-qam", "other")
+    run_git(tmp_path, "checkout", "-q", "-")
+    (tmp_path / "README.md").write_bytes(b"# First\n")
+    run_git(tmp_path, "commit", "-qam", "first")
+    run_git(tmp_path, "cherry-pick", "other", check=False)
+    head = repository.read_head()
+
+    installation = install_workspace(tmp_path)
+
+    # A cherry-pick, a rebase, and a revert leave a conflict without the merge record a merge leaves. The index
+    # belongs to the user until they settle it, so the workspace waits outside it for the commit they make next.
+    assert installation.commit is None
+    assert repository.read_head() == head
+    assert not [path for path in repository.read_staged_paths() if path.startswith(paths.WORKSPACE_DIR)]
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
+
+
 def test_leaves_the_workspace_uncommitted_off_a_branch(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -268,6 +292,17 @@ def test_preserves_an_existing_workspace_when_initializing_again(tmp_path: Path)
     )
 
 
+def test_initializes_a_workspace_directory_that_holds_no_settings(tmp_path: Path) -> None:
+    # A hold, a run, and a reserved worktree each make this directory before anything installs into it. The
+    # settings, not the directory, say whether a workspace is there.
+    (tmp_path / paths.WORKSPACE_DIR).mkdir()
+
+    installation = install_workspace(tmp_path)
+
+    assert installation.created
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
+
+
 def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path) -> None:
     notebook = {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Keep this note."}}],
@@ -354,14 +389,37 @@ def test_puts_back_a_run_directory_rule_something_replaced(
     workspace = install_workspace(tmp_path).workspace
     repository = git.Repository(tmp_path)
     (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n", encoding="utf-8")
+    # This names one file below the run directory and not the directory itself. A rule is a complete line, so a
+    # file that only mentions the directory name still misses the rule for it.
     for rule in sorted(workspace.directory.rglob(workspace.gitignore_file.name)):
-        rule.write_text("# nothing to ignore here\n", encoding="utf-8")
+        rule.write_text("/generation/old.jsonl\n", encoding="utf-8")
 
     workspace.open_generation_dir()
 
     assert not repository.read_status((paths.GENERATION_DIR,))
     run_git(tmp_path, "add", "-A")
     assert not [path for path in repository.read_staged_paths() if path.startswith(paths.GENERATION_DIR)]
+
+
+def test_puts_back_a_lock_rule_something_replaced(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    workspace = install_workspace(tmp_path).workspace
+    repository = git.Repository(tmp_path)
+    # A user edit, a merge, or a checkout of an older commit can leave this file without the rules the hold needs.
+    # This one names a file beside the claim and not the claim itself, and a rule is a complete line.
+    workspace.gitignore_file.write_text("/lock.claim.old\n", encoding="utf-8")
+
+    hold = workspace.open_hold()
+    assert hold.take()
+
+    # The hold files hold a live project. Git that reads them as project content would commit the hold of a
+    # window that is still open.
+    assert not repository.read_status((paths.LOCK_FILE, paths.CLAIM_FILE))
+    run_git(tmp_path, "add", "-A")
+    assert not [path for path in repository.read_staged_paths() if path in {paths.LOCK_FILE, paths.CLAIM_FILE}]
+    hold.release()
 
 
 def test_clears_a_run_directory_a_reset_asks_for(tmp_path: Path) -> None:
@@ -585,8 +643,7 @@ def test_ends_the_window_that_has_the_project_and_not_the_one_before_it(tmp_path
         hold = Workspace(tmp_path).open_hold()
         assert not hold.take()
         assert hold.holder == bystander.pid
-        first.kill()
-        first.wait()
+        end_a_window(tmp_path, first)
         # A pid can be freed and reused once its process exits. Confirm
         # eviction signals whoever holds the project when it runs, not a
         # pid read earlier and now stale.
@@ -635,6 +692,15 @@ def test_refuses_a_project_held_by_something_that_does_not_name_itself(tmp_path:
         Workspace(tmp_path).open_hold().take()
 
 
+def test_refuses_a_project_held_by_a_number_no_process_can_wear(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    # A number above the largest pid reaches no process, and a signal aimed at it fails in a way `Hold` cannot
+    # take back. Turn the record down while it is still a record.
+    with hold_workspace(tmp_path, record=str(MAX_PID + 1)), pytest.raises(PersistenceError, match="without saying"):
+        Workspace(tmp_path).open_hold().take()
+
+
 def test_refuses_a_project_whose_claim_it_cannot_settle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = install_workspace(tmp_path).workspace
     monkeypatch.setattr(Hold, "CLAIMED_WITHIN", 0.1)
@@ -646,6 +712,9 @@ def test_refuses_a_project_whose_claim_it_cannot_settle(tmp_path: Path, monkeypa
 @pytest.mark.skipif(sys.platform == "win32", reason="a kill on Windows is a termination no process can turn down")
 def test_reports_the_window_that_would_not_let_the_project_go(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     install_workspace(tmp_path)
+    # A takeover waits before it signals, then waits again for the operating system. Give it both waits, or the
+    # deadline arrives before the window is ever asked to go.
+    monkeypatch.setattr(Hold, "SIGNALLED_AFTER", 0.0)
     monkeypatch.setattr(Hold, "FREED_WITHIN", 0.3)
 
     with hold_workspace(tmp_path, deaf=True) as window:
@@ -654,12 +723,31 @@ def test_reports_the_window_that_would_not_let_the_project_go(tmp_path: Path, mo
 
         assert not hold.evict()
 
+        assert read_requests_to_go(tmp_path), "the window was reported without being asked to go"
         assert window.poll() is None
         assert hold.holder == window.pid
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a kill on Windows is a termination no process can turn down")
+def test_asks_a_window_to_let_the_project_go_one_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    install_workspace(tmp_path)
+    monkeypatch.setattr(Hold, "SIGNALLED_AFTER", 0.0)
+    monkeypatch.setattr(Hold, "FREED_WITHIN", 0.3)
+
+    with hold_workspace(tmp_path, deaf=True):
+        hold = Workspace(tmp_path).open_hold()
+        assert not hold.take()
+
+        assert not hold.evict()
+
+        # The operating system can hand the number of a window that leaves to another process. A second request
+        # to the same number would reach whatever wears it by then.
+        assert read_requests_to_go(tmp_path) == 1
+
+
 def test_takes_no_project_from_a_signal_that_reached_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     install_workspace(tmp_path)
+    monkeypatch.setattr(Hold, "SIGNALLED_AFTER", 0.0)
     monkeypatch.setattr(Hold, "FREED_WITHIN", 0.3)
 
     # MAX_PID is the largest pid Hold accepts as real, but no process

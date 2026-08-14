@@ -1,3 +1,5 @@
+import os
+import stat
 import sys
 import threading
 import time
@@ -153,6 +155,26 @@ def test_replaces_the_record_the_holder_before_it_wrote(tmp_path: Path) -> None:
     second.release()
 
 
+def test_hands_back_no_record_from_a_write_that_stopped_halfway(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "lock"
+    first = Lock(path)
+    assert first.take("123456789")
+    first.release()
+    write = os.write
+
+    second = Lock(path)
+    with monkeypatch.context() as halfway:
+        halfway.setattr(os, "write", lambda descriptor, data: write(descriptor, data[: len(data) // 2]))
+        assert second.take("4242")
+
+    # A record cut short still reads as a number, and whoever reads it would take it for the holder and end
+    # whatever process wears it. No record at all says only that the holder wrote none.
+    assert not Lock(path).holder
+    second.release()
+
+
 def test_hands_back_no_record_where_no_holder_wrote_one(tmp_path: Path) -> None:
     path = tmp_path / "lock"
 
@@ -162,9 +184,21 @@ def test_hands_back_no_record_where_no_holder_wrote_one(tmp_path: Path) -> None:
         assert not Lock(path).holder
 
 
-def test_reports_a_lock_file_it_cannot_open_to_answer_who_holds_it(tmp_path: Path) -> None:
+def test_reports_a_lock_file_it_cannot_open_to_answer_whether_it_is_held(tmp_path: Path) -> None:
     path = tmp_path / "directory"
     path.mkdir()
 
     with pytest.raises(LockError, match="cannot be opened"):
         Lock(path).is_held()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows keeps file access in a list `stat` does not report")
+def test_keeps_a_lock_file_out_of_reach_of_the_other_users_of_the_machine(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+
+    with Lock(path):
+        pass
+
+    # Another user who can write this file can take the project away from JRI, or name any process it wants as
+    # the holder. Exclusion would then be settled outside the project.
+    assert not stat.S_IMODE(path.stat().st_mode) & 0o077
