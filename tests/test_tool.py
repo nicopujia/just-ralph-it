@@ -153,7 +153,8 @@ def test_reports_invalid_arguments_to_the_model() -> None:
     list(invocation)
 
     assert invocation.outcome == "failed"
-    assert cast("str", invocation.output).startswith("<tool_call_failed>\n")
+    # The model corrects its own call from this text alone, so it must name what the argument needed.
+    assert invocation.output == "<tool_call_failed>\nInput should be a valid string.\n</tool_call_failed>"
 
 
 def test_labels_a_call_by_its_tool_name_when_the_arguments_are_invalid() -> None:
@@ -274,6 +275,46 @@ def test_stays_silent_when_a_tool_that_is_not_replayed_could_not_be_called() -> 
     assert toolbox.recorded == []
 
 
+# This schema is the whole account the model gets of a tool. Without it the model cannot call the tool at all.
+def test_offers_the_model_a_tool_that_takes_every_argument() -> None:
+    assert build_tool("look_up").definition == {
+        "type": "function",
+        "name": "look_up",
+        "description": "Look up the text.",
+        "parameters": {
+            "type": "object",
+            "title": "Look_UpArguments",
+            "properties": {
+                "text": {"type": "string", "title": "Text"},
+                "depth": {"type": "integer", "title": "Depth", "default": 1},
+            },
+            "required": ["text", "depth"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    }
+
+
+# A strict schema demands every argument. A tool whose arguments the model can omit asks for a loose schema instead.
+def test_offers_the_model_a_loose_tool_that_takes_the_arguments_it_wants() -> None:
+    assert build_tool("scan").definition == {
+        "type": "function",
+        "name": "scan",
+        "description": "Scan the text.",
+        "parameters": {
+            "type": "object",
+            "title": "ScanArguments",
+            "properties": {
+                "text": {"type": "string", "title": "Text"},
+                "depth": {"type": "integer", "title": "Depth", "default": 1},
+            },
+            "required": ["text"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    }
+
+
 def test_discovers_the_tools_an_owner_inherits() -> None:
     names = {discovered.name for discovered in Tool.discover(ExtendedToolbox())}
 
@@ -333,6 +374,16 @@ class Toolbox:
     def describe(self, text: Annotated[str, PlainSerializer(fail_to_describe)]) -> str:
         self.recorded.append(text)
         return f"described: {text}"
+
+    @tool("Look up the text.", started_label="Looking up {text}", finished_label="Looked up {text}")
+    def look_up(self, text: str, depth: int = 1) -> str:
+        self.recorded.append(text)
+        return f"looked up {depth}: {text}"
+
+    @tool("Scan the text.", started_label="Scanning {text}", finished_label="Scanned {text}", strict=False)
+    def scan(self, text: str, depth: int = 1) -> str:
+        self.recorded.append(text)
+        return f"scanned {depth}: {text}"
 
     @tool("Give up after listing.", started_label="Giving up on {text}", finished_label="Gave up on {text}")
     def give_up_after_listing(self, text: str) -> Generator[ToolOutput]:

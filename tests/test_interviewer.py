@@ -36,9 +36,14 @@ def test_keeps_at_least_ten_recent_turns_in_context(monkeypatch: pytest.MonkeyPa
     assert messages == [f"Question {index}" for index in range(2, 12)]
 
 
+# Seed more turns than the floor holds. A shorter interview would survive any budget, so it would prove nothing.
 def test_keeps_the_whole_history_when_it_fits_the_budget(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
-    interviewer.history.extend([{"role": "user", "content": "Hi."}, {"role": "assistant", "content": "Hello."}])
+    for index in range(TURNS):
+        interviewer.history.extend([
+            {"role": "user", "content": f"Question {index}"},
+            {"role": "assistant", "content": f"Answer {index}"},
+        ])
 
     context = interviewer.get_context()
 

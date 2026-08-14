@@ -3,6 +3,7 @@ from threading import Event
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from pydantic import BaseModel
 
 from jri.core.ai import Agent, ToolCallFinished, ToolCallStarted, ToolOutput, tool
 from jri.core.exceptions import ModelError
@@ -46,6 +47,15 @@ def test_stops_a_tool_loop_that_never_replies() -> None:
         list(agent.send_message("Go."))
 
     assert len(client.responses.inputs) == MAX_ROUNDS
+
+
+# A structured run has no text round to end on, so only this limit can stop a model that keeps calling tools.
+def test_stops_a_parsing_tool_loop_that_never_returns_a_result() -> None:
+    rounds = [response(call(f"call-{index}", "echo", text="again")) for index in range(MAX_ROUNDS + 1)]
+    agent = ToolAgent(cast("OpenAI", FakeClient([], parsed=rounds)))
+
+    with pytest.raises(ModelError, match=f"limit of {MAX_ROUNDS} response rounds"):
+        list(agent.parse("Go.", Answer))
 
 
 def test_keeps_the_partial_text_of_a_cancelled_response() -> None:
@@ -194,6 +204,10 @@ def test_answers_every_call_of_a_round_that_cancellation_interrupted() -> None:
     # Each call needs an output before the next request.
     assert [item["call_id"] for item in history if item.get("type") == "function_call_output"] == ["streamed", "later"]
     assert agent.calls == []
+
+
+class Answer(BaseModel):
+    text: str
 
 
 class ToolAgent(Agent):

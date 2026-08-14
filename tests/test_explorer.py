@@ -42,6 +42,16 @@ while True:
 HEARTBEAT_WINDOW = 1.0
 
 
+# `run_shell` starts a login shell, and a login shell reads the profile of whoever runs the suite. Give each test a
+# home of its own, so no machine can add its own words to the output these tests compare.
+@pytest.fixture(autouse=True)
+def isolate_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+
 def build_explorer(directory: Path | None = None) -> Explorer:
     return Explorer(build_settings(FakeClient([])), directory or Path.cwd())
 
@@ -173,6 +183,24 @@ def test_reads_undecodable_bytes_as_a_file_input(tmp_path: Path) -> None:
     }
 
 
+# The tool offers to read files, plural, of every kind in one call. Each body must follow the header that names it.
+def test_reads_every_file_a_call_names(tmp_path: Path) -> None:
+    (tmp_path / "notes.md").write_text("Notes\n")
+    (tmp_path / "diagram.png").write_bytes(PNG_HEADER)
+    (tmp_path / "archive.bin").write_bytes(UNDECODABLE)
+
+    result = build_explorer(tmp_path).read_files(["notes.md", "diagram.png", "archive.bin"])
+
+    assert result == [
+        {"type": "input_text", "text": f"<file>\n{tmp_path / 'notes.md'}\n</file>"},
+        {"type": "input_text", "text": "<content>\nNotes\n\n</content>"},
+        {"type": "input_text", "text": f"<file>\n{tmp_path / 'diagram.png'}\n</file>"},
+        {"type": "input_image", "image_url": f"data:image/png;base64,{base64.b64encode(PNG_HEADER).decode()}"},
+        {"type": "input_text", "text": f"<file>\n{tmp_path / 'archive.bin'}\n</file>"},
+        {"type": "input_file", "filename": "archive.bin", "file_data": base64.b64encode(UNDECODABLE).decode()},
+    ]
+
+
 def test_rejects_a_file_over_the_input_size_limit(tmp_path: Path) -> None:
     path = tmp_path / "huge.txt"
     with path.open("wb") as file:
@@ -199,6 +227,21 @@ def test_runs_shell_commands_in_the_directory_it_was_given(tmp_path: Path) -> No
     output = build_explorer(directory).run_shell(f"{PYTHON} -c \"print(open('marker.txt').read(), end='')\"")
 
     assert output == "here\n"
+
+
+# The user reaches their own tools by name in a terminal because their profile puts them on `PATH`.
+# A command JRI runs for the model must reach the same tools.
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows runs the command through `cmd.exe`, which reads no profile"
+)
+def test_runs_shell_commands_with_the_path_the_profile_of_the_user_gives(tmp_path: Path) -> None:
+    executables = tmp_path / "bin"
+    executables.mkdir()
+    (executables / "greet").write_text("#!/bin/sh\necho hello\n")
+    (executables / "greet").chmod(0o755)
+    (tmp_path / "home" / ".profile").write_text(f'PATH="{executables}:$PATH"\nexport PATH\n')
+
+    assert build_explorer().run_shell("greet") == "hello\n"
 
 
 def test_reads_relative_paths_from_the_directory_it_was_given(tmp_path: Path) -> None:

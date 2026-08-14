@@ -135,12 +135,14 @@ def test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote(
     assert result == SPECIFICATIONS
 
 
+# The files and the questions travel together, so a pass reports both without choosing between them.
+# Answer with the model's own JSON, because the schema that reads it is where the two could become alternatives.
 def test_reports_the_questions_beside_the_specifications_it_wrote(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
     written = SPECIFICATIONS.model_copy(update={"unresolved": ["JSON or plain text?"]})
-    client = FakeClient([], parsed=[written])
+    client = FakeClient([], parsed=[response(reply(written.model_dump_json()))])
 
     assert write(build_analyst(client, tmp_path), CONTEXT)[1] == written
 

@@ -4,9 +4,11 @@ from threading import Event
 from typing import cast
 
 from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted, architect
+from jri.core.paths import SPECS_DIR
+from jri.core.specs import Specs
 from jri.lib import git
 from tests.conftest import CreateRepository
-from tests.doubles.openai import FakeClient, reply, response, thought
+from tests.doubles.openai import FakeClient, call, reply, response, thought
 from tests.doubles.settings import build_settings
 
 CONTEXT = architect.Input(
@@ -20,10 +22,23 @@ ARCHITECTURE = architect.Architecture(
     files=[architect.File(path="architecture/design.md", content="# Design\n", summary="How the system is built.")],
     deleted_paths=[],
 )
+BEHAVIOR = architect.File(path="functional/behavior.md", content="# Behavior\n", summary="How the product behaves.")
 
 
 def build_architect(client: FakeClient, repository_path: Path, *, final: bool = False) -> architect.Architect:
     return architect.Architect(build_settings(client), git.Repository(repository_path), final=final)
+
+
+def read_tool_output(client: FakeClient) -> str:
+    context = cast("list[dict[str, str]]", client.responses.inputs[-1])
+    return next(item["output"] for item in context if item.get("type") == "function_call_output")
+
+
+def write_specifications(repository_path: Path) -> None:
+    for file in (*ARCHITECTURE.files, BEHAVIOR):
+        specification = repository_path / SPECS_DIR / file.path
+        specification.parent.mkdir(parents=True, exist_ok=True)
+        specification.write_text(Specs.format(file), encoding="utf-8")
 
 
 def drain(
@@ -64,6 +79,70 @@ def test_streams_the_thinking_of_a_pass_before_the_architecture_it_designed(
 
     assert thoughts == [ReasoningDelta("Weighing the layers.")]
     assert result == ARCHITECTURE
+
+
+# An index carries one summary line per file. A pass that judges a file relevant reads its body with a tool, and
+# each tool answers from the specification root it is named for.
+def test_reads_the_full_body_of_a_functional_specification_it_judges_relevant(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    write_specifications(tmp_path)
+    client = FakeClient(
+        [],
+        parsed=[
+            response(call("read", "read_functional_specs", paths=["functional/behavior.md"])),
+            architect.Output(result=ARCHITECTURE),
+        ],
+    )
+
+    result = drain(build_architect(client, tmp_path).design(CONTEXT, Event()))[1]
+
+    assert result == ARCHITECTURE
+    assert read_tool_output(client) == (
+        f"<file>\n{BEHAVIOR.path}\n</file>\n\n<content>\n{BEHAVIOR.content}\n</content>"
+    )
+
+
+def test_reads_the_full_body_of_an_architecture_specification_it_revises(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    write_specifications(tmp_path)
+    client = FakeClient(
+        [],
+        parsed=[
+            response(call("read", "read_architecture_specs", paths=["architecture/design.md"])),
+            architect.Output(result=ARCHITECTURE),
+        ],
+    )
+
+    result = drain(build_architect(client, tmp_path).design(CONTEXT, Event()))[1]
+
+    design = ARCHITECTURE.files[0]
+    assert result == ARCHITECTURE
+    assert read_tool_output(client) == f"<file>\n{design.path}\n</file>\n\n<content>\n{design.content}\n</content>"
+
+
+def test_reports_a_specification_it_asked_for_and_could_not_find(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    write_specifications(tmp_path)
+    client = FakeClient(
+        [],
+        parsed=[
+            response(call("read", "read_architecture_specs", paths=["architecture/gone.md"])),
+            architect.Output(result=ARCHITECTURE),
+        ],
+    )
+
+    drain(build_architect(client, tmp_path).design(CONTEXT, Event()))
+
+    assert read_tool_output(client) == (
+        "<tool_call_failed>\nCould not find these architecture specifications: architecture/gone.md.\n"
+        "</tool_call_failed>"
+    )
 
 
 def test_reports_functional_issues_instead_of_an_architecture(
