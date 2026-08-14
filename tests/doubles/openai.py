@@ -6,6 +6,7 @@ from typing import Any, Self, cast
 
 import httpx
 from openai import APIConnectionError, BadRequestError, InternalServerError, OpenAIError, RateLimitError
+from openai.types.responses import ResponseError
 
 type Round = Iterable[SimpleNamespace]
 
@@ -69,8 +70,13 @@ def stopped_thinking(cancelled: Event) -> Round:
     raise AssertionError("A stopped stream must be closed rather than read to its end.")
 
 
-def rate_limited(hint: str | None = None, code: str | None = None) -> RateLimitError:
-    headers = {} if hint is None else {"retry-after-ms": hint}
+# A provider asks for a delay in one of two headers. `retry-after-ms` counts milliseconds, `retry-after` counts
+# seconds. A provider sends the one it prefers, and JRI reads both.
+def rate_limited(
+    *, milliseconds: str | None = None, seconds: str | None = None, code: str | None = None
+) -> RateLimitError:
+    hints = {"retry-after-ms": milliseconds, "retry-after": seconds}
+    headers = {header: value for header, value in hints.items() if value is not None}
     response = httpx.Response(429, headers=headers, request=REQUEST)
     body = {"message": RATE_LIMIT_MESSAGE, "code": code}
     return RateLimitError(f"Error code: 429 - {{'error': {body!r}}}", response=response, body=body)
@@ -111,7 +117,9 @@ def incomplete_response(reason: str | None) -> Round:
     return [SimpleNamespace(type="response.incomplete", response=SimpleNamespace(incomplete_details=details))]
 
 
-def failed_response(error: str) -> Round:
+# The library gives a failed response an error object, and not a message. JRI takes what it shows the user from it.
+def failed_response(message: str) -> Round:
+    error = ResponseError(code="server_error", message=message)
     return [SimpleNamespace(type="response.failed", response=SimpleNamespace(error=error))]
 
 

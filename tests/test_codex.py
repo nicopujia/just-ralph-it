@@ -189,9 +189,11 @@ def test_retries_a_rejected_request_with_a_refreshed_login(tmp_path: Path, monke
 
     client.responses.with_raw_response.create(model="gpt-5.6-sol", input="Hello.")
 
-    assert [request.headers["Authorization"] for request in requests] == [
-        f"Bearer {build_token(DISTANT_FUTURE)}",
-        f"Bearer {refreshed['access_token']}",
+    # The backend rejects a request that names no account, so both attempts must carry the account id beside the
+    # token that the attempt uses.
+    assert [(request.headers["Authorization"], request.headers["chatgpt-account-id"]) for request in requests] == [
+        (f"Bearer {build_token(DISTANT_FUTURE)}", "account"),
+        (f"Bearer {refreshed['access_token']}", "account"),
     ]
     # One rejection asks for one refresh. A second would spend a token the provider already replaced.
     assert len(provider.calls) == 1
@@ -290,8 +292,12 @@ def test_reports_a_login_a_sibling_process_replaced_with_a_malformed_one(
     provider = FakeProvider(respond(200, {"access_token": build_token(REFRESHED_EXPIRY), "refresh_token": "next"}))
     monkeypatch.setattr(codex.httpx, "post", provider.post)
 
-    with pytest.raises(codex.AuthError):
+    with pytest.raises(codex.AuthError, match="is invalid"):
         retry_after_rejection(codex.Auth(ORIGINATOR), lambda: write_login(tmp_path, ["not", "an", "object"]))
+
+    # A refresh token works once. Spending it on a login that JRI then rejects leaves the user with a login that no
+    # refresh can repair, because the file still holds the token the provider has replaced.
+    assert provider.calls == []
 
 
 def test_reports_a_refresh_the_sibling_process_left_without_an_account(

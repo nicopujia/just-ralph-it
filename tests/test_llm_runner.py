@@ -33,7 +33,7 @@ from tests.doubles.openai import (
 )
 
 if TYPE_CHECKING:
-    from openai import OpenAI, OpenAIError
+    from openai import OpenAI, OpenAIError, RateLimitError
 
     from tests.doubles.openai import Round
 
@@ -77,6 +77,16 @@ def test_sends_a_prompt_exactly_as_written_under_the_block_notice() -> None:
     runner = LLMRunner(client=cast("OpenAI", FakeClient([])), model="test", prompt=written)
 
     assert runner.prompt == f"{written}\n\n{BLOCK_NOTICE}"
+
+
+# A fence protects content only when the model has instructions for it. A notice that lost its rules leaves every
+# quoted page, transcript and file in the prompt as text the model can still read as an order.
+def test_tells_the_model_a_quoted_block_holds_data_and_not_instructions() -> None:
+    notice = BLOCK_NOTICE.casefold()
+
+    assert "closing tag" in notice
+    assert "data" in notice
+    assert "instruction" in notice
 
 
 def test_returns_the_parsed_output() -> None:
@@ -220,7 +230,7 @@ def test_reports_a_response_without_any_output() -> None:
 def test_reports_a_response_that_is_not_valid_json() -> None:
     runner = build_runner(response(reply("Sure! Here is the answer you asked for.")))
 
-    with pytest.raises(ModelError):
+    with pytest.raises(ModelError, match="could not be read as Output"):
         read_parsed(runner)
 
 
@@ -287,12 +297,28 @@ def test_retries_a_reply_whose_connection_dropped(waits: list[float]) -> None:
     assert waits == [2.0]
 
 
-def test_waits_the_delay_the_provider_asked_for(waits: list[float]) -> None:
-    runner = build_streaming_runner(rate_limited("1157"), streamed_reply("ready"))
+# JRI can point at any OpenAI-compatible provider. Each one names the delay it wants in the header it prefers, and
+# counts it in the unit of that header.
+@pytest.mark.parametrize(
+    ("limit", "delay"),
+    [(rate_limited(milliseconds="1157"), 1.157), (rate_limited(seconds="7"), 7.0)],
+    ids=["milliseconds", "seconds"],
+)
+def test_waits_the_delay_the_provider_asked_for(waits: list[float], limit: "RateLimitError", delay: float) -> None:
+    runner = build_streaming_runner(limit, streamed_reply("ready"))
 
     list(runner.respond([]).events)
 
-    assert waits == [1.157]
+    assert waits == [delay]
+
+
+# A provider under maintenance can ask for an hour. A run cannot sit in a wait that long with no way out.
+def test_waits_no_longer_than_the_maximum_delay(waits: list[float]) -> None:
+    runner = build_streaming_runner(rate_limited(milliseconds="3600000"), streamed_reply("ready"))
+
+    list(runner.respond([]).events)
+
+    assert waits == [30.0]
 
 
 def test_waits_longer_after_each_rate_limit_left_unexplained(waits: list[float]) -> None:
