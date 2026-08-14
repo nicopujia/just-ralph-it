@@ -15,6 +15,24 @@ from jri.core import paths
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
+# This is a second run of the same session, stopped inside a write. It configures the same log and takes the log
+# lock, as every write of that log does, then holds it until the test lets it go.
+HOLDING_RUN = """
+import sys, time
+from pathlib import Path
+from types import SimpleNamespace
+
+from jri.core import logs, paths
+from jri.lib.lock import Lock
+
+markers = Path(sys.argv[1])
+handoff = 0.0005
+logs.configure(SimpleNamespace(logging=SimpleNamespace(level="INFO")))
+with Lock(Path(paths.LOG_LOCK_FILE)):
+    (markers / "holding").touch()
+    while not (markers / "released").exists():
+        time.sleep(handoff)
+"""
 # `jri.core.logs` makes and repairs these three paths. A test leaves each of `SABOTAGE_SHAPES` on each one.
 LOG_PATHS = (paths.LOGS_DIR, paths.LOG_LOCK_FILE, paths.LOG_FILE)
 POLL = 0.01
@@ -76,6 +94,30 @@ UNGUARDED_SOCKET = socket.socket
 # This is a directory of the user beside `.jri`. It holds what the links and the hard links below point at. A record
 # that reaches something below it is a record that left the workspace directory.
 USER_FILES_DIR = "src"
+
+
+# This holds the log lock from a process of its own, thus a test can act while a run beside it writes a record. A
+# lock that this process takes says nothing about a lock that another process holds.
+@contextmanager
+def hold_the_log_lock(workspace: Path) -> "Iterator[None]":
+    markers = workspace / "hold"
+    markers.mkdir()
+    run = subprocess.Popen(
+        [sys.executable, "-c", HOLDING_RUN, str(markers)], cwd=workspace, stderr=subprocess.PIPE, text=True
+    )
+    reported = ""
+    try:
+        _wait_for(markers / "holding")
+        yield
+        (markers / "released").touch()
+        _, reported = run.communicate(timeout=TIMEOUT)
+    finally:
+        run.kill()
+        run.wait()
+    # The terminal belongs to a `jri chat` screen. A run that logged has nothing to say on it, and `logging` says much
+    # when it fails.
+    assert not reported, f"the run beside wrote this to the terminal:\n{reported}"
+    assert run.returncode == 0
 
 
 # A sabotage can leave any shape on a log name. Such a name holds no record, and a read of a pipe never comes back.

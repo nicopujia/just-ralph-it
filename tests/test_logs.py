@@ -12,10 +12,12 @@ from jri import __version__
 from jri.core import logs, paths
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
+from jri.lib.lock import Lock
 from tests.doubles.logs import (
     LOG_PATHS,
     SABOTAGE_SHAPES,
     Exploding,
+    hold_the_log_lock,
     list_log_files,
     read_session_log,
     read_user_files,
@@ -33,6 +35,9 @@ FAILURE_RECORD = "THE BUG HAPPENED HERE"
 FILLED_TIMES = 4
 FILLER_LINE_BYTES = 1024
 FILLING_RECORD_BYTES = 32 * 1024
+# This is the time a record that must not reach the file gets to reach it. A record that waits for the lock lands
+# only after the run beside it releases that lock.
+HELD_SECONDS = 2
 # A lone surrogate is how Python represents a git ref byte sequence that is not valid UTF-8 (`surrogateescape`).
 LONE_SURROGATE_NAME = "refs/heads/caf\udce9.lock"
 OPENING_RECORD = "THE SESSION OPENED HERE"
@@ -121,6 +126,22 @@ def test_keeps_the_newest_records_of_a_session_that_fills_the_file_over_and_over
     assert logs.TRIM_NOTICE in log
 
 
+def test_drops_the_record_that_a_trim_cuts_in_two(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([]), level="INFO")
+    monkeypatch.setattr(logs, "FILE_BYTES", SMALL_FILE_BYTES)
+
+    logs.configure(settings)
+    logger = logging.getLogger("jri")
+    _fill_past_the_bound(logger)
+
+    lines = read_session_log(tmp_path).splitlines()
+    assert lines[0] == logs.TRIM_NOTICE, "the file the trim wrote does not say that it dropped records"
+    # A trim cuts the file inside a record. The end of that record is a line with no stamp, no run, and no level.
+    assert all(STAMP.match(line) for line in lines[1:]), "the file keeps the end of the record a trim cut in two"
+    assert FAILURE_RECORD in lines[-1]
+
+
 @pytest.mark.parametrize(("path", "shape"), SABOTAGED_PATHS)
 def test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, shape: str
@@ -141,6 +162,18 @@ def test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be(
     writing.join(WRITE_SECONDS)
 
     assert not writing.is_alive(), "an open on a name nobody answers for never came back, and the lock went with it"
+    assert FAILURE_RECORD in read_session_log(tmp_path)
+
+
+def test_writes_from_the_start_when_a_path_the_log_needs_is_already_wrong(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([]), level="INFO")
+    # A run finds what the run before it left. This one finds a file where the log directory must be.
+    sabotage(tmp_path, paths.LOGS_DIR, "a file")
+
+    logs.configure(settings)
+    logging.getLogger("jri").info(FAILURE_RECORD)
+
     assert FAILURE_RECORD in read_session_log(tmp_path)
 
 
@@ -260,6 +293,25 @@ def test_reads_back_in_time_order_when_two_runs_write_at_once(tmp_path: Path) ->
     stamps = STAMP.findall(log)
     assert len(stamps) == SMALL_RECORDS + OVERSIZED_RECORDS
     assert stamps == sorted(stamps), "a record reached the file behind one stamped after it"
+
+
+def test_leaves_the_log_lock_the_run_beside_it_holds_when_it_repairs_the_log(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([]), level="INFO")
+
+    with hold_the_log_lock(tmp_path):
+        # A run repairs the log paths when it starts. `jri init --force` can leave a wrong one there for it to find.
+        logs.configure(settings)
+        writing = threading.Thread(target=logging.getLogger("jri").info, args=(FAILURE_RECORD,), daemon=True)
+        writing.start()
+        writing.join(HELD_SECONDS)
+
+        assert Lock(tmp_path / paths.LOG_LOCK_FILE).is_held(), "the repair took the lock from the run that holds it"
+        assert FAILURE_RECORD not in read_session_log(tmp_path), "a record landed beside the run that holds the lock"
+
+    writing.join(WRITE_SECONDS)
+    assert not writing.is_alive(), "the record still waits for a lock the run beside it released"
+    assert FAILURE_RECORD in read_session_log(tmp_path)
 
 
 def test_writes_on_when_a_record_cannot_be_rendered(tmp_path: Path) -> None:

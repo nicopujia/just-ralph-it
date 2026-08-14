@@ -182,6 +182,15 @@ def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
         Settings.load()
 
 
+def test_needs_no_api_key_for_a_subscription(tmp_path: Path) -> None:
+    values = yaml.safe_load(Settings.render())
+    # The subscription reads its own login. The user has no key variable to name here.
+    values["llm"] = {"provider": "openai-subscription", "api_key": None}
+    write_settings(tmp_path, values)
+
+    assert Settings.load().llm.api_key is None
+
+
 def test_falls_back_to_the_defaults_for_a_blank_settings_file(tmp_path: Path) -> None:
     write_settings_text(tmp_path, "  \n\n")
 
