@@ -14,7 +14,8 @@ from .base import Agent, tool
 
 class Input(BaseModel):
     notebook: str
-    notebook_diff: str
+    # A run with no accepted baseline has no earlier notebook to compare. It receives no diff and no rules for one.
+    notebook_diff: str | None = None
     # A first pass writes the specifications that the project has none of. It receives no index and no rules for one.
     current_specs_index: str | None = None
     architect_feedback: list[str] | None = None
@@ -31,14 +32,19 @@ class Specifications(BaseModel):
 
 class FunctionalAnalyst(Agent):
     PROMPT = ai.prompts.read("functional_analyst", functional_specs_root=FUNCTIONAL_SPECS_ROOT)
+    DIFF_PROMPT = ai.prompts.read("functional_analyst_diff")
     EXISTING_PROMPT = ai.prompts.read("functional_analyst_existing")
     FEEDBACK_PROMPT = ai.prompts.read("functional_analyst_feedback")
 
-    # Send each set of rules only with the input it speaks about.
-    # A first pass has no specification index, and a pass with no feedback has no round to answer.
-    def __init__(self, settings: Settings, repository: git.Repository, *, existing: bool, feedback: bool) -> None:
+    # Send each set of rules only with the input it speaks about. A run with no accepted baseline has no notebook diff,
+    # a first pass has no specification index, and a pass with no feedback has no round to answer.
+    def __init__(
+        self, settings: Settings, repository: git.Repository, *, changed: bool, existing: bool, feedback: bool
+    ) -> None:
         self.repository = repository
         instructions = [self.PROMPT]
+        if changed:
+            instructions.append(self.DIFF_PROMPT)
         if existing:
             instructions.append(self.EXISTING_PROMPT)
         if feedback:

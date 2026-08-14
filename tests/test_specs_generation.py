@@ -311,6 +311,20 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
     assert "Build a rocket instead." not in diff
 
 
+# A first generation has no accepted baseline. A diff against nothing would only repeat the notebook it already sends.
+def test_writes_a_first_generation_without_a_notebook_diff(tmp_path: Path, create_repository: CreateRepository) -> None:
+    build_workspace(tmp_path, create_repository)
+    Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Ship a web app."], "t1")
+    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
+
+    _, result = generate(client)
+
+    assert isinstance(result, str)
+    prompts = read_prompts(client)
+    assert any("Ship a web app." in prompt for prompt in prompts)
+    assert not any("<notebook_diff_from_accepted_baseline>" in prompt for prompt in prompts)
+
+
 def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -328,11 +342,9 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     prompts = read_prompts(client)
     assert any("Ship a web app." in prompt for prompt in prompts)
     assert not any("nonsense" in prompt for prompt in prompts)
-    diff = next(prompt for prompt in prompts if "<notebook_diff_from_accepted_baseline>" in prompt)
-    # An unparsable accepted notebook falls back to an empty baseline instead of failing the run. The hunk header
-    # starting at line 0 confirms the diff was built against nothing, not against the unreadable "nonsense" bytes.
-    assert "@@ -0,0 +1," in diff
-    assert "+    n1: Ship a web app." in diff
+    # An unparsable accepted notebook names no baseline to compare with, so the run continues without a diff
+    # instead of showing one built against the unreadable "nonsense" bytes or against nothing.
+    assert not any("<notebook_diff_from_accepted_baseline>" in prompt for prompt in prompts)
 
 
 # `git apply` refuses an empty patch, so an unchanged generation must return before it ever tries to commit. It

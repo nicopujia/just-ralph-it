@@ -52,6 +52,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             analyst = functional_analyst.FunctionalAnalyst(
                 settings,
                 staging,
+                changed=functional_context.notebook_diff is not None,
                 existing=functional_context.current_specs_index is not None,
                 feedback=bool(functional_context.architect_feedback),
             )
@@ -194,29 +195,35 @@ def _resume(specs: Specs, staging: git.Repository) -> Generator["ai.ToolCallStar
     yield ai.ToolCallFinished("resume", _describe_picked_up(len(drafted)), "done")
 
 
-# Do not give trashed topics to the analyst. Filter both notebooks before the diff.
-# Otherwise, old trashed topics appear as changes. Write on the staging worktree state.
 def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Repository) -> functional_analyst.Input:
-    notebook = Notebook.exclude_trashed(baseline.notebook)
-    try:
-        accepted_notebook = Notebook.exclude_trashed(baseline.accepted_notebook)
-    # An unreadable accepted notebook cannot show changes.
-    # Use the same state as a first generation: no accepted baseline.
-    except PersistenceError:
-        accepted_notebook = ""
     existing = specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)
     return functional_analyst.Input(
-        notebook=notebook,
-        notebook_diff="".join(
-            unified_diff(
-                accepted_notebook.splitlines(keepends=True),
-                notebook.splitlines(keepends=True),
-                fromfile=f"a/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
-                tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
-            )
-        ),
+        notebook=Notebook.exclude_trashed(baseline.notebook),
+        notebook_diff=_diff_notebook(baseline),
         # Give a first pass no specification index at all. It writes the specifications that the project has none of.
         current_specs_index=specs.index(existing) if existing else None,
+    )
+
+
+# A run with no accepted baseline has no earlier notebook to compare with. A diff against nothing would only repeat
+# the notebook the pass already reads, and it would name a baseline the project does not hold.
+# Do not give trashed topics to the analyst. Filter both notebooks before the diff.
+# Otherwise, old trashed topics appear as changes.
+def _diff_notebook(baseline: Baseline) -> str | None:
+    if baseline.accepted is None:
+        return None
+    try:
+        accepted_notebook = Notebook.exclude_trashed(baseline.accepted_notebook)
+    # An unreadable accepted notebook cannot show changes. Use the same state as a first generation.
+    except PersistenceError:
+        return None
+    return "".join(
+        unified_diff(
+            accepted_notebook.splitlines(keepends=True),
+            Notebook.exclude_trashed(baseline.notebook).splitlines(keepends=True),
+            fromfile=f"a/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
+            tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
+        )
     )
 
 

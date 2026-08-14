@@ -10,5 +10,4 @@ Output:
 Constraints:
 - The notebook is by default the only authority on behavior.
 - Only make behavioral decisions yourself for what the notebook explicitly marks as delegated.
-- The diff only shows what changed since the accepted baseline; it never limits the scope of the specifications.
 - Architecture, code organization, dependencies, and implementation mechanics are out of scope.

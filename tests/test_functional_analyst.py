@@ -9,10 +9,9 @@ from tests.conftest import CreateRepository
 from tests.doubles.openai import FakeClient, call, reply, response, thought
 from tests.doubles.settings import build_settings
 
-# This is a first pass: the project holds no specifications, so it receives no index and no feedback.
-CONTEXT = functional_analyst.Input(
-    notebook="Deploy from the main branch.", notebook_diff="+Deploy from the main branch."
-)
+# This is a first pass: the project holds no accepted baseline and no specifications,
+# so it receives no diff, no index, and no feedback.
+CONTEXT = functional_analyst.Input(notebook="Deploy from the main branch.")
 SPECIFICATIONS = functional_analyst.Specifications(
     files=[
         functional_analyst.File(
@@ -25,10 +24,10 @@ SPECIFICATIONS = functional_analyst.Specifications(
 
 
 def build_analyst(
-    client: FakeClient, repository_path: Path, *, existing: bool = False, feedback: bool = False
+    client: FakeClient, repository_path: Path, *, changed: bool = False, existing: bool = False, feedback: bool = False
 ) -> functional_analyst.FunctionalAnalyst:
     return functional_analyst.FunctionalAnalyst(
-        build_settings(client), git.Repository(repository_path), existing=existing, feedback=feedback
+        build_settings(client), git.Repository(repository_path), changed=changed, existing=existing, feedback=feedback
     )
 
 
@@ -61,9 +60,9 @@ def test_writes_the_specification_files(tmp_path: Path, create_repository: Creat
     assert write(build_analyst(client, tmp_path), CONTEXT)[1] == SPECIFICATIONS
 
 
-# Each set of rules speaks about input. A first pass has neither a specification index nor a round to answer,
-# so both sets would describe what the pass never receives.
-def test_keeps_the_index_and_feedback_rules_out_of_a_first_pass(
+# Each set of rules speaks about input. A first pass has no notebook diff, no specification index, and no round to
+# answer, so every set would describe what the pass never receives.
+def test_keeps_the_diff_index_and_feedback_rules_out_of_a_first_pass(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
@@ -72,6 +71,7 @@ def test_keeps_the_index_and_feedback_rules_out_of_a_first_pass(
     write(build_analyst(client, tmp_path), CONTEXT)
 
     instructions = read_instructions(client)
+    assert functional_analyst.FunctionalAnalyst.DIFF_PROMPT not in instructions
     assert functional_analyst.FunctionalAnalyst.EXISTING_PROMPT not in instructions
     assert functional_analyst.FunctionalAnalyst.FEEDBACK_PROMPT not in instructions
 
@@ -90,6 +90,21 @@ def test_sends_the_index_rules_with_the_specifications_they_speak_about(
     instructions = read_instructions(client)
     assert functional_analyst.FunctionalAnalyst.EXISTING_PROMPT in instructions
     assert functional_analyst.FunctionalAnalyst.FEEDBACK_PROMPT not in instructions
+
+
+def test_sends_the_diff_rules_with_the_diff_they_speak_about(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    client = FakeClient([], parsed=[SPECIFICATIONS])
+
+    write(
+        build_analyst(client, tmp_path, changed=True),
+        CONTEXT.model_copy(update={"notebook_diff": "+Deploy from the main branch."}),
+    )
+
+    assert functional_analyst.FunctionalAnalyst.DIFF_PROMPT in read_instructions(client)
+    assert "<notebook_diff_from_accepted_baseline>\n+Deploy from the main branch." in read_request(client)
 
 
 def test_sends_the_feedback_rules_with_the_feedback_they_speak_about(
@@ -139,6 +154,7 @@ def test_asks_for_a_first_draft_from_the_notebook_alone(tmp_path: Path, create_r
 
     request = read_request(client)
     assert "<current_notebook>\nDeploy from the main branch.\n</current_notebook>" in request
+    assert "<notebook_diff_from_accepted_baseline>" not in request
     assert "<current_functional_specifications_index>" not in request
     assert "<architect_feedback>" not in request
 
@@ -175,7 +191,9 @@ def test_reads_the_full_body_of_a_specification_it_judges_relevant(
         [], parsed=[response(call("read", "read_functional_specs", paths=["functional/behavior.md"])), SPECIFICATIONS]
     )
 
-    analyst = functional_analyst.FunctionalAnalyst(build_settings(client), repository, existing=True, feedback=False)
+    analyst = functional_analyst.FunctionalAnalyst(
+        build_settings(client), repository, changed=False, existing=True, feedback=False
+    )
 
     result = write(analyst, CONTEXT)[1]
 
