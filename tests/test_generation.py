@@ -564,7 +564,7 @@ def test_keeps_running_when_the_process_that_started_it_dies(
     ready = tmp_path.parent / "started"
     starter = subprocess.Popen([sys.executable, "-c", STARTER, str(tmp_path), str(ready)])
     try:
-        _watch_the_window_start_the_run(generation, ready, starter)
+        _watch_the_window_start_the_run(generation, starter)
     finally:
         starter.kill()
         starter.wait()
@@ -576,12 +576,21 @@ def test_keeps_running_when_the_process_that_started_it_dies(
 # Confirm the runner left the starter's session, not just its process
 # group. A signal that reaches the starter's session, such as a
 # terminal hangup, could otherwise still end the runner too.
-def _watch_the_window_start_the_run(generation: Generation, ready: Path, starter: "subprocess.Popen[bytes]") -> None:
+#
+# Read the header the moment the runner writes it, rather than waiting
+# for the window to report the run started. A session belongs to a
+# process only while that process runs, and the run below fails fast on
+# the detached HEAD, so the window's report can arrive after the runner
+# it names is already gone.
+def _watch_the_window_start_the_run(generation: Generation, starter: "subprocess.Popen[bytes]") -> None:
     deadline = time.monotonic() + STARTS_WITHIN
-    while not ready.exists():
+    written = b""
+    while b"\n" not in written:
         assert time.monotonic() < deadline, "the window never started the run"
-        time.sleep(POLL)
+        written = generation.journal_file.read_bytes() if generation.journal_file.exists() else b""
+        if b"\n" not in written:
+            time.sleep(POLL)
     if sys.platform == "win32":
         return
-    header = json.loads(generation.journal_file.read_text(encoding="utf-8").splitlines()[0])
+    header = json.loads(written.partition(b"\n")[0])
     assert os.getsid(header["pid"]) != os.getsid(starter.pid)

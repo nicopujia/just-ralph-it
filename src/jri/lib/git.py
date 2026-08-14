@@ -415,7 +415,7 @@ class Repository:
         # still rename its lock over the file. Leave that lock. A later command fails, but removal can damage that
         # commit. On Windows, exit codes do not report signals. Leave locks from stopped Git processes until Git
         # reports a lock error. The same safety rule applies.
-        if result.returncode < 0 and -result.returncode not in self.HANDLED_SIGNALS:
+        if result.returncode != 0 and -result.returncode not in self.HANDLED_SIGNALS:
             index, *_ = locks.written
             written = [self._git_directory / f"{self.TEMPORARY_INDEX}{process.pid}"]
             if self._held_the_index(arguments):

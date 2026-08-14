@@ -543,15 +543,13 @@ def test_takes_the_project_the_window_let_go_of_while_the_question_stood(tmp_pat
 def test_ends_no_process_but_the_one_holding_the_project(tmp_path: Path) -> None:
     install_workspace(tmp_path)
 
-    # The window records a bystander's pid, not its own. Kill the window
-    # directly so its lock is already free before eviction runs: eviction
-    # must never use that stale record to choose whom to signal.
+    # The window records a bystander's pid, not its own. End the window and wait for its lock, so the project is
+    # already free before eviction runs: eviction must never use that stale record to choose whom to signal.
     with run_a_bystander(tmp_path) as bystander, hold_workspace(tmp_path, record=str(bystander.pid)) as window:
         hold = Workspace(tmp_path).open_hold()
         assert not hold.take()
         assert hold.holder == bystander.pid
-        window.kill()
-        window.wait()
+        end_a_window(tmp_path, window)
 
         assert hold.evict()
 
