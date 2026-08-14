@@ -66,10 +66,17 @@ def test_reports_a_transcript_made_only_of_blank_snippets(monkeypatch: pytest.Mo
 
 @pytest.mark.parametrize(
     "url",
-    # `youtube.com.evil.test` carries `youtube.com` as a prefix. Matching the host by substring, rather than by
-    # exact membership, would let an attacker-registered domain pass as YouTube.
-    ["https://example.com/watch?v=abc123", "https://notyoutube.com/watch?v=abc123", "https://youtube.com.evil.test/"],
-    ids=["other-site", "lookalike-host", "suffix-host"],
+    # Each of these hosts carries a YouTube host as a prefix or as a suffix. Matching a host by part, rather than
+    # by exact membership, would let an attacker-registered domain pass as YouTube. JRI would then answer with the
+    # transcript of a video the page never named.
+    [
+        "https://example.com/watch?v=abc123",
+        "https://notyoutube.com/watch?v=abc123",
+        "https://youtube.com.evil.test/",
+        "https://evilyoutu.be/abc123",
+        "https://youtu.be.evil.test/abc123",
+    ],
+    ids=["other-site", "lookalike-host", "suffix-host", "lookalike-short-link", "suffix-short-link"],
 )
 def test_ignores_urls_outside_youtube(url: str) -> None:
     assert youtube.fetch_transcript_from_url(url) is None

@@ -38,7 +38,7 @@ def test_returns_no_results_when_the_provider_finds_nothing(monkeypatch: pytest.
 def test_reports_an_accepted_response_that_carries_no_results(monkeypatch: pytest.MonkeyPatch, body: object) -> None:
     monkeypatch.setattr(brave.httpx, "post", FakeProvider(respond(200, body)).post)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="answered without any results"):
         brave.search("search-key", "how to ralph")
 
 
@@ -50,7 +50,7 @@ def test_reports_an_accepted_response_that_is_not_json(
 ) -> None:
     monkeypatch.setattr(brave.httpx, "post", FakeProvider(response).post)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="answered with something other than JSON"):
         brave.search("search-key", "how to ralph")
 
 

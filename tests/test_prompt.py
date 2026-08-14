@@ -95,6 +95,14 @@ def test_ends_the_block_a_cut_leaves_open() -> None:
     assert quoted.startswith(read_block(cut))
 
 
+# A tool gives `truncate` whatever budget the items before it left, down to less than one closing tag.
+# The output stays inside that budget at every length, and a block it cannot end does not reach the model.
+def test_returns_no_more_text_than_the_length_allows() -> None:
+    rendered = prompt.render(text=prompt.render(text="Nested."))
+
+    assert [length for length in range(len(rendered)) if len(prompt.truncate(rendered, length)) > length] == []
+
+
 def test_ends_only_the_block_a_cut_lands_in() -> None:
     first = prompt.render(first="one")
     rendered = prompt.render(first="one", second="two" * 20)

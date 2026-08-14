@@ -3,7 +3,17 @@ from string import Formatter
 
 from jri.core.ai import prompts
 
+COMMENT_MARKUP = "<!--"
 PLACEHOLDER_VALUE = "a-test-value"
+
+
+def count_blank_lines(text: str) -> int:
+    return sum(not line.strip() for line in text.splitlines())
+
+
+# Ask every template that documents itself, rather than one template whose comments a rewrite can take away.
+def read_documented_templates() -> dict[str, str]:
+    return {name: raw for name, raw in read_templates().items() if COMMENT_MARKUP in raw}
 
 
 def read_templates() -> dict[str, str]:
@@ -34,9 +44,19 @@ def test_fills_a_template_placeholder_with_its_value() -> None:
     assert PLACEHOLDER_VALUE in text
 
 
-# Ask every template that documents itself, rather than one template whose comments a rewrite can take away.
 def test_drops_a_comment_line_of_a_template() -> None:
-    documented = {name: raw for name, raw in read_templates().items() if "<!--" in raw}
+    documented = read_documented_templates()
 
     assert documented
-    assert [name for name, raw in documented.items() if "<!--" in fill(name, raw)] == []
+    assert [name for name, raw in documented.items() if COMMENT_MARKUP in fill(name, raw)] == []
+
+
+# A comment line is never blank, so dropping the whole line changes no blank-line count. Dropping only the markup
+# leaves the line, and the model then reads a prompt with a blank line the template does not have.
+def test_leaves_no_blank_line_where_a_template_comment_was() -> None:
+    documented = read_documented_templates()
+
+    assert documented
+    assert {name: count_blank_lines(fill(name, raw)) for name, raw in documented.items()} == {
+        name: count_blank_lines(raw.strip()) for name, raw in documented.items()
+    }

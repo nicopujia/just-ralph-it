@@ -39,6 +39,19 @@ def test_empties_a_file_whose_new_contents_are_empty(tmp_path: Path) -> None:
     assert target.read_bytes() == b""
 
 
+# The write goes through a temporary file that lets only its owner read it. A file JRI creates fresh must not keep
+# that mode: the user reads and shares the notes, the specifications and the patches JRI writes.
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a mode is POSIX; `chmod` on Windows sets the read-only flag and nothing else"
+)
+def test_creates_a_file_every_user_can_read(tmp_path: Path) -> None:
+    target = tmp_path / "nested" / "file.txt"
+
+    files.write_atomically(target, "first")
+
+    assert target.stat().st_mode & 0o777 == READABLE_BY_EVERYONE
+
+
 @pytest.mark.skipif(
     sys.platform == "win32", reason="a mode is POSIX; `chmod` on Windows sets the read-only flag and nothing else"
 )
