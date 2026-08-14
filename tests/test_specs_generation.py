@@ -23,6 +23,7 @@ from jri.core.specs import ACCEPTANCE_TRAILER
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import (
     FakeClient,
+    Round,
     call,
     partial_reply,
     reply,
@@ -421,21 +422,26 @@ def test_stops_a_run_while_a_model_is_still_answering(
     assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
 
 
+# A stop reaches the study before it reports anything, and after it reports its first words. Both end the run
+# where they arrive, and neither designs against the part of a report that the study reached.
+@pytest.mark.parametrize(
+    "study",
+    [response(call("read", "read_files", paths=["README.md"])), partial_reply("Draft notes")],
+    ids=["silent", "reporting"],
+)
 def test_stops_the_repository_study_without_calling_it_a_failure(
-    tmp_path: Path, create_repository: CreateRepository
+    study: Round, tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [response(call("read", "read_files", paths=["README.md"]))], parsed=[written_specs(), designed_architecture()]
-    )
+    client = FakeClient([study], parsed=[written_specs(), designed_architecture()])
 
     rows, result = generate(client, ToolCallStarted("explorer", "Studying your existing project", "🔎"))
 
     # Cancellation is checked before the empty-report check, so stopping the explorer early reads as a clean stop,
     # not a broken report.
     assert result is None
+    # The design row is the one that would follow. Its absence states that the stop ended the run at the study.
     assert read_rows(rows)[-1] == ("ToolCallStarted", "explorer", "Studying your existing project")
-    assert architect.Output not in [options.get("text_format") for options in client.responses.options]
 
 
 def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repository: CreateRepository) -> None:
@@ -614,7 +620,8 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
     assert "functional/behavior.md" in revision
     assert summarize("functional/behavior.md") in revision
     assert "<architect_feedback>\n  - Undefined totals.\n  - Unclear export." in revision
-    assert "Rejected functional draft:" not in revision
+    # A round names the draft the architect rejected, and leaves its bodies out. The analyst reads the ones it wants.
+    assert FUNCTIONAL_FILES["functional/behavior.md"] not in revision
 
 
 # `Specs.write` touches only the files a round returns. A file the model does not resend keeps its prior content
@@ -688,7 +695,9 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     first = read_prompts(client)[1]
     assert "<current_functional_specifications_index>" in first
     assert "functional/behavior.md" in first
-    assert UPDATED_FUNCTIONAL_FILES["functional/behavior.md"] not in first
+    assert summarize("functional/behavior.md") in first
+    # The index names each accepted specification and summarizes it. The round reads the bodies it wants to change.
+    assert FUNCTIONAL_FILES["functional/behavior.md"] not in first
 
 
 @pytest.mark.parametrize(
@@ -897,7 +906,11 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
 
     rows, result = generate(client)
 
-    assert client.responses.options[-1]["text_format"] is architect.Architecture
+    # The instructions that take every remaining decision reach the last cycle, and only it. Every earlier cycle
+    # keeps the instructions that let it send the functional specifications back instead.
+    prompts = read_prompts(client)
+    assert prompts[-2].startswith(architect.Architect.FINAL_PROMPT)
+    assert sum(prompt.startswith(architect.Architect.FINAL_PROMPT) for prompt in prompts) == 1
     assert [row.call_id for row in rows if isinstance(row, ToolCallStarted) and "architecture" in row.call_id] == [
         f"architecture-{cycle}" for cycle in range(1, specs_generation.MAX_CYCLES + 1)
     ]

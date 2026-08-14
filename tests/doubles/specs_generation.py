@@ -3,7 +3,7 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted
-from jri.core.exceptions import ProviderRefusalError, RepositoryStateError
+from jri.core.exceptions import ProviderRefusalError, ProviderUnavailableError, RepositoryStateError
 
 if TYPE_CHECKING:
     from jri.core.settings import Settings
@@ -33,6 +33,13 @@ def generate_failing(_settings: "Settings", _cancelled: Event | None = None) -> 
 def generate_refused(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
     yield STARTED_ROW
     raise ProviderRefusalError("The provider answered 400 Bad Request, saying:\n```\nUnsupported value.\n```")
+
+
+# Nothing answers at the provider address. A run cannot reach the model, and every retry of that run fails the same
+# way. A later run can still succeed, so this is not a refusal.
+def generate_unavailable(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
+    yield STARTED_ROW
+    raise ProviderUnavailableError("Could not reach the provider at https://provider.test/v1/: connection refused")
 
 
 def generate_succeeding(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:
