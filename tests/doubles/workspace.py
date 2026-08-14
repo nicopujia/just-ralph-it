@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jri.core import paths
 from jri.core.settings import Settings
-from jri.core.workspace import Installation, Workspace
+from jri.core.workspace import Hold, Installation, Workspace
+from jri.lib.lock import Lock
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -126,6 +128,18 @@ def watch_a_bystander(root: Path, bystander: "Process") -> bool:
         assert time.monotonic() < deadline, "the bystander stopped ticking"
         time.sleep(POLL)
     return True
+
+
+# End a window and wait for the project to come free. The operating system, not the window, frees the lock of a
+# process it ended, and Windows can take a moment over it. A read of the project the instant the process dies
+# calls that moment a live window. `Hold.evict` waits for the same release rather than reading the lock one time.
+def end_a_window(root: Path, window: "Process") -> None:
+    window.kill()
+    window.wait()
+    deadline = time.monotonic() + Hold.FREED_WITHIN
+    while Lock(root / paths.LOCK_FILE).is_held():
+        assert time.monotonic() < deadline, "the killed window never let the project go"
+        time.sleep(POLL)
 
 
 @dataclass(frozen=True)

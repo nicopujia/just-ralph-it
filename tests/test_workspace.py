@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -12,13 +11,13 @@ from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
 from jri.core.workspace import MAX_PID, Hold, Installation, Workspace
 from jri.lib import git
-from jri.lib.lock import Lock
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import ROOT_QUESTION, WINDOW_MARKER, install_a_killing_git
 from tests.doubles.lock import hold, take
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import (
+    end_a_window,
     hold_workspace,
     hold_workspace_slowly,
     install_workspace,
@@ -478,12 +477,7 @@ def test_resets_the_project_the_window_holding_it_let_go_of(tmp_path: Path) -> N
     workspace = install_workspace(tmp_path).workspace
     (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n", encoding="utf-8")
     with hold_workspace(tmp_path) as window:
-        window.kill()
-        window.wait()
-        deadline = time.monotonic() + Hold.FREED_WITHIN
-        while Lock(tmp_path / paths.LOCK_FILE).is_held():
-            assert time.monotonic() < deadline, "the killed window never let the project go"
-            time.sleep(Hold.POLL)
+        end_a_window(tmp_path, window)
 
     install_workspace(tmp_path, force=True)
 
@@ -589,8 +583,7 @@ def test_takes_the_project_a_killed_window_never_let_go_of(tmp_path: Path) -> No
     install_workspace(tmp_path)
 
     with hold_workspace(tmp_path) as window:
-        window.kill()
-        window.wait()
+        end_a_window(tmp_path, window)
         hold = Workspace(tmp_path).open_hold()
 
         assert hold.take()
@@ -603,8 +596,7 @@ def test_takes_the_project_a_killed_window_never_let_go_of(tmp_path: Path) -> No
 def test_names_the_window_that_has_the_project_and_not_the_one_before_it(tmp_path: Path) -> None:
     install_workspace(tmp_path)
     with hold_workspace(tmp_path) as killed:
-        killed.kill()
-        killed.wait()
+        end_a_window(tmp_path, killed)
 
     with hold_workspace_slowly(tmp_path, RECORDS_AFTER) as window:
         hold = Workspace(tmp_path).open_hold()
