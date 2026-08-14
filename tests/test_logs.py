@@ -5,6 +5,7 @@ import re
 import shutil
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -197,6 +198,31 @@ def test_writes_nothing_outside_the_workspace_directory_when_a_path_the_log_need
     writing.join(WRITE_SECONDS)
 
     assert read_user_files(tmp_path) == planted
+
+
+# Windows has no `O_NOFOLLOW`, thus an open there follows a link that stands on the log file. The size read is the
+# only step that finds that link before a record goes down it. This machine is not Windows, thus the two changes
+# below give the log module the answer and the open of that platform. They stay inside that module, because
+# `jri.lib.lock` calls on Windows what only Windows has.
+def test_writes_nothing_outside_the_workspace_directory_where_an_open_follows_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([]), level="INFO")
+    logs.configure(settings)
+    logger = logging.getLogger("jri")
+    try:
+        sabotage(tmp_path, paths.LOG_FILE, "a link to a file")
+    except OSError as error:
+        pytest.skip(f"this machine withholds what the sabotage needs: {error}")
+    planted = read_user_files(tmp_path)
+    monkeypatch.setattr(logs, "FILE_FLAGS", 0)
+    monkeypatch.setattr(logs, "sys", SimpleNamespace(platform="win32"))
+
+    logger.info(FAILURE_RECORD)
+
+    assert read_user_files(tmp_path) == planted
+    assert FAILURE_RECORD in read_session_log(tmp_path)
 
 
 def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path) -> None:
