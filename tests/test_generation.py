@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Generator, Iterator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,7 @@ from jri.core.exceptions import (
     Error,
     PersistenceError,
     ProviderRefusalError,
+    ProviderUnavailableError,
     RepositoryStateError,
     RunDetached,
     UsageLimitError,
@@ -24,6 +26,7 @@ from jri.core.exceptions import (
 from jri.core.generation import Generation
 from jri.core.workspace import Workspace
 from tests.conftest import CreateRepository, RunGit
+from tests.doubles.generation import ConcludingLock
 from tests.doubles.lock import hold
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
@@ -48,8 +51,34 @@ from tests.doubles.workspace import install_workspace
 # A large age, well past WRITTEN_WITHIN, so a call that has been open
 # a while cannot be mistaken for one that just opened.
 AGED = 360.0
+# A run holds its reasoning for one poll. A poll this long lasts more than
+# the run, thus only the flush before the ending can write a held batch.
+BATCHES_FOR = 60.0
 CONCLUDES_WITHIN = 60.0
+# A crash writes its cause last, under more output than JRI keeps.
+CRASHING_RUNNER = f"""
+import sys
+
+sys.stderr.write("the warnings it began with\\n")
+sys.stderr.write("x" * {Generation.REPORTED_ERROR_BYTES})
+sys.stderr.write("\\nthe runner fell over")
+sys.exit(1)
+"""
+LIVE_JOURNAL = b"what the run that holds the lock wrote\n"
+LIVE_LOG = b"what the run that holds the lock could not journal\n"
 POLL = 0.01
+RUNNER_JOURNAL = b"what the run that started now wrote\n"
+# This stands in for a runner that starts and writes its journal. It writes
+# under another name and renames, thus a reader that waits for the journal
+# never reads a file that is still incomplete.
+RUNNER = f"""
+from pathlib import Path
+
+journal = Path({paths.JOURNAL_FILE!r})
+written = journal.with_name("written")
+written.write_bytes({RUNNER_JOURNAL!r})
+written.replace(journal)
+"""
 STARTER = """
 import sys, time
 from pathlib import Path
@@ -88,6 +117,15 @@ def write_journal(tmp_path: Path, *lines: str) -> Generation:
 
 def read_journal(generation: Generation) -> list[dict[str, object]]:
     return [json.loads(line) for line in generation.journal_file.read_text(encoding="utf-8").splitlines()]
+
+
+# A folded run answers with the return of its follower, and a `for` loop drops that return.
+def read_answer(events: Generator[object, None, object]) -> object:
+    try:
+        while True:
+            next(events)
+    except StopIteration as ending:
+        return ending.value
 
 
 def write_row(started: object, *, call_id: str = "commit", label: str = "Saving") -> str:
@@ -155,6 +193,46 @@ def test_writes_the_reasoning_a_run_streams_as_batches(tmp_path: Path, monkeypat
     assert "".join(str(thought["text"]) for thought in thoughts) == streamed
 
 
+def test_writes_the_reasoning_a_run_streams_while_a_row_is_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def generate_slowly(_settings: object, _cancelled: object = None) -> Generator[object, None, str]:
+        yield STARTED_ROW
+        yield ReasoningDelta("Weighing ")
+        # Wait longer than one poll. The reasoning after this wait belongs to a later batch.
+        time.sleep(Generation.POLL * 2)
+        yield ReasoningDelta("the options")
+        yield ReasoningDelta(", carefully.")
+        yield FINISHED_ROW
+        return COMMIT
+
+    generation = run(tmp_path, monkeypatch, generate_slowly)
+
+    _, *records = read_journal(generation)
+
+    thoughts = [record for record in records if record["kind"] == "thought"]
+    assert len(thoughts) > 1
+    assert "".join(str(thought["text"]) for thought in thoughts) == "Weighing the options, carefully."
+
+
+def test_writes_the_reasoning_a_run_still_held_when_it_ended(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def generate_concluding(_settings: object, _cancelled: object = None) -> Generator[object, None, str]:
+        yield STARTED_ROW
+        yield THOUGHT
+        return COMMIT
+
+    monkeypatch.setattr(Generation, "POLL", BATCHES_FOR)
+
+    generation = run(tmp_path, monkeypatch, generate_concluding)
+
+    _, *records = read_journal(generation)
+
+    assert records[-2:] == [
+        {"kind": "thought", "text": THOUGHT.text},
+        {"kind": "conclusion", "ending": "committed", "commit": COMMIT, "ambiguities": [], "detail": ""},
+    ]
+
+
 def test_reads_back_the_events_a_journal_holds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation = run(tmp_path, monkeypatch, generate_thinking)
 
@@ -182,15 +260,26 @@ def test_reads_back_what_a_run_answered(
     generation.cancel_file.touch()
     Generation.execute(build_settings(FakeClient([])))
 
-    events = generation.follow(cancelled)
-    answer = None
-    try:
-        while True:
-            next(events)
-    except StopIteration as ending:
-        answer = ending.value
+    answer = read_answer(generation.follow(cancelled))
 
     assert answer == expected
+
+
+# A runner writes its ending and only then frees its lock. The follower that meets that free lock still has the
+# ending in front of it, unread.
+def test_reads_back_the_ending_a_run_wrote_before_it_freed_its_lock(tmp_path: Path) -> None:
+    generation = write_journal(
+        tmp_path, json.dumps({"version": "0", "pid": 1, "started": "now"}), write_row(datetime.now(UTC).isoformat())
+    )
+    generation.lock = ConcludingLock(
+        generation.lock.path,
+        generation.journal_file,
+        json.dumps({"kind": "conclusion", "ending": "committed", "commit": COMMIT}).encode() + b"\n",
+    )
+
+    answer = read_answer(generation.follow())
+
+    assert answer == COMMIT
 
 
 @pytest.mark.parametrize(
@@ -219,6 +308,29 @@ def test_names_a_spent_budget_a_run_could_not_finish(tmp_path: Path, monkeypatch
     generation = run(tmp_path, monkeypatch, generate_exhausted)
 
     with pytest.raises(UsageLimitError, match="usage limit"):
+        list(generation.follow())
+
+
+def test_names_a_provider_a_run_could_not_reach(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def generate_unavailable(_settings: object, _cancelled: object = None) -> Iterator[object]:
+        yield STARTED_ROW
+        raise ProviderUnavailableError("The provider answered nothing this run could use.")
+
+    generation = run(tmp_path, monkeypatch, generate_unavailable)
+
+    with pytest.raises(ProviderUnavailableError, match="answered nothing"):
+        list(generation.follow())
+
+
+# A run can fail with a class that no clause names. That failure is an ending too, and the journal must get it.
+def test_names_an_unexpected_failure_a_run_ended_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def generate_erring(_settings: object, _cancelled: object = None) -> Iterator[object]:
+        yield STARTED_ROW
+        raise ValueError("The architect answered with no plan in it.")
+
+    generation = run(tmp_path, monkeypatch, generate_erring)
+
+    with pytest.raises(Error, match="no plan in it"):
         list(generation.follow())
 
 
@@ -324,6 +436,7 @@ def test_refuses_a_text_delta_a_journal_claims_a_run_produced(tmp_path: Path) ->
 
 def test_forgets_the_record_of_a_run_it_folded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation = run(tmp_path, monkeypatch, generate_succeeding)
+    generation.cancel_file.write_bytes(b"")
     generation.runner_log_file.write_bytes(b"")
 
     list(generation.follow())
@@ -410,12 +523,7 @@ def test_stops_a_run_the_other_side_asked_to_stop(tmp_path: Path, monkeypatch: p
     events = generation.follow(cancelled)
     next(events)
     cancelled.set()
-    answer = "unset"
-    try:
-        while True:
-            next(events)
-    except StopIteration as ending:
-        answer = ending.value
+    answer = read_answer(events)
 
     assert answer is None
     runner.join(timeout=CONCLUDES_WITHIN)
@@ -433,13 +541,7 @@ def test_stops_a_run_that_is_saying_nothing(tmp_path: Path, monkeypatch: pytest.
         time.sleep(POLL)
 
     threading.Timer(STOPS_AFTER, cancelled.set).start()
-    events = generation.follow(cancelled)
-    answer = "unset"
-    try:
-        while True:
-            next(events)
-    except StopIteration as ending:
-        answer = ending.value
+    answer = read_answer(generation.follow(cancelled))
 
     assert answer is None
     runner.join(timeout=CONCLUDES_WITHIN)
@@ -498,17 +600,43 @@ def test_hands_on_a_stop_the_window_asked_for_before_it_left(tmp_path: Path, mon
 def test_refuses_a_second_run_while_one_holds_the_lock(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
+    generation.journal_file.write_bytes(LIVE_JOURNAL)
+    generation.runner_log_file.write_bytes(LIVE_LOG)
 
     with hold(tmp_path / paths.GENERATION_LOCK_FILE), pytest.raises(PersistenceError, match="already running"):
         generation.start()
+
+    assert generation.journal_file.read_bytes() == LIVE_JOURNAL
+    assert generation.runner_log_file.read_bytes() == LIVE_LOG
 
 
 def test_refuses_a_runner_while_one_holds_the_lock(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
+    generation.journal_file.write_bytes(LIVE_JOURNAL)
 
     with hold(tmp_path / paths.GENERATION_LOCK_FILE), pytest.raises(PersistenceError, match="already running"):
         Generation.execute(build_settings(FakeClient([])))
+
+    assert generation.journal_file.read_bytes() == LIVE_JOURNAL
+
+
+def test_forgets_what_a_folded_run_left_before_it_starts_the_next(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generation = build_generation(tmp_path)
+    generation.workspace.open_generation_dir()
+    generation.journal_file.write_bytes(b"what the run before this one wrote\n")
+    generation.cancel_file.touch()
+    worktree = tmp_path / paths.WORKTREE_DIR
+    worktree.mkdir(parents=True)
+    monkeypatch.setattr("jri.core.generation.RUNNER_COMMAND", ("-c", RUNNER))
+
+    generation.start()
+
+    assert generation.journal_file.read_bytes() == RUNNER_JOURNAL
+    assert not generation.cancel_file.exists()
+    assert not worktree.exists()
 
 
 def test_reports_a_run_log_it_cannot_open(tmp_path: Path) -> None:
@@ -538,6 +666,18 @@ def test_reports_a_runner_that_could_not_start(tmp_path: Path, monkeypatch: pyte
 
     with pytest.raises(Error, match="the runner fell over"):
         generation.start()
+
+
+# A crash names itself at the end of what it wrote. Report that end, and not the noise before it.
+def test_reports_the_last_of_what_a_runner_that_crashed_wrote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    generation = build_generation(tmp_path)
+    monkeypatch.setattr("jri.core.generation.RUNNER_COMMAND", ("-c", CRASHING_RUNNER))
+
+    with pytest.raises(Error) as failure:
+        generation.start()
+
+    assert str(failure.value).endswith("the runner fell over")
+    assert "the warnings it began with" not in str(failure.value)
 
 
 def test_reports_a_runner_that_never_wrote_anything(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

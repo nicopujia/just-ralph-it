@@ -2,15 +2,17 @@ import os
 import subprocess
 import threading
 from contextlib import suppress
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, override
 
 import pytest
 
 from jri.core.conversation import Conversation
 from jri.core.generation import RUNNER_COMMAND, Generation
+from jri.lib.lock import Lock
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
+    from pathlib import Path
     from threading import Event
 
     from jri.core.ai import TurnEvent
@@ -53,6 +55,24 @@ def run_in_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Generation, "POLL", 0.002)
     monkeypatch.setattr(Conversation, "ralph", ask)
     monkeypatch.setattr(subprocess, "Popen", spawn)
+
+
+# A runner appends its ending and only then frees its lock. This lock is free from the first look at it, and it
+# writes that ending at that same look. A follower thus meets a free lock over a journal it has not read to the end,
+# which is the one moment the ending can be lost.
+class ConcludingLock(Lock):
+    def __init__(self, path: "Path", journal_file: "Path", ending: bytes) -> None:
+        super().__init__(path)
+        self.journal_file = journal_file
+        self.ending = ending
+
+    @override
+    def is_held(self) -> bool:
+        with self.journal_file.open("ab") as journal:
+            journal.write(self.ending)
+        # The runner writes one ending. Every later look finds the same free lock over the same journal.
+        self.ending = b""
+        return False
 
 
 # A run that the operating system kills leaves a journal with no ending, a lock that the kernel drops, and no
