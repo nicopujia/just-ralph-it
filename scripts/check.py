@@ -35,7 +35,10 @@ UV_COMMANDS = (
         "--cov=src/jri/core",
         "--cov=src/jri/lib",
         "--cov-report=term-missing",
-        "--cov-fail-under=80",
+        # This floor stays below what the suite covers, and below what the Windows leg covers: 49 tests need a
+        # shell or a signal that Windows has not, and the run without them covers less. A refactor that moves a
+        # line out of the run keeps the build green. A module that loses its tests does not.
+        "--cov-fail-under=97",
     ),
 )
 MODULE_GROUPS = (
