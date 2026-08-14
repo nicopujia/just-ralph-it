@@ -537,6 +537,41 @@ def test_drops_the_offer_a_generation_consumed(monkeypatch: pytest.MonkeyPatch) 
     assert not conversation.is_ready_to_ralph
 
 
+def test_offers_no_ralphing_after_a_generation_reported_no_ambiguities(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([
+            streamed_reply("Understood."),
+            streamed_reply("The specifications are in."),
+            response(call("ready", "offer_ralphing")),
+            streamed_reply("Your project is built."),
+        ])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    list(conversation.ralph())
+
+    list(conversation.chat("Add dark mode."))
+
+    assert not conversation.is_ready_to_ralph
+
+
+def test_offers_no_ralphing_after_a_generated_project_reopens(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([streamed_reply("Understood."), streamed_reply("The specifications are in.")])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    list(conversation.ralph())
+
+    restarted = build_conversation(
+        FakeClient([response(call("ready", "offer_ralphing")), streamed_reply("Your project is built.")])
+    )
+    restarted.restore()
+    list(restarted.chat("Add dark mode."))
+
+    assert not restarted.is_ready_to_ralph
+
+
 def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
