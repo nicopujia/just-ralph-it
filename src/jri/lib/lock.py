@@ -73,7 +73,7 @@ class Lock:
         # when the child closed its inherited descriptors.
         descriptor = _descriptors.pop(self, None)
         if descriptor is not None:
-            _release(descriptor, taken=True)
+            _release(descriptor)
 
     # Return whether the lock is free now. Do not wait for a held lock.
     # Write holder data while taking the lock. A reader cannot read data
@@ -137,15 +137,14 @@ def _drop_inherited() -> None:
 
 
 # Closing releases a lock that the descriptor still holds. `locking` also
-# requires an unlock for its locked range. Do both only after a lock is
-# taken.
-def _release(descriptor: int, *, taken: bool) -> None:
-    if taken:
-        if sys.platform == "win32":
-            os.lseek(descriptor, 0, os.SEEK_SET)
-            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, LOCKED_BYTES)
-        else:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+# requires an unlock for its locked range. Only a descriptor that took the
+# lock reaches this function; `_drop_inherited` closes the others itself.
+def _release(descriptor: int) -> None:
+    if sys.platform == "win32":
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, LOCKED_BYTES)
+    else:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
     os.close(descriptor)
 
 

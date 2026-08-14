@@ -17,7 +17,7 @@ from jri.lib import files
 from jri.lib.lock import Lock, LockError
 
 from . import paths
-from .ai import ReasoningDelta, ToolCallFinished, ToolCallStarted, specs_generation
+from .ai import Outcome, ReasoningDelta, ToolCallFinished, ToolCallStarted, specs_generation
 from .exceptions import (
     Error,
     PersistenceError,
@@ -74,7 +74,7 @@ class RowClosed(BaseModel):
     kind: Literal["row_closed"]
     call_id: str
     label: str
-    outcome: Literal["done", "empty", "stopped", "failed"]
+    outcome: Outcome
     detail: str
     depth: int
 
@@ -447,14 +447,6 @@ def _replay(record: RowOpened | RowClosed) -> "specs_generation.Progress":
             )
 
 
-def _stamp() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-# Write the complete record of one run. The header proves that it started, and the conclusion proves that it ended.
-# A journal without a conclusion has a dead process.
-# Pull events one at a time because `for` discards a generator return.
-# Truncate the journal under this process lock. No other run is writing, and a folded journal is never read again.
 # Write the reasoning deltas that the run holds as one record. Return the empty batch that follows it.
 def _write_thought(journal: IO[bytes], batch: str) -> str:
     if batch:
@@ -462,10 +454,14 @@ def _write_thought(journal: IO[bytes], batch: str) -> str:
     return ""
 
 
+# Write the complete record of one run. The header proves that it started, and the conclusion proves that it ended.
+# A journal without a conclusion has a dead process.
+# Pull events one at a time because `for` discards a generator return.
+# Truncate the journal under this process lock. No other run is writing, and a folded journal is never read again.
 def _write_journal(path: Path, events: Generator["specs_generation.Progress", None, Conclusion]) -> None:
     logger.info("generation_started pid=%d", os.getpid())
     with path.open("wb") as journal:
-        _append(journal, Header(version=__version__, pid=os.getpid(), started=_stamp()), sync=True)
+        _append(journal, Header(version=__version__, pid=os.getpid(), started=datetime.now(UTC).isoformat()), sync=True)
         batch = ""
         written = time.monotonic()
         while True:

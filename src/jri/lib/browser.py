@@ -20,8 +20,8 @@ def open_page(uri: str) -> bool:
 # Do not start a browser that uses the terminal. It gets the standard
 # streams and waits until it exits. The output from the next caller then
 # appears only after the user exits the browser. A console browser also
-# cannot completely display this page, which loads Mermaid and makes the
-# graph with JavaScript.
+# cannot completely display a page that fetches its libraries and makes
+# its content with JavaScript.
 #
 # `GenericBrowser` waits. `BackgroundBrowser` does not wait.
 # `UnixBrowser.background` is false for its console browsers. This value

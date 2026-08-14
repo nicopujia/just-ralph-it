@@ -22,13 +22,6 @@ CLI_YES_HELP = "Answer yes to the confirmation --force asks for."
 CLOSE_SHORTCUTS = "Close"
 CLOSE_SHORTCUTS_KEY = "Esc"
 COMMAND_PALETTE = "Command palette"
-SETTINGS_ERROR = """Invalid settings.
-Set or fix these settings in .jri/settings.yaml:
-
-{errors}
-
-All commands, including `jri view`, use these settings.
-"""
 
 FORCE_CANCELLED = "Nothing was deleted."
 FORCE_PROMPT = "Type `y` to continue, or anything else to cancel: "
@@ -90,6 +83,13 @@ RUN_CANCELLATION_QUESTION = (
 
 SEND_MESSAGE = "Send message"
 SEND_MESSAGE_CONFIRMATION = "Press Enter again to stop this and send"
+SETTINGS_ERROR = """Invalid settings.
+Set or fix these settings in .jri/settings.yaml:
+
+{errors}
+
+All commands, including `jri view`, use these settings.
+"""
 SHORTCUTS = "Shortcuts"
 SHOW_THINKING_BLOCKS = "Show thinking blocks"
 

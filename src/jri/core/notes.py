@@ -269,7 +269,7 @@ class Notebook:
                     f"holding it, so `{connection.label}` states nothing further. Label what else relates them, "
                     "or leave them unconnected."
                 )
-            if tuple(connection.model_dump().values()) not in existing:
+            if (connection.source_id, connection.target_id, connection.label) not in existing:
                 graph.connections.append(connection)
         self._save(graph)
         count = len(set(requested) - existing)

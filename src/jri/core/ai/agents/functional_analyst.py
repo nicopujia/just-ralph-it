@@ -4,7 +4,7 @@ from threading import Event
 from pydantic import BaseModel
 
 from jri.core import ai
-from jri.core.paths import FUNCTIONAL_SPECS_DIR, FUNCTIONAL_SPECS_ROOT, SPECS_DIR
+from jri.core.paths import FUNCTIONAL_SPECS_ROOT
 from jri.core.settings import Settings
 from jri.core.specs import File, Specs
 from jri.lib import git, prompt
@@ -61,7 +61,13 @@ class FunctionalAnalyst(Agent):
     def write(
         self, context: Input, cancelled: Event
     ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Specifications | None]:
-        return (yield from self.parse(_render_message(context), Specifications, cancelled))
+        message = prompt.render(
+            current_notebook=context.notebook,
+            notebook_diff_from_accepted_baseline=context.notebook_diff,
+            current_functional_specifications_index=context.current_specs_index,
+            architect_feedback=context.architect_feedback,
+        )
+        return (yield from self.parse(message, Specifications, cancelled))
 
     @tool(
         "Read the full, current body of existing functional specification files, named as the index shows them.",
@@ -71,17 +77,4 @@ class FunctionalAnalyst(Agent):
         replayed=False,
     )
     def read_functional_specs(self, paths: list[str]) -> str:
-        found = Specs.read(self.repository, FUNCTIONAL_SPECS_DIR, selected=paths)
-        missing = sorted(set(paths) - {path.removeprefix(f"{SPECS_DIR}/") for path in found})
-        if missing:
-            raise RuntimeError(f"Could not find these functional specifications: {', '.join(missing)}.")
-        return Specs.render(found)
-
-
-def _render_message(context: Input) -> str:
-    return prompt.render(
-        current_notebook=context.notebook,
-        notebook_diff_from_accepted_baseline=context.notebook_diff,
-        current_functional_specifications_index=context.current_specs_index,
-        architect_feedback=context.architect_feedback,
-    )
+        return Specs.read_selected(self.repository, FUNCTIONAL_SPECS_ROOT, paths)

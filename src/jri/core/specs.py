@@ -54,8 +54,9 @@ class Baseline:
     accepted: str | None
     notebook: bytes
     accepted_notebook: bytes
-    functional: dict[str, bytes]
-    architecture: dict[str, bytes]
+    # These are the specifications of the accepted commit, read from the two roots JRI writes.
+    # Reading the whole tree instead would carry a file that the user, not JRI, put beside them.
+    specifications: dict[str, bytes]
 
 
 # Record an acceptance before it changes the project. Undo uses the patch, prior acceptance commit, and indexed paths.
@@ -78,26 +79,22 @@ class Specs:
         self._reconcile()
         self._check_state()
         if not self.repository.has_commit():
-            return Baseline(None, None, notebook, b"", {}, {})
+            return Baseline(None, None, notebook, b"", {})
         commit = self.repository.read_head()
         specs = self.repository.read_tree(commit, paths.SPECS_DIR)
         accepted = self.repository.find_commit(ACCEPTANCE_TRAILER)
         if accepted is None:
             if specs:
                 raise RepositoryStateError("Git holds specifications JRI did not write. Remove them before Ralphing.")
-            return Baseline(commit, None, notebook, b"", {}, {})
-        functional = self.repository.read_tree(accepted, paths.FUNCTIONAL_SPECS_DIR)
-        architecture = self.repository.read_tree(accepted, paths.ARCHITECTURE_SPECS_DIR)
-        if specs != functional | architecture:
+            return Baseline(commit, None, notebook, b"", {})
+        specifications = self.repository.read_tree(accepted, paths.FUNCTIONAL_SPECS_DIR) | self.repository.read_tree(
+            accepted, paths.ARCHITECTURE_SPECS_DIR
+        )
+        if specs != specifications:
             raise RepositoryStateError("Checked-out specifications differ from the ones JRI accepted.")
-        logger.info("baseline_prepared head=%s accepted=%s functional=%d", commit, accepted, len(functional))
+        logger.info("baseline_prepared head=%s accepted=%s specifications=%d", commit, accepted, len(specifications))
         return Baseline(
-            commit,
-            accepted,
-            notebook,
-            self.repository.read_file(accepted, paths.NOTEBOOK_FILE),
-            functional,
-            architecture,
+            commit, accepted, notebook, self.repository.read_file(accepted, paths.NOTEBOOK_FILE), specifications
         )
 
     # This states whether an earlier run left uncommitted specifications. The draft file alone records this state.
@@ -135,21 +132,21 @@ class Specs:
         return None
 
     def write(
-        self, repository: git.Repository, files: Mapping[str, str], deleted: Sequence[str], model_root: str
+        self, repository: git.Repository, written: Mapping[str, str], deleted: Sequence[str], model_root: str
     ) -> None:
-        if not files and not deleted:
+        if not written and not deleted:
             raise SpecsError("Specifications must change at least one file.")
         # A null character makes Git treat a file as binary. A binary diff has no content, and `git apply` rejects it.
         # Otherwise, JRI would blame its write for model text.
-        binary = next((path for path, content in sorted(files.items()) if "\x00" in content), None)
+        binary = next((path for path, content in sorted(written.items()) if "\x00" in content), None)
         if binary is not None:
             raise SpecsError(f"Specifications are text, and `{binary}` holds a null character.")
         root = repository.path / paths.SPECS_DIR
         # A path in both lists is written and removed by the model. The removal takes precedence.
         specifications: dict[Path, str | None] = {
-            self._locate_specification(repository.path, path, model_root): content for path, content in files.items()
+            self._locate_specification(repository.path, path, model_root): content for path, content in written.items()
         } | {self._locate_specification(repository.path, path, model_root): None for path in deleted}
-        folded = self._find_folded_names(root, model_root, (*files, *deleted))
+        folded = self._find_folded_names(root, model_root, (*written, *deleted))
         if folded is not None:
             raise SpecsError(
                 f"Specifications cannot hold both `{folded[0]}` and `{folded[1]}`, which some filesystems read as "
@@ -173,7 +170,7 @@ class Specs:
                     "specifications it already had."
                 ) from error
         self._stage(repository, [destination.relative_to(repository.path).as_posix() for destination in specifications])
-        logger.info("specifications_written root=%s files=%d deleted=%d", model_root, len(files), len(deleted))
+        logger.info("specifications_written root=%s files=%d deleted=%d", model_root, len(written), len(deleted))
 
     # A specification must be a plain file. The file system and Git represent links differently.
     # A Windows checkout can show a Git `120000` link as a normal file with target text.
@@ -200,6 +197,17 @@ class Specs:
                 logger.exception("specification_read_failed path=%s", relative)
                 raise SpecsError(f"JRI could not read the specification `{relative}`: {error.strerror}") from error
         return specifications
+
+    # Read the files a model named under one root, and refuse the read when a name matches none.
+    # A model reads what it never wrote, so the names it gives are a request, not JRI data.
+    # Raise the failure the tool loop reports to that model, not a `SpecsError` about the specifications themselves.
+    @staticmethod
+    def read_selected(repository: git.Repository, model_root: str, selected: Sequence[str]) -> str:
+        found = Specs.read(repository, f"{paths.SPECS_DIR}/{model_root}", selected=selected)
+        missing = sorted(set(selected) - {path.removeprefix(f"{paths.SPECS_DIR}/") for path in found})
+        if missing:
+            raise RuntimeError(f"Could not find these {model_root} specifications: {', '.join(missing)}.")
+        return Specs.render(found)
 
     # Full content, frontmatter stripped, for files a model chose to read in full.
     @staticmethod
@@ -250,7 +258,7 @@ class Specs:
             if self.repository.has_commit()
             else {}
         )
-        if head_specs != baseline.functional | baseline.architecture:
+        if head_specs != baseline.specifications:
             raise RepositoryStateError("The specifications changed during generation. Try again.")
         if self._read_notebook() != baseline.notebook:
             raise RepositoryStateError("The project notes changed during generation. Try again.")

@@ -197,9 +197,10 @@ def _resume(specs: Specs, staging: git.Repository) -> Generator["ai.ToolCallStar
 
 def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Repository) -> functional_analyst.Input:
     existing = specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)
+    notebook = Notebook.exclude_trashed(baseline.notebook)
     return functional_analyst.Input(
-        notebook=Notebook.exclude_trashed(baseline.notebook),
-        notebook_diff=_diff_notebook(baseline),
+        notebook=notebook,
+        notebook_diff=_diff_notebook(baseline, notebook),
         # Give a first pass no specification index at all. It writes the specifications that the project has none of.
         current_specs_index=specs.index(existing) if existing else None,
     )
@@ -209,7 +210,7 @@ def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Rep
 # the notebook the pass already reads, and it would name a baseline the project does not hold.
 # Do not give trashed topics to the analyst. Filter both notebooks before the diff.
 # Otherwise, old trashed topics appear as changes.
-def _diff_notebook(baseline: Baseline) -> str | None:
+def _diff_notebook(baseline: Baseline, notebook: str) -> str | None:
     if baseline.accepted is None:
         return None
     try:
@@ -220,7 +221,7 @@ def _diff_notebook(baseline: Baseline) -> str | None:
     return "".join(
         unified_diff(
             accepted_notebook.splitlines(keepends=True),
-            Notebook.exclude_trashed(baseline.notebook).splitlines(keepends=True),
+            notebook.splitlines(keepends=True),
             fromfile=f"a/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
             tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
         )

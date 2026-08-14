@@ -71,7 +71,7 @@ unfixable = []
 ignore = [
     "B901", # allow generator return values consumed through `yield from`
     "C901", # allow complex functions; prefer flat inline logic over helper extraction
-    "COM812", # make trailing comma mandatory
+    "COM812", # leave trailing commas to the formatter, which drops the magic ones this rule would add
     "CPY", # skip copyright notices
     "D", # make docstrings optional
     "D203", # prefer no blank line before class docstrings

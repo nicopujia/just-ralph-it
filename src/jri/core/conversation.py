@@ -183,7 +183,12 @@ class Conversation:
         yield from self._report_turn(events, turn, checkpoint, cancelled)
 
     def rewind(self, checkpoint_index: int) -> None:
-        history_index = self._find_prompts()[checkpoint_index]
+        prompts = [
+            index
+            for index, item in enumerate(self.interviewer.history)
+            if cast("dict[str, Any]", item).get("role") == "user"
+        ]
+        history_index = prompts[checkpoint_index]
         kept = [cast("dict[str, Any]", item) for item in self.interviewer.history[:history_index]]
         tools = {tool.name: tool for tool in self.interviewer.tools}
         # Replaying the calls below rebuilds the notes. A rewind depends on whether the replay creates the notes again.
@@ -235,14 +240,7 @@ class Conversation:
         # A rewind restores notes from before the dropped turns. A draft based on those notes is no longer valid.
         # The next run writes from the specifications that the project holds.
         self.workspace.drop_draft()
-        offer = self._stamp_offer()
-        self.interviewer.offered_ralphing = False
-        self.update_session(
-            active_topic_id=self.interviewer.active_topic_id,
-            interview=self.interviewer.history,
-            transcript=self.session.transcript,
-            **offer,
-        )
+        self._save_interview()
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
     def ralph(self, cancelled: Event | None = None, detached: Event | None = None) -> Generator[TurnEvent]:
@@ -270,8 +268,11 @@ class Conversation:
             return []
         try:
             self.session = Session.model_validate_json(self.workspace.session_file.read_bytes())
-            topics = {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}
-            topics[self.session.active_topic_id]
+            # The session names the topic the interview was on. Look that topic up, and let the `LookupError` of a
+            # notebook that no longer holds it report the session as unusable, beside every other unreadable part.
+            {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}[
+                self.session.active_topic_id
+            ]
             history = self._read_interview()
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
@@ -320,13 +321,6 @@ class Conversation:
         self.session.transcript[-1].ending = "interrupted"
         self.update_session(transcript=self.session.transcript)
         self.logger.info("turn_interrupted work=%s", self.session.transcript[-1].work)
-
-    def _find_prompts(self) -> list[int]:
-        return [
-            index
-            for index, item in enumerate(self.interviewer.history)
-            if cast("dict[str, Any]", item).get("role") == "user"
-        ]
 
     def _capture_checkpoint(self, history_length: int) -> Checkpoint:
         return Checkpoint(history_length, self.notebook.graph.model_copy(deep=True), self.interviewer.active_topic_id)
@@ -398,7 +392,32 @@ class Conversation:
         failure: Exception | None = None
         try:
             for event in events:
-                open_text = _record_event(turn, open_text, open_rows, event)
+                # `open_text` is the item that accepts current deltas, or `None` before a new item starts.
+                # A row opening ends prior text at every depth. A row closing ends no text.
+                # A tool call between thoughts creates two live blocks and two restored items.
+                # A nested row still creates this screen boundary.
+                match event:
+                    case ToolCallStarted():
+                        # Save a row where it opens. Save a delta streamed under it after the row, as the screen
+                        # shows it.
+                        opened = Item(type="tool", text=event.label, symbol=event.symbol) if not event.depth else None
+                        if opened is not None:
+                            turn.items.append(opened)
+                        open_rows.append((event, opened))
+                        open_text = None
+                    case ToolCallFinished():
+                        for index, (row, item) in enumerate(open_rows):
+                            if row.call_id == event.call_id:
+                                if item is not None:
+                                    _close_row(item, event)
+                                # Every row opened after a row is nested under it.
+                                # Closing that row closes all nested rows.
+                                del open_rows[index:]
+                                break
+                    case TextDelta():
+                        open_text = _record_text(turn, open_text, "assistant", event.text)
+                    case ReasoningDelta():
+                        open_text = _record_text(turn, open_text, "reasoning", event.text)
                 yield event
         except Exception as error:
             # Keep what the user already saw. Roll back changes made behind it.
@@ -438,14 +457,7 @@ class Conversation:
         turn.detail = str(failure) if failure is not None else ""
         # Replace the session turn with the separate recorded turn. The next launch then reads the turn that ended.
         self.session.transcript[-1] = turn
-        offer = self._stamp_offer()
-        self.interviewer.offered_ralphing = False
-        self.update_session(
-            active_topic_id=self.interviewer.active_topic_id,
-            interview=self.interviewer.history,
-            transcript=self.session.transcript,
-            **offer,
-        )
+        self._save_interview()
         self.logger.info("turn_finished ending=%s interview_items=%d", ending, len(self.interviewer.history))
         yield TurnFinished(ending, turn.detail)
 
@@ -456,12 +468,21 @@ class Conversation:
         self.interviewer.active_topic_id = checkpoint.active_topic_id
         self.interviewer.offered_ralphing = False
 
-    # An offer is the notes that caused it. Stamp it with the notebook that the turn ends with.
+    # Write down the interview where it now stands. A turn and a rewind both leave it at rest.
+    # An offer is the notes that caused it. Stamp it with the notebook that the interview rests on.
     # Notes connected after the offer are part of the offer. A turn without an offer does not clear an earlier stamp.
-    def _stamp_offer(self) -> dict[str, Graph]:
-        if not self.interviewer.offered_ralphing:
-            return {}
-        return {"ready_graph": self.notebook.graph.model_copy(deep=True)}
+    # The offer belongs to the turn that made it, so retire it with the same save.
+    def _save_interview(self) -> None:
+        offer: dict[str, Graph] = (
+            {"ready_graph": self.notebook.graph.model_copy(deep=True)} if self.interviewer.offered_ralphing else {}
+        )
+        self.interviewer.offered_ralphing = False
+        self.update_session(
+            active_topic_id=self.interviewer.active_topic_id,
+            interview=self.interviewer.history,
+            transcript=self.session.transcript,
+            **offer,
+        )
 
 
 # A non-replayed tool creates nothing again, regardless of its arguments. Its arguments cannot affect a note.
@@ -484,36 +505,6 @@ def _close_row(item: Item, event: ToolCallFinished) -> None:
     item.text = event.label
     item.outcome = event.outcome
     item.detail = event.detail
-
-
-# This is the item that accepts current deltas, or `None` before a new item starts.
-# A row opening ends prior text at every depth. A row closing ends no text.
-# A tool call between thoughts creates two live blocks and two restored items.
-# A nested row still creates this screen boundary.
-def _record_event(
-    turn: Turn, open_text: Item | None, open_rows: list[tuple[ToolCallStarted, Item | None]], event: AgentEvent
-) -> Item | None:
-    match event:
-        case ToolCallStarted():
-            # Save a row where it opens. Save a delta streamed under it after the row, as the screen shows it.
-            item = Item(type="tool", text=event.label, symbol=event.symbol) if not event.depth else None
-            if item is not None:
-                turn.items.append(item)
-            open_rows.append((event, item))
-            return None
-        case ToolCallFinished():
-            for index, (row, item) in enumerate(open_rows):
-                if row.call_id == event.call_id:
-                    if item is not None:
-                        _close_row(item, event)
-                    # Every row opened after a row is nested under it. Closing that row closes all nested rows.
-                    del open_rows[index:]
-                    break
-            return open_text
-        case TextDelta():
-            return _record_text(turn, open_text, "assistant", event.text)
-        case ReasoningDelta():
-            return _record_text(turn, open_text, "reasoning", event.text)
 
 
 def _record_text(turn: Turn, open_text: Item | None, type_: Literal["assistant", "reasoning"], text: str) -> Item:

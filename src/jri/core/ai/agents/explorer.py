@@ -76,11 +76,8 @@ class Explorer(Agent):
         replayed=False,
     )
     def search_web(self, query: str) -> str:
-        logger.debug("search_query query=%r", query)
         results = brave.search(read_api_key(cast("str", self.settings.brave_search.api_key)), query)
-        output = prompt.render(search_results={result["url"]: result["title"] for result in results})
-        logger.info("search_finished results=%d", len(results))
-        return output
+        return prompt.render(search_results={result["url"]: result["title"] for result in results})
 
     @tool(
         "Fetch contents from a public web page given a URL.",

@@ -259,7 +259,6 @@ class LLMRunner:
                 case "response.output_item.done":
                     item = cast("dict[str, Any]", event.item.to_dict())
                     outputs_by_index[event.output_index] = item
-                    # Record the stream result.
                     # If a message has no deltas, emit it here so the user sees the model reply.
                     if item.get("type") == "message" and event.output_index not in streamed_indexes:
                         parts = cast("list[dict[str, Any]]", item.get("content", []))
@@ -290,7 +289,6 @@ def _name_status(status: int) -> str:
 
 
 # Return the provider message when available. Otherwise, return the complete body without a summary.
-# Log the raw exception in both cases.
 def _read_body(error: APIStatusError) -> str:
     body = error.body
     if isinstance(body, dict) and isinstance(message := body.get("message"), str) and message.strip():

@@ -408,8 +408,10 @@ class App(TextualApp[None]):
             # A turn with no content removes its thinking notice. The saved record has no notice.
             # The restored view uses that record.
             await turn_state.hide_thinking_label()
+        # Put the retry control below the failure that it answers. A later failure gets a control below its own
+        # message.
         if event.ending in RETRYABLE_ENDINGS:
-            await self._show_retry_button(turn_state)
+            await turn_state.container.mount(self._build_retry_button())
         if turn_state.is_ralphing:
             self.ralphing.display = False
             self.message_input.disabled = False
@@ -481,9 +483,7 @@ class App(TextualApp[None]):
                 await self._render_tool_call_finished(turn_state, agent_event)
         self._follow_bottom(turn_state)
 
-    async def _render_interviewer_status(
-        self, turn_state: InterviewerTurnState, content: str, classes: str = styles.INTERVIEWER_MESSAGE_CLASSES
-    ) -> None:
+    async def _render_interviewer_status(self, turn_state: InterviewerTurnState, content: str, classes: str) -> None:
         # The status takes the place of the thinking label, which shows a wait that is now over.
         await turn_state.hide_thinking_label()
         turn_state.active_markdown = None
@@ -544,10 +544,6 @@ class App(TextualApp[None]):
             row.mark_stopping()
         turn_state.tool_rows[event.call_id] = row
         await turn_state.container.mount(row)
-
-    # Put the retry control below the failure that it answers. A later failure gets a control below its own message.
-    async def _show_retry_button(self, turn_state: InterviewerTurnState) -> None:
-        await turn_state.container.mount(self._build_retry_button())
 
     # --- Helper methods --------------------------------------------- #
 

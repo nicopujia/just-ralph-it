@@ -68,7 +68,6 @@ class Agent:
         logger.info("message_started agent=%s model=%s", type(self).__name__, self.model)
 
         tool_definitions = [tool.definition for tool in self.tools]
-        tools_by_name = {tool.name: tool for tool in self.tools}
 
         for _ in range(self.MAX_ROUNDS):
             partial_text: list[str] = []
@@ -99,8 +98,7 @@ class Agent:
 
             # Give each call in a round an output, including cancelled calls. The next request requires every output.
             for output in function_calls:
-                tool = tools_by_name.get(output["name"])
-                yield from self._invoke(output, tool, cancelled)
+                yield from self._invoke(output, cancelled)
             if cancelled.is_set():
                 self._record_cancellation()
                 return
@@ -118,7 +116,6 @@ class Agent:
         logger.info("parse_started agent=%s model=%s", type(self).__name__, self.model)
 
         tool_definitions = [tool.definition for tool in self.tools]
-        tools_by_name = {tool.name: tool for tool in self.tools}
 
         for _ in range(self.MAX_ROUNDS):
             context = self.get_context()
@@ -138,8 +135,7 @@ class Agent:
             for output in result.outputs:
                 if output.get("type") != "function_call":
                     continue
-                tool = tools_by_name.get(cast("str", output["name"]))
-                yield from self._invoke(output, tool, cancelled)
+                yield from self._invoke(output, cancelled)
             if cancelled.is_set():
                 self._record_cancellation()
                 return None
@@ -151,11 +147,13 @@ class Agent:
         logger.info("message_cancelled agent=%s", type(self).__name__)
 
     def _invoke(
-        self, output: dict[str, object], tool: Tool | None, cancelled: Event
+        self, output: dict[str, object], cancelled: Event
     ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished"]:
         name = cast("str", output["name"])
         arguments = cast("str", output["arguments"])
         call_id = cast("str", output["call_id"])
+        # Read the tools on each call. A run can take one away, as the explorer does without a search key.
+        tool = next((candidate for candidate in self.tools if candidate.name == name), None)
         # Do not open a row for a cancelled call.
         # Close each opened row before return to prevent removal by another process.
         # Yield the row before the call continues. The user can then stop the call.
