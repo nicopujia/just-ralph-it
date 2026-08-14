@@ -1,8 +1,6 @@
 import re
 from pathlib import Path
 
-__all__ = ["read"]
-
 # A line holding only this markup documents the template beside the text it explains. It never reaches the model.
 COMMENT_LINE = re.compile(r"^[ \t]*<!--.*-->[ \t]*\n?", re.MULTILINE)
 

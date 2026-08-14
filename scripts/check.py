@@ -189,7 +189,7 @@ def check_test_layout(package: Path, tests: Path) -> None:
         for path in sorted(package.rglob("*.py"))
         if path.name != "__init__.py"
         and path.relative_to(package).parts[0] != "tui"
-        and any(isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) for node in _parse(path))
+        and any(isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) for node in _walk(path))
         and not any((tests / name).exists() for name in _name_test_modules(path.relative_to(package)))
     ]
     if misplaced or untested:
@@ -201,7 +201,7 @@ def check_deferred_annotations(*roots: Path) -> None:
         f"{path}:{node.lineno}: annotations deferred"
         for root in roots
         for path in sorted(root.rglob("*.py"))
-        for node in _parse(path)
+        for node in _walk(path)
         if isinstance(node, ast.ImportFrom)
         and node.module == "__future__"
         and any(alias.name == "annotations" for alias in node.names)
@@ -275,7 +275,7 @@ def _find_private_constants(body: list[ast.stmt], path: Path) -> Iterator[str]:
 
 
 def _find_docstrings(path: Path) -> Iterator[int]:
-    for node in _parse(path):
+    for node in _walk(path):
         if not isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) or not node.body:
             continue
         first = node.body[0]
@@ -324,7 +324,7 @@ def _rank_class(node: ast.stmt) -> int | None:
 
 
 def _find_imports(path: Path) -> Iterator[tuple[str, int]]:
-    for node in _parse(path):
+    for node in _walk(path):
         if isinstance(node, ast.ImportFrom) and node.module and not node.level:
             yield node.module, node.lineno
         elif isinstance(node, ast.Import):
@@ -332,7 +332,7 @@ def _find_imports(path: Path) -> Iterator[tuple[str, int]]:
                 yield alias.name, node.lineno
 
 
-def _parse(path: Path) -> Iterator[ast.AST]:
+def _walk(path: Path) -> Iterator[ast.AST]:
     yield from ast.walk(ast.parse(path.read_text(encoding="utf-8")))
 
 

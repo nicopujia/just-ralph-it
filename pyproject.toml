@@ -13,6 +13,7 @@ dependencies = [
     "httpx>=0.28.1",
     "markdownify>=1.2.3",
     "openai>=2.41.0",
+    "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0.3",
     "textual>=8.2.7",
@@ -74,8 +75,6 @@ ignore = [
     "COM812", # leave trailing commas to the formatter, which drops the magic ones this rule would add
     "CPY", # skip copyright notices
     "D", # make docstrings optional
-    "D203", # prefer no blank line before class docstrings
-    "D213", # prefer docstring summary line to be on the first line
     "EM101", # allow inline string literals in exceptions
     "EM102", # allow inline f-strings in exceptions
     "EM103", # allow inline .format() or concatenated exception messages

@@ -4,7 +4,6 @@ Output:
 - Under `files`, carry for every file you write its complete final content, never an excerpt or a diff, and a one-line `summary` of what it covers. Every path is a Markdown file under `{functional_specs_root}/`.
 <!-- The run stops on the first `unresolved`, so a partial report costs the user a second round of questions. -->
 - Under `unresolved`, name every behavioral decision that blocks a single faithful implementation and that only the user has the authority to take. Report every one, not only the first, because each set you return costs the user a round of questions.
-<!-- The two lists are not alternatives: a pass that must ask the user still keeps the files it could write. -->
 - The two lists stand together: write everything the notebook settles, and name the rest under `unresolved`. The run saves your files, stops, and puts your questions to the user. Return no file at all only when those questions block every file you would write.
 
 Constraints:
