@@ -6,8 +6,10 @@ from pathlib import Path
 import pytest
 
 from jri.lib.lock import Lock, LockError
-from tests.doubles.lock import hold, read_fork_child, runs, take
+from tests.doubles.lock import POLL, hold, read_fork_child, runs, take
 
+# A killed holder frees its lock at once on POSIX. Only Windows uses any of this time.
+FREED_WITHIN = 5.0
 HELD_FOR = 0.5
 
 
@@ -83,6 +85,8 @@ def test_reports_the_lock_a_holder_still_running_has(tmp_path: Path) -> None:
         assert Lock(path).is_held()
 
 
+# The operating system, not the holder, frees the lock of a process it ended, and Windows can take a moment
+# over it. Wait for it as `Hold.evict` does, rather than reading the lock one time and calling the wait a holder.
 def test_reports_no_holder_for_a_lock_a_killed_holder_left(tmp_path: Path) -> None:
     path = tmp_path / "lock"
 
@@ -90,7 +94,10 @@ def test_reports_no_holder_for_a_lock_a_killed_holder_left(tmp_path: Path) -> No
         holder.kill()
         holder.wait()
 
-        assert not Lock(path).is_held()
+        deadline = time.monotonic() + FREED_WITHIN
+        while Lock(path).is_held():
+            assert time.monotonic() < deadline, "the lock of the killed holder never came free"
+            time.sleep(POLL)
 
 
 def test_reports_no_holder_for_a_lock_nothing_ever_took(tmp_path: Path) -> None:

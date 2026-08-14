@@ -1,6 +1,7 @@
 import logging
 import shutil
-from collections.abc import Sequence
+import stat
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -25,7 +26,7 @@ def describe_paths(paths: Sequence[str]) -> str:
 # it. Thus log a failed removal, and do not raise it.
 def remove_directory(path: Path) -> None:
     try:
-        shutil.rmtree(path)
+        shutil.rmtree(path, onexc=_remove_read_only)
     except FileNotFoundError:
         return
     except OSError:
@@ -64,3 +65,14 @@ def write_atomically(path: Path, content: str) -> None:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
         raise
+
+
+# Git writes each loose object read-only. Windows refuses to remove a read-only file, where POSIX asks only for
+# write access to the parent directory. A worktree of a repository therefore outlives the removal that Windows
+# stops here, and the run after it meets a location it cannot use. Clear the attribute and remove the path again.
+def _remove_read_only(remove: Callable[[str], object], path: str, error: BaseException) -> None:
+    if not isinstance(error, PermissionError):
+        raise error
+    target = Path(path)
+    target.chmod(target.stat().st_mode | stat.S_IWUSR)
+    remove(path)

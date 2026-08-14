@@ -1,3 +1,4 @@
+import stat
 import sys
 from pathlib import Path
 
@@ -101,6 +102,20 @@ def test_removes_a_directory_and_all_data_below_it(tmp_path: Path) -> None:
     (directory / "nested" / "file.txt").write_text("what a killed run left", encoding="utf-8")
 
     files.remove_directory(directory)
+    files.remove_directory(directory)
+
+    assert not directory.exists()
+
+
+# Git writes each loose object read-only, and every worktree a run opens holds them. Windows refuses to remove
+# such a file, so a removal that does not clear the attribute leaves the whole worktree standing there.
+def test_removes_a_directory_that_holds_a_file_nothing_may_write(tmp_path: Path) -> None:
+    directory = tmp_path / "worktree"
+    (directory / "objects").mkdir(parents=True)
+    unwritable = directory / "objects" / "da39a3ee5e"
+    unwritable.write_bytes(b"what git wrote")
+    unwritable.chmod(stat.S_IRUSR)
+
     files.remove_directory(directory)
 
     assert not directory.exists()

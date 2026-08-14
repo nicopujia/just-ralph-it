@@ -151,7 +151,6 @@ class Auth(httpx.Auth):
                 file.write(f"{json.dumps(data, indent=2)}\n")
             temporary_path.replace(self.path)
         except (OSError, TypeError, ValueError) as error:
-            # Remove the temporary credentials file after a save fails.
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
             raise AuthError("The refreshed Codex login could not be saved.") from error
