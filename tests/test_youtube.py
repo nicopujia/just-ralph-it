@@ -20,7 +20,7 @@ from tests.doubles.youtube import FALLBACK_TRANSCRIPT, TRANSCRIPT, FakeApi
 )
 def test_fetches_the_english_transcript_from_supported_urls(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
     videos: list[str] = []
-    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi(videos, []))
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi(videos))
 
     # The double serves this transcript only down the English path, thus the result shows which path ran.
     assert youtube.fetch_transcript_from_url(url) == TRANSCRIPT
@@ -29,27 +29,27 @@ def test_fetches_the_english_transcript_from_supported_urls(monkeypatch: pytest.
 
 
 def test_falls_back_to_another_language_when_english_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], [], english=False))
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], english=False))
 
     assert youtube.fetch_transcript_from_url("https://youtu.be/abc123") == FALLBACK_TRANSCRIPT
 
 
 def test_reports_videos_with_transcripts_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], [], failure="list"))
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], failure="list"))
 
     with pytest.raises(RuntimeError, match="Failed to load transcript metadata"):
         youtube.fetch_transcript_from_url("https://youtu.be/abc123")
 
 
 def test_reports_videos_without_any_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], [], english=False, available=False))
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], english=False, available=False))
 
     with pytest.raises(RuntimeError, match="No transcript is available"):
         youtube.fetch_transcript_from_url("https://youtu.be/abc123")
 
 
 def test_reports_a_transcript_whose_contents_cannot_be_fetched(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], [], failure="fetch"))
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], failure="fetch"))
 
     with pytest.raises(RuntimeError, match="Failed to fetch transcript contents"):
         youtube.fetch_transcript_from_url("https://youtu.be/abc123")
@@ -58,7 +58,7 @@ def test_reports_a_transcript_whose_contents_cannot_be_fetched(monkeypatch: pyte
 def test_reports_a_transcript_made_only_of_blank_snippets(monkeypatch: pytest.MonkeyPatch) -> None:
     # Auto-generated captions can list blank snippets for pauses or music. Without this check, JRI would hand the
     # model an empty transcript as if it held real content.
-    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], [], ["", "   ", "\n\t"]))
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], ["", "   ", "\n\t"]))
 
     with pytest.raises(RuntimeError, match="did not contain any text"):
         youtube.fetch_transcript_from_url("https://youtu.be/abc123")

@@ -7,7 +7,6 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Never, cast
 
-import httpx
 import pytest
 from dotenv import dotenv_values
 
@@ -25,7 +24,9 @@ CONTRACT_MARKER = "contract"
 # This file gives `jri chat` its API keys.
 # A live call uses the same credential as the product.
 ENV_FILE = Path(__file__).parent.parent / ".env"
-NETWORK = ((socket, "getaddrinfo"), (socket, "create_connection"), (socket, "socket"), (httpx, "get"))
+# These are the ways out of this process. `httpx.get` is not among them: the catalog double below serves it, and
+# a guard here would only be replaced by that double in the same fixture.
+NETWORK = ((socket, "getaddrinfo"), (socket, "create_connection"), (socket, "socket"))
 
 
 @pytest.fixture

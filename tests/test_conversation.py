@@ -8,7 +8,7 @@ import pytest
 
 from jri.core import paths
 from jri.core.ai import Interviewer, LLMRunner, ToolCallFinished, ToolCallStarted, TurnFinished, functional_analyst
-from jri.core.conversation import RETRYABLE_ENDINGS, Conversation
+from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError, RunDetached
 from jri.core.generation import Generation
 from tests.conftest import CreateRepository
@@ -766,7 +766,6 @@ def test_settles_a_turn_no_process_is_left_to_finish(monkeypatch: pytest.MonkeyP
     turns = restarted.restore()
 
     assert turns[-1].ending == "interrupted"
-    assert turns[-1].ending in RETRYABLE_ENDINGS
     assert read_recorded_turn(restarted)["ending"] == "interrupted"
     assert [(item.type, item.text) for item in turns[-1].items] == [
         ("assistant", "Understood."),

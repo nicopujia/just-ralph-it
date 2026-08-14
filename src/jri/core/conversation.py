@@ -392,32 +392,7 @@ class Conversation:
         failure: Exception | None = None
         try:
             for event in events:
-                # `open_text` is the item that accepts current deltas, or `None` before a new item starts.
-                # A row opening ends prior text at every depth. A row closing ends no text.
-                # A tool call between thoughts creates two live blocks and two restored items.
-                # A nested row still creates this screen boundary.
-                match event:
-                    case ToolCallStarted():
-                        # Save a row where it opens. Save a delta streamed under it after the row, as the screen
-                        # shows it.
-                        opened = Item(type="tool", text=event.label, symbol=event.symbol) if not event.depth else None
-                        if opened is not None:
-                            turn.items.append(opened)
-                        open_rows.append((event, opened))
-                        open_text = None
-                    case ToolCallFinished():
-                        for index, (row, item) in enumerate(open_rows):
-                            if row.call_id == event.call_id:
-                                if item is not None:
-                                    _close_row(item, event)
-                                # Every row opened after a row is nested under it.
-                                # Closing that row closes all nested rows.
-                                del open_rows[index:]
-                                break
-                    case TextDelta():
-                        open_text = _record_text(turn, open_text, "assistant", event.text)
-                    case ReasoningDelta():
-                        open_text = _record_text(turn, open_text, "reasoning", event.text)
+                open_text = _record_event(turn, open_text, open_rows, event)
                 yield event
         except Exception as error:
             # Keep what the user already saw. Roll back changes made behind it.
@@ -505,6 +480,36 @@ def _close_row(item: Item, event: ToolCallFinished) -> None:
     item.text = event.label
     item.outcome = event.outcome
     item.detail = event.detail
+
+
+# This is the item that accepts current deltas, or `None` before a new item starts.
+# A row opening ends prior text at every depth. A row closing ends no text.
+# A tool call between thoughts creates two live blocks and two restored items.
+# A nested row still creates this screen boundary.
+def _record_event(
+    turn: Turn, open_text: Item | None, open_rows: list[tuple[ToolCallStarted, Item | None]], event: AgentEvent
+) -> Item | None:
+    match event:
+        case ToolCallStarted():
+            # Save a row where it opens. Save a delta streamed under it after the row, as the screen shows it.
+            item = Item(type="tool", text=event.label, symbol=event.symbol) if not event.depth else None
+            if item is not None:
+                turn.items.append(item)
+            open_rows.append((event, item))
+            return None
+        case ToolCallFinished():
+            for index, (row, item) in enumerate(open_rows):
+                if row.call_id == event.call_id:
+                    if item is not None:
+                        _close_row(item, event)
+                    # Every row opened after a row is nested under it. Closing that row closes all nested rows.
+                    del open_rows[index:]
+                    break
+            return open_text
+        case TextDelta():
+            return _record_text(turn, open_text, "assistant", event.text)
+        case ReasoningDelta():
+            return _record_text(turn, open_text, "reasoning", event.text)
 
 
 def _record_text(turn: Turn, open_text: Item | None, type_: Literal["assistant", "reasoning"], text: str) -> Item:

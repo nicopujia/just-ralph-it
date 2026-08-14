@@ -5,7 +5,6 @@ import re
 import shutil
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -66,7 +65,7 @@ WRITE_SECONDS = 10
 
 def test_appends_a_run_to_the_log_the_session_already_has(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
     (tmp_path / paths.LOG_FILE).write_text(f"{EARLIER_RUN}\n")
 
     logs.configure(settings)
@@ -81,7 +80,7 @@ def test_appends_a_run_to_the_log_the_session_already_has(tmp_path: Path) -> Non
 
 def test_names_the_version_and_the_process_on_every_line(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
 
     logs.configure(settings)
     Conversation(settings)
@@ -93,7 +92,7 @@ def test_names_the_version_and_the_process_on_every_line(tmp_path: Path) -> None
 
 def test_bounds_the_file_and_the_bytes_a_long_session_leaves(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
 
     logs.configure(settings)
     logger = logging.getLogger("jri")
@@ -107,7 +106,7 @@ def test_bounds_the_file_and_the_bytes_a_long_session_leaves(tmp_path: Path) -> 
 
 def test_keeps_the_newest_records_of_a_session_that_fills_the_file_over_and_over(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
 
     logs.configure(settings)
     logger = logging.getLogger("jri")
@@ -127,7 +126,7 @@ def test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, shape: str
 ) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
     monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
     logs.configure(settings)
     logger = logging.getLogger("jri")
@@ -150,7 +149,7 @@ def test_writes_nothing_outside_the_workspace_directory_when_a_path_the_log_need
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, shape: str
 ) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
     monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
     logs.configure(settings)
     logger = logging.getLogger("jri")
@@ -169,7 +168,7 @@ def test_writes_nothing_outside_the_workspace_directory_when_a_path_the_log_need
 
 def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
 
     logs.configure(settings)
     logger = logging.getLogger("jri")
@@ -191,7 +190,7 @@ def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path)
 
 def test_reads_back_in_the_order_two_runs_of_a_session_wrote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
     monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
     # Fill the file to its bound so the first records the runs write force a trim, instead of waiting for one.
     # A trim keeps the newest records, so write the record that must survive it last.
@@ -219,7 +218,7 @@ def test_keeps_every_record_after_the_oldest_when_two_runs_of_a_session_write_at
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
     monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
     logs.configure(settings)
     logger = logging.getLogger("jri.chat")
@@ -246,7 +245,7 @@ def test_keeps_every_record_after_the_oldest_when_two_runs_of_a_session_write_at
 
 def test_reads_back_in_time_order_when_two_runs_write_at_once(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
     logs.configure(settings)
     logger = logging.getLogger("jri.chat")
 
@@ -267,7 +266,7 @@ def test_reads_back_in_time_order_when_two_runs_write_at_once(tmp_path: Path) ->
 
 def test_writes_on_when_a_record_cannot_be_rendered(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
     logs.configure(settings)
     logger = logging.getLogger("jri.chat")
 
@@ -286,7 +285,7 @@ def test_writes_on_when_a_record_cannot_be_rendered(tmp_path: Path) -> None:
 
 def test_keeps_a_name_that_will_not_encode_as_the_escapes_it_is_written_in(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
     logs.configure(settings)
     logger = logging.getLogger("jri.chat")
 
@@ -308,7 +307,7 @@ def test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_d
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([]), level="INFO")
     logs.configure(settings)
     logger = logging.getLogger("jri")
     shutil.rmtree(tmp_path / paths.WORKSPACE_DIR)

@@ -291,7 +291,7 @@ def test_fetches_a_page_as_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_fetches_a_youtube_url_as_its_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], []))
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([]))
 
     assert (
         build_explorer().fetch_web_page("https://youtu.be/abc123")

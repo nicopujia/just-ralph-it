@@ -16,11 +16,8 @@ NOW = 1_800_000_000
 ORIGINATOR = "test-app"
 
 
-def write_login(path: Path, tokens: object, *, auth_mode: str = "chatgpt") -> None:
-    data: dict[str, Any] = {"auth_mode": auth_mode}
-    if tokens is not None:
-        data["tokens"] = tokens
-    (path / "auth.json").write_text(json.dumps(data))
+def write_login(path: Path, tokens: object) -> None:
+    (path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt", "tokens": tokens}))
 
 
 def build_token(expires: int) -> str:
