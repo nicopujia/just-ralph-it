@@ -1613,6 +1613,31 @@ def test_reads_every_markdown_specification_under_a_root(tmp_path: Path, create_
     assert Specs.read(repository, "specs/architecture") == {}
 
 
+def test_reads_the_specifications_a_model_named(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path)
+    root = tmp_path / ".jri" / "specs" / "functional"
+    root.mkdir(parents=True)
+    (root / "behavior.md").write_text("# Behavior\n")
+    (root / "delivery.md").write_text("# Delivery\n")
+
+    rendered = Specs.read_selected(repository, "functional", ["functional/behavior.md"])
+
+    assert "# Behavior" in rendered
+    assert "# Delivery" not in rendered
+
+
+# A model names these files itself, so a name that matches none is its mistake to hear about and correct.
+# Naming the root tells it which of the two sets JRI looked in.
+def test_refuses_to_read_a_specification_no_file_answers_to(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / ".jri" / "specs" / "architecture").mkdir(parents=True)
+
+    with pytest.raises(RuntimeError, match=r"Could not find these architecture specifications: architecture/gone\.md"):
+        Specs.read_selected(repository, "architecture", ["architecture/gone.md"])
+
+
 def test_renders_a_specification_that_reads_like_a_file_header() -> None:
     # A specification body could imitate this template's own `file`/`content` tags, forging a second entry a
     # later round would read as real. Quoting the body keeps it inert.
