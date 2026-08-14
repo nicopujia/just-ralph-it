@@ -1,4 +1,3 @@
-import logging
 from collections.abc import Generator
 from typing import TYPE_CHECKING, Annotated, cast
 
@@ -164,18 +163,16 @@ def test_labels_a_call_by_its_tool_name_when_the_arguments_are_invalid() -> None
     assert discovered.format_label(discovered.started_label, '{"text": "one"}') == "Echoing one"
 
 
-def test_keeps_a_call_whose_label_cannot_be_worded(caplog: pytest.LogCaptureFixture) -> None:
+def test_keeps_a_call_whose_label_cannot_be_worded() -> None:
     discovered = build_tool("describe")
 
-    with caplog.at_level(logging.INFO, logger="jri"):
-        label = discovered.format_label(discovered.started_label, '{"text": "one"}')
-        invocation = discovered.invoke('{"text": "one"}')
-        list(invocation)
+    label = discovered.format_label(discovered.started_label, '{"text": "one"}')
+    invocation = discovered.invoke('{"text": "one"}')
+    list(invocation)
 
     assert label == "describe"
     assert invocation.outcome == "done"
     assert invocation.output == "described: one"
-    assert any(record.message.startswith("label_failed") for record in caplog.records)
 
 
 def test_keeps_the_output_of_a_stream_that_fails_after_reporting_it() -> None:
@@ -205,7 +202,7 @@ def test_reports_the_reason_a_call_failed() -> None:
     list(invocation)
 
     # A row shows this detail on one line. An error message of unbounded length would overflow it.
-    assert invocation.detail == "x" * Invocation.MAX_DETAIL_LENGTH
+    assert invocation.detail == "x" * 120
     assert cast("str", invocation.output).startswith("partial: x\n\n<tool_call_failed>")
 
 

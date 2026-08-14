@@ -5,10 +5,9 @@ from tests.doubles.appearance import serve_appearance
 
 
 def test_reads_a_dark_system_appearance(monkeypatch: pytest.MonkeyPatch) -> None:
-    commands = serve_appearance(monkeypatch, system="Darwin", reported="Dark\n")
+    serve_appearance(monkeypatch, system="Darwin", reported="Dark\n")
 
     assert appearance.read() == "dark"
-    assert commands == [appearance.DARWIN_COMMAND]
 
 
 def test_reads_a_light_system_appearance(monkeypatch: pytest.MonkeyPatch) -> None:

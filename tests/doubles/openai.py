@@ -19,8 +19,7 @@ def response(*outputs: dict[str, Any], input_tokens: int | None = None) -> Round
         SimpleNamespace(type="response.output_item.done", output_index=index, item=_Item(output))
         for index, output in enumerate(outputs)
     ]
-    # Check this test support.
-    # Check this test support.
+    # A provider reports what a call spent one time, on the event that completes it. Some providers report nothing.
     usage = None if input_tokens is None else SimpleNamespace(input_tokens=input_tokens)
     events.append(SimpleNamespace(type="response.completed", response=SimpleNamespace(usage=usage)))
     return events
@@ -47,16 +46,14 @@ def interrupted_reply(text: str) -> Round:
     raise rate_limited()
 
 
-# Check this test support.
-# Check this test support.
+# The provider drops the call after the model starts to think out loud. The reader already sees that text.
 def interrupted_thinking(text: str) -> Round:
     yield thought(text)
     raise rate_limited()
 
 
-# Check this test support.
-# Check this test support.
-# Check this test support.
+# The user presses stop while a response still streams. Nothing follows the event that the run reads the stop on.
+# A run that pulls one more event is a run that still waits for a response that it must abandon.
 def stopped_stream(cancelled: Event) -> Round:
     yield _delta("{")
     cancelled.set()
@@ -64,8 +61,7 @@ def stopped_stream(cancelled: Event) -> Round:
     raise AssertionError("A stopped stream must be closed rather than read to its end.")
 
 
-# Check this test support.
-# Check this test support.
+# The user presses stop while the model still thinks out loud. A structured call spends its minutes in that stage.
 def stopped_thinking(cancelled: Event) -> Round:
     yield thought("Weighing ")
     cancelled.set()
@@ -80,9 +76,8 @@ def rate_limited(hint: str | None = None, code: str | None = None) -> RateLimitE
     return RateLimitError(f"Error code: 429 - {{'error': {body!r}}}", response=response, body=body)
 
 
-# Check this test support.
-# Check this test support.
-# Check this test support.
+# The provider library raises this error for every transport failure. It chains the account of the transport behind
+# the error. This double chains the cause in the same way, because JRI reads `__cause__` for the actual reason.
 def disconnection(cause: Exception | None = None) -> APIConnectionError:
     error = APIConnectionError(request=REQUEST)
     error.__cause__ = cause
@@ -91,8 +86,8 @@ def disconnection(cause: Exception | None = None) -> APIConnectionError:
 
 def rejection(message: str = "Unknown model.") -> BadRequestError:
     response = httpx.Response(400, request=REQUEST)
-    # Check this test support.
-    # Check this test support.
+    # The library gives the exception the object under `error`, and not the full body. A provider writes there what
+    # it refused and why.
     return BadRequestError(
         f"Error code: 400 - {{'error': {{'message': {message!r}}}}}",
         response=response,
@@ -100,8 +95,8 @@ def rejection(message: str = "Unknown model.") -> BadRequestError:
     )
 
 
-# Check this test support.
-# Check this test support.
+# A gateway stands between JRI and the provider, and answers for itself. Its body has no shape that the provider
+# library knows.
 def bad_gateway(body: str) -> InternalServerError:
     response = httpx.Response(502, request=REQUEST)
     return InternalServerError(body, response=response, body=body)
@@ -131,8 +126,8 @@ def reply(text: str) -> dict[str, Any]:
 class FakeClient:
     def __init__(self, rounds: Iterable[Round | OpenAIError], *, parsed: Iterable[object] = ()) -> None:
         self.responses = _Responses(rounds, parsed)
-        # Check this test support.
-        # Check this test support.
+        # A real client makes the address in the settings into the address that it sends to. A failure names that
+        # address.
         self.base_url = httpx.URL(f"{BASE_URL}/")
 
 
@@ -165,8 +160,8 @@ class _Responses:
 class _ParsedStream:
     def __init__(self, parsed: object) -> None:
         self.parsed = parsed
-        # Check this test support.
-        # Check this test support.
+        # A stream that the run abandons has no end to read. Its events arrive one at a time, and not as a list
+        # that the double reads in full first.
         self.events = cast("Round", parsed) if isinstance(parsed, list | Iterator) else ()
         self.delivered: list[SimpleNamespace] = []
 
@@ -182,7 +177,7 @@ class _ParsedStream:
             yield event
 
     def get_final_response(self) -> SimpleNamespace:
-        # Check this test support.
+        # The SDK collects the text of the completed message items. This double does the same.
         output_text = "".join(
             content["text"]
             for event in self.delivered

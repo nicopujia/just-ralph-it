@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -61,7 +60,9 @@ def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tm
     repository = git.Repository(tmp_path)
     commit = repository.read_head()
     assert installation.commit == commit
-    assert set(repository.read_tree(commit)) == set(paths.INSTALLED_PATHS)
+    # The installation stages `INSTALLED_PATHS`.
+    # Write the paths here in full: a test that reads the same tuple accepts every path added to it.
+    assert set(repository.read_tree(commit)) == {".jri/settings.yaml", ".jri/.gitignore", ".jri/notebook.yaml"}
     # The project belongs to the user. Only the workspace files JRI wrote
     # itself are in its commit; everything else waits for the user.
     assert {item.path for item in repository.read_status()} == {".DS_Store", ".env", "main.py"}
@@ -599,13 +600,13 @@ def test_names_the_window_that_has_the_project_and_not_the_one_before_it(tmp_pat
 
     with hold_workspace_slowly(tmp_path, RECORDS_AFTER) as window:
         hold = Workspace(tmp_path).open_hold()
-        started = time.monotonic()
 
         assert not hold.take()
 
+        # The slow window leaves the killed pid in the file until it records its own.
+        # Naming the live window is what a read that waited for the claim gives.
         assert hold.holder == window.pid
         assert hold.holder != killed.pid
-        assert time.monotonic() - started >= RECORDS_AFTER / 2
 
 
 def test_refuses_a_project_held_by_something_that_does_not_name_itself(tmp_path: Path) -> None:

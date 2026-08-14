@@ -37,8 +37,8 @@ from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
 
-# This test data supports the tests below.
-# This test data supports the tests below.
+# An acceptance applies this diff, and a staging worktree hands it over.
+# The paths are the project's paths, not the paths below a model's own root.
 ACCEPTANCE_PATCH = b"""\
 diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
 new file mode 100644
@@ -48,9 +48,8 @@ new file mode 100644
 +# Behavior
 """
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# This draft applies, but it puts no file below the specification tree.
+# A run that reads only Git's ending reports specifications that the patch never named.
 FOREIGN_DRAFT = """\
 diff --git a/README.md b/README.md
 --- a/README.md
@@ -60,10 +59,9 @@ diff --git a/README.md b/README.md
 +Total output is supported.
 """
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# These drafts place a specification that `Specs.write` refuses a model. Windows reads `CON.md` as a device.
+# Git reads `b*.md` as a pathspec pattern. No root that a model writes below is named `rogue`.
+# A filesystem folds `Behavior.md` onto the name the project holds. Git reads a body with a null byte as binary.
 DEVICE_NAME_DRAFT = """\
 diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
 new file mode 100644
@@ -72,10 +70,9 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# Console
 """
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The same refusal, over a draft that names its one path in two sections.
+# A patch that a run composed twice carries such a pair.
+# Git places both sections, and `git apply --reverse` then undoes only the second one and reports success.
 REDRAFTED_DEVICE_NAME_DRAFT = """\
 diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
 new file mode 100644
@@ -106,11 +103,9 @@ NULL_BODY_DRAFT = (
     "@@ -0,0 +1 @@\n"
     "+# Null\x00byte\n"
 )
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# This draft places a specification JRI would write, and beside it a file JRI never would.
+# `Specs.read` answers for `*.md`, and the commit takes `*.md`, so nothing here names the second file again.
+# That file then stands in the user's project, below a directory of JRI's, as something JRI put there.
 FOREIGN_FILE_DRAFT = """\
 diff --git a/.jri/specs/functional/exports.md b/.jri/specs/functional/exports.md
 new file mode 100644
@@ -133,9 +128,8 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# Pattern
 """
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A filesystem that reads two names without case holds one file where a folded pair needs two.
+# Such a machine cannot make the tree that the refusal is about, so a test over that tree skips there.
 FOLDS_CASE = sys.platform in {"darwin", "win32"}
 FOLDS_CASE_REASON = "two names a filesystem reads as one file are a pair it cannot be handed"
 ROOTLESS_DRAFT = """\
@@ -146,8 +140,7 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# Rogue
 """
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The one draft here that a `resume` picks up. It adds a line to the specification the project holds.
 # The context lines carry the frontmatter `successful_client` writes ahead of the body, since a draft applies
 # against the file as JRI actually wrote it, summary block included.
 UPDATE_DRAFT = (
@@ -162,8 +155,8 @@ UPDATE_DRAFT = (
     " # Behavior\n"
     "+Total output is supported.\n"
 )
-# This test data supports the tests below.
-# This test data supports the tests below.
+# Nothing of JRI's wrote this draft. Git places a link wherever a patch names one.
+# A link is a specification at neither end.
 LINKED_DRAFT = """\
 diff --git a/.jri/specs/functional/link.md b/.jri/specs/functional/link.md
 new file mode 120000
@@ -174,8 +167,8 @@ index 0000000..1234567
 +README.md
 \\ No newline at end of file
 """
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A run wrote this draft onto specifications the project has since moved past.
+# The lines it quotes are not the lines that stand there now.
 STALE_DRAFT = """\
 diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
 --- a/.jri/specs/functional/behavior.md
@@ -185,9 +178,8 @@ diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.
 +# Behavior
 +Total output is supported.
 """
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A write that the kernel cut off leaves this draft behind.
+# The hunk header still counts all the lines of the hunk, and the body holds only the first of them.
 TRUNCATED_DRAFT = """\
 diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
 --- a/.jri/specs/functional/behavior.md
@@ -198,11 +190,10 @@ diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.
 FUNCTIONAL_PAIR_FILES = {"functional/behavior.md": "# Behavior\n", "functional/exports.md": "# Exports\n"}
 UPDATED_ARCHITECTURE_FILES = {"architecture/design.md": "# Design\nAdd a total accumulator.\n"}
 UPDATED_FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\nTotal output is supported.\n"}
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# This specification is much longer than `WRITE_BOUND`. A write that the kernel cuts off at that bound
+# leaves only the start of a specification behind.
+# The update changes one line, and `git apply` does that with a write of the whole file again.
+# The acceptance record stays well below the bound, so only the write of the specification ever meets it.
 REFERENCE_SPEC_LINES = tuple(f"Reporting requirement {number} of the ledger." for number in range(500))
 REFERENCE_SPEC_PATCH = (
     "diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/reference.md\n"
@@ -220,8 +211,8 @@ REFERENCE_SPEC_UPDATE = (
     f"+{REFERENCE_SPEC_LINES[0]} Revised.\n"
     f" {REFERENCE_SPEC_LINES[1]}\n"
 ).encode()
-# This test data supports the tests below.
-# This test data supports the tests below.
+# This patch goes against a specification the project never had.
+# No commit JRI can check out makes a worktree that it applies to.
 UNREBUILDABLE_PATCH = """\
 diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/reference.md
 --- a/.jri/specs/functional/reference.md
@@ -234,28 +225,25 @@ WRITE_BOUND = 2048
 # A written file's frontmatter carries its summary. Stripping it here lets a test compare a specification's body
 # the same way whether it was written through the full generation flow or directly through `Specs.write`.
 SPEC_FRONTMATTER = re.compile(r"\A---\n.*?\n---\n\n?", re.DOTALL)
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# JRI cannot read back these two records of an acceptance.
+# A write of JRI's own was cut off part way through the first record.
+# The second record carries a field its model does not name. A record that a different version of JRI wrote comes
+# back the same way, and so does a record that something else wrote in.
 TRUNCATED_RECORD = b'{"accepted": "93db9f5480'
 FOREIGN_RECORD = b'{"accepted": null, "patch": "", "indexed": [], "held": 999999}'
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A kill below stands in for these methods. Capture them first, so a stand-in can still call the real one.
 APPLY = git.Repository.apply_patch
 COMMIT = git.Repository.commit
 STAGE = git.Repository.stage
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A signal is not an exception that a run unwinds from, and nothing here catches `KeyboardInterrupt`.
+# These three doubles leave on disk what a `SIGKILL` at the same instruction leaves.
+# The three `amid` doubles after them make the states that no instruction boundary can leave.
 def kill_the_run_before_staging(
     repository: git.Repository, paths: Sequence[str], *, intent_to_add: bool = False, force: bool = False
 ) -> None:
-    # This test data supports the tests below.
+    # The acceptance is the only staging that records an intent.
     if intent_to_add:
         raise KeyboardInterrupt
     STAGE(repository, paths, intent_to_add=intent_to_add, force=force)
@@ -272,14 +260,12 @@ def kill_the_run_after_committing(
     raise KeyboardInterrupt
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# `git apply` reads a whole patch, and only then writes it, file by file. A kill inside it leaves the first
+# files of the patch on disk. No `KeyboardInterrupt` reaches that state, because the writing happens in a
+# subprocess, where no Python instruction boundary falls.
+# Here Git writes the first file the acceptance patch names, and nothing writes the rest. That is the same state.
+# The signature holds the arguments a run reaches this with, so a call it cannot stand in for fails. It does not
+# stand in wrongly.
 def kill_the_run_amid_applying(
     repository: git.Repository,
     patch: bytes,
@@ -288,7 +274,7 @@ def kill_the_run_amid_applying(
     directory: str | None = None,
     zero_context: bool = False,
 ) -> None:
-    # This test data supports the tests below.
+    # The acceptance is the only application that stages nothing.
     if index:
         APPLY(repository, patch, index=index, directory=directory, zero_context=zero_context)
         return
@@ -296,11 +282,10 @@ def kill_the_run_amid_applying(
     raise KeyboardInterrupt
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The same kill, but it lands in the window `git apply` keeps between the moment it makes a file and the moment it
+# writes the file.
+# Twelve real `SIGKILL`s during an acceptance measured that window. Seven left a file of exactly zero bytes after
+# the files they had written, and none left a part-written file.
 def kill_the_run_amid_writing(
     repository: git.Repository,
     patch: bytes,
@@ -316,10 +301,8 @@ def kill_the_run_amid_writing(
     kill_the_run_amid_applying(repository, patch, index=index, directory=directory, zero_context=zero_context)
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The same kill again. It lands in the window `git apply` keeps with the file it rewrites removed.
+# A poll of that file during a real acceptance reads it back as missing. That is how this window was found.
 def kill_the_run_amid_rewriting(
     repository: git.Repository,
     patch: bytes,
@@ -333,13 +316,11 @@ def kill_the_run_amid_rewriting(
     kill_the_run_amid_applying(repository, patch, index=index, directory=directory, zero_context=zero_context)
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# Git answers that it could not write. A run unwinds from that error, and a kill is not an error.
+# Only the write into the project fails. The undo finds what the acceptance was writing: it applies the same patch
+# in a worktree of its own. A worktree apply that also failed would leave the undo nothing to go on.
+# The signature holds the arguments an acceptance and its undo reach this with, so a call it cannot stand in for
+# fails. It does not stand in wrongly.
 def fail_the_acceptance_write(root: Path) -> Callable[..., None]:
     def apply_patch(repository: git.Repository, patch: bytes, *, check: bool = False, reverse: bool = False) -> None:
         if repository.path == root and not (check or reverse):
@@ -349,11 +330,10 @@ def fail_the_acceptance_write(root: Path) -> Callable[..., None]:
     return apply_patch
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The worktree stops taking writes between the apply that placed a draft and the restore that would take it back
+# out. A restore cannot get itself out of that one state.
+# The signature holds the arguments `resume` reaches this with, so a call it cannot stand in for fails. It does
+# not stand in wrongly.
 def seal_the_specifications_after_applying(
     repository: git.Repository, patch: bytes, *, index: bool = False, reverse: bool = False
 ) -> None:
@@ -361,9 +341,8 @@ def seal_the_specifications_after_applying(
     (repository.path / ".jri/specs/functional").chmod(0o500)
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# Every generation runs in a process of its own. That process reaches a provider through a JRI that no test here
+# can hand a double to, so a thread in this process takes its place.
 @pytest.fixture(autouse=True)
 def run_the_generation_here(monkeypatch: pytest.MonkeyPatch) -> None:
     run_in_thread(monkeypatch)
@@ -443,8 +422,8 @@ def updated_client() -> FakeClient:
     return build_client(UPDATED_FUNCTIONAL_FILES, UPDATED_ARCHITECTURE_FILES)
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A run is a process of its own. A kill inside it reaches the window as a record with no ending, and not as
+# an exception to unwind.
 def kill_a_run(path: Path, method: str, kill: object) -> None:
     # Install before the kill, because an installation commits the
     # workspace with the same Git calls a run makes.
@@ -1508,14 +1487,12 @@ def test_refuses_a_specification_git_holds_as_a_link(
     assert find_accepted_commit(tmp_path) is None
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The same refusal on a machine that makes no links. A checkout leaves the entry as a plain file, and Git's own
+# status says nothing about it.
+# Without the refusal, the run reads a path as the body of the specification, and its acceptance records the link
+# mode again. The machine that cannot see the bad commit writes it, and the next machine that can see it meets
+# the refusal.
+# A checkout asks `core.symlinks`, not the platform, so the tests reach this condition wherever they run.
 def test_refuses_a_specification_git_holds_as_a_link_where_the_checkout_left_a_file(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -1570,10 +1547,9 @@ def test_refuses_to_commit_when_the_specifications_moved_during_generation(
     assert find_accepted_commit(tmp_path) is None
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# After JRI accepts a generation, the commit it made holds the specifications the baseline was read from.
+# A baseline taken from that commit, and not from HEAD, agrees with itself and sees nothing move.
+# Every run after the first one is this run.
 def test_refuses_to_commit_when_the_specifications_moved_after_an_earlier_acceptance(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -1647,9 +1623,7 @@ def test_renders_a_specification_that_reads_like_a_file_header() -> None:
     assert rendered == f"<file>\nfunctional/behavior.md\n</file>\n\n<content>\n{body}\n</content>"
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A model names the file it writes, so the name is foreign text as much as the body is.
 def test_renders_a_specification_whose_name_reads_like_a_file_header() -> None:
     # A specification name can attempt the same forgery as its body. `render` numbers the tag so the name's own
     # tags cannot break out of it.
@@ -1665,12 +1639,11 @@ def test_refuses_to_render_a_specification_that_is_not_utf_8() -> None:
         Specs.render({".jri/specs/functional/behavior.md": b"\xff\xfe# Behavior\n"})
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The tree is JRI's own machinery. What a run reads out of it is what a model is shown and what an acceptance
+# commits.
+# An entry that answers the specification glob and is not a plain file ends the run.
+# The run names the path inside the tree. It does not repeat what the operating system says about a worktree JRI
+# opened in a temporary directory of its own.
 @pytest.mark.parametrize(
     "stand",
     [
@@ -1698,9 +1671,8 @@ def test_refuses_a_specification_tree_entry_that_is_not_a_plain_file(
     assert str(repository.path) not in str(refusal.value)
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# Git records a link as the text of its target, and a read follows the link.
+# A link that stands where a specification goes is a file that was never JRI's to show a model.
 @pytest.mark.parametrize("target", ["outside.md", "missing.md"], ids=["link", "dangling-link"])
 def test_refuses_a_specification_tree_entry_that_is_a_link(
     tmp_path: Path, target: str, create_repository: CreateRepository, create_link: CreateLink
@@ -1714,14 +1686,13 @@ def test_refuses_a_specification_tree_entry_that_is_a_link(
         Specs.read(repository, ".jri/specs/functional")
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The same entry, where the platform makes no link to show. Git holds the link mode, and the filesystem holds a
+# plain file that carries the text of the target.
+# A refusal that reads only `Path.is_symlink` takes that file for a specification. It gives a model a path where
+# the body goes, and it lets the acceptance commit the mode straight back for whoever next checks it out where
+# links are made.
+# An index entry written by hand makes this condition on every machine. Windows is only the machine that reaches
+# it with a checkout.
 def test_refuses_a_specification_tree_entry_git_holds_as_a_link(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -1761,9 +1732,8 @@ def test_reports_a_specification_it_cannot_read(tmp_path: Path, create_repositor
     assert str(repository.path) not in str(refusal.value)
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# Two names that a filesystem reads without case are one file on it.
+# Windows and macOS cannot check out a tree that holds both names as written, and JRI is what commits that tree.
 @pytest.mark.parametrize(
     ("standing", "written", "deleted"),
     [
@@ -1812,10 +1782,9 @@ def test_removes_the_specification_files_a_model_deleted(
     assert not run_git(tmp_path, "status", "--short")
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A generation whose specifications are the ones the project already holds writes nothing.
+# There is nothing to accept and nothing to take back, so the turn ends on the conclusion of the models.
+# The run after it commits as any other run does.
 def test_ends_a_generation_that_changed_nothing_without_leaving_a_record(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -1861,10 +1830,9 @@ def test_keeps_the_accepted_specifications_when_a_generation_fails(
     assert [note.text for note in conversation.notebook.graph.notes] == ["Report the totals too."]
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# What a name is made of is not what a filesystem will hold. A path can be a specification of the model's own
+# root and still be one that no write can put there.
+# The run ends and names the path, because nobody can act on a path that nobody names.
 def test_reports_a_specification_path_the_filesystem_refuses(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -1878,9 +1846,8 @@ def test_reports_a_specification_path_the_filesystem_refuses(
     assert not (tmp_path / ".jri/specs").exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The models write the files, and Git writes the diff. Text that reads like patch metadata is metadata only after
+# Git composes it, and that diff is what the acceptance replays into the project.
 @pytest.mark.parametrize(
     ("path", "content"),
     [
@@ -1993,10 +1960,9 @@ def test_refuses_a_path_that_is_not_a_specification_of_its_root(
     assert not (tmp_path / ".jri/specs").exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The diff of a specification Git reads as binary names the file and carries none of its content.
+# The acceptance cannot replay such a patch, so the run ends over JRI's own write, although the model returned
+# the text.
 def test_refuses_a_specification_body_git_would_read_as_binary(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -2016,9 +1982,9 @@ def test_refuses_specifications_that_change_no_file(tmp_path: Path, create_repos
     assert find_accepted_commit(tmp_path) is None
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A link answers to none of the rules that the path itself is read against.
+# `git apply` refused a write through a link wherever the link stood: below the model's root, at it, or above it.
+# Nothing else makes that refusal now.
 @pytest.mark.parametrize(
     ("linked", "path"),
     [
@@ -2072,8 +2038,8 @@ def test_writes_the_specification_files_a_model_returned(
     ]
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A model that writes a path and also removes it has said two things about that path.
+# The removal is the later of the two.
 def test_removes_a_specification_the_same_answer_also_wrote(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -2086,10 +2052,10 @@ def test_removes_a_specification_the_same_answer_also_wrote(
     assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A draft says it is a delta onto the specifications the project holds, and the run asks Git before it believes
+# the draft.
+# Git weighs the whole patch before any part of it lands, so a refusal leaves the run's worktree exactly as the
+# checkout made it.
 def test_refuses_a_draft_the_specifications_moved_past(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -2111,17 +2077,14 @@ def test_refuses_a_draft_the_specifications_moved_past(
     assert not Workspace(tmp_path).draft_file.exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A draft is a file on the user's disk, so a patch that nothing of JRI's wrote can be there.
+# Git gladly places a link where a specification goes. `Specs.read` refuses such a tree. A run that met that
+# refusal only after it picked the draft up would end over it, then meet the same draft on the run after, and on
+# the run after that.
+# What the apply leaves is what `core.symlinks` answers, not what the platform is: a link the filesystem shows,
+# or a plain file that holds the text of the target and that only the index calls a link. A Windows without the
+# privilege for a link leaves the second one.
+# Both are refused, and a machine that reads `Path.is_symlink` alone takes the second one for a specification.
 @pytest.mark.parametrize(
     "symlinks",
     [pytest.param("true", marks=pytest.mark.skipif(sys.platform == "win32", reason="Windows makes no link")), "false"],
@@ -2150,11 +2113,10 @@ def test_refuses_a_draft_that_puts_a_link_where_a_specification_goes(
     assert not Workspace(tmp_path).draft_file.exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A draft cut off inside a hunk quotes fewer lines than its header counts, and `git apply --recount` reads the
+# body over the header. Git places such a draft and writes nothing of it.
+# A read of the tree tells the run what it picked up, so a draft that reached none of the tree is one that no run
+# reports picking up.
 def test_refuses_a_draft_cut_off_inside_its_hunk(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -2176,9 +2138,8 @@ def test_refuses_a_draft_cut_off_inside_its_hunk(
     assert not Workspace(tmp_path).draft_file.exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A draft is a file on the user's disk, so what Git places for it can be no specification at all.
+# Such a patch holds none of the run's work, and what it did place goes back out with it.
 def test_refuses_a_draft_that_places_no_specification(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -2197,11 +2158,10 @@ def test_refuses_a_draft_that_places_no_specification(
     assert not Workspace(tmp_path).draft_file.exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A draft outlives the run that composed it, and the JRI that composed that run.
+# The specifications it places are the one tree that reaches a commit with no answer of a model behind it.
+# They answer to what an answer answers to: the roots a model writes below, the names a specification can carry,
+# and a body that is text.
 @pytest.mark.parametrize(
     "draft",
     [
@@ -2244,12 +2204,10 @@ def test_refuses_a_draft_naming_a_specification_jri_would_not_write(
     assert not Workspace(tmp_path).draft_file.exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A restore asserts as much as an apply does, so the run reads the worktree back against what the checkout left.
+# No round can write onto a worktree that JRI cannot give back. The run ends and says so. It does not write,
+# render and commit a specification it refused.
+# The draft is gone by then, so the run after this one starts from the specifications the project holds.
 @pytest.mark.skipif(
     sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
 )
@@ -2273,10 +2231,9 @@ def test_refuses_a_worktree_a_drafted_specification_could_not_be_taken_out_of(
     assert not Workspace(tmp_path).draft_file.exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The draft is not the cause of a specification the operating system will not hand over, and JRI holds no bytes to
+# put back for one.
+# The restore leaves that file exactly where it stands. It does not write over what it never read.
 @pytest.mark.skipif(sys.platform == "win32", reason="a file that refuses a read is an access list `chmod` cannot write")
 def test_leaves_a_specification_it_cannot_read_where_it_stands(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
@@ -2304,10 +2261,9 @@ def test_leaves_a_specification_it_cannot_read_where_it_stands(
     assert not Workspace(tmp_path).draft_file.exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The draft is not the cause of a name the project's own specifications carry, and the round that writes beside
+# that name meets it whether the run picks the draft up or drops it.
+# To drop the draft would cost the user the work of a run and buy nothing.
 @pytest.mark.parametrize(
     ("standing", "content"),
     [
@@ -2340,9 +2296,8 @@ def test_keeps_a_draft_beside_a_specification_the_project_already_holds(
     assert Workspace(tmp_path).draft_file.exists()
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A run picks up the delta the draft placed. The specifications the project already holds are no part of it,
+# because the checkout put those there.
 def test_picks_up_the_draft_a_run_before_it_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
@@ -2362,9 +2317,9 @@ def test_picks_up_the_draft_a_run_before_it_wrote(tmp_path: Path, create_reposit
         }
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The run directory answers for itself in the ignore file JRI commits.
+# The draft is out of `git status`, out of the tree the architect is shown, and out of the copy the
+# repository study runs in.
 def test_keeps_a_draft_out_of_the_project(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
@@ -2380,9 +2335,8 @@ def test_keeps_a_draft_out_of_the_project(tmp_path: Path, create_repository: Cre
     assert not run_git(tmp_path, "status", "--short")
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
+# A run whose specifications are the ones already committed composed no delta at all.
+# An empty file is not a draft. It is a nothing for the next run to make sense of.
 def test_forgets_a_draft_whose_specifications_the_project_already_holds(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:

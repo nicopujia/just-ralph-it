@@ -14,8 +14,6 @@ CHILD_SUFFIX = ".child"
 # A holder stays alive while its test reads the lock. A parallel run loads the machine, thus this window
 # must outlive the slowest test by a large margin. `hold` ends its holder when the test ends.
 HELD_FOR = 300
-# Check this test support.
-# Check this test support.
 HOLDER = f"""
 import multiprocessing, sys, time
 from pathlib import Path
@@ -43,8 +41,8 @@ from jri.lib.lock import Lock
 with Lock(Path(sys.argv[1])):
     pass
 """
-# Check this test support.
-# Check this test support.
+# The death of a holder frees the lock, and the next taker gets it immediately. Only a lock that stays
+# held uses all of this time.
 TIMEOUT = 5
 
 
@@ -64,8 +62,7 @@ def hold(path: Path, *, forking: bool = False) -> "Iterator[subprocess.Popen[byt
         holder.kill()
         holder.wait()
         if child.exists():
-            # Check this test support.
-            # Check this test support.
+            # No other process reaps a process that the holder forked. The test that made it must stop it.
             os.kill(read_fork_child(path), signal.SIGTERM)
 
 
@@ -82,8 +79,8 @@ def runs(pid: int) -> bool:
 
 
 def take(path: Path) -> bool:
-    # Check this test support.
-    # Check this test support.
+    # A separate process asks for the lock. A lock that never comes back becomes a failed result here.
+    # The suite does not stop.
     try:
         taker = subprocess.run([sys.executable, "-c", TAKER, str(path)], timeout=TIMEOUT, check=False)
     except subprocess.TimeoutExpired:

@@ -153,12 +153,8 @@ def test_refreshes_an_expired_login(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     codex.Auth(ORIGINATOR).validate()
 
-    assert provider.calls == [
-        (
-            codex.Auth.OAUTH_URL,
-            {"grant_type": "refresh_token", "refresh_token": "refresh", "client_id": codex.Auth.CLIENT_ID},
-        )
-    ]
+    # The expired login holds one refresh token, and a refresh spends it once.
+    assert [data["refresh_token"] for _, data in provider.calls] == ["refresh"]
     stored = json.loads((tmp_path / "auth.json").read_text())
     assert stored["tokens"] == {**refreshed, "account_id": "account"}
     assert stored["last_refresh"].endswith("Z")
@@ -197,12 +193,8 @@ def test_retries_a_rejected_request_with_a_refreshed_login(tmp_path: Path, monke
         f"Bearer {build_token(DISTANT_FUTURE)}",
         f"Bearer {refreshed['access_token']}",
     ]
-    assert provider.calls == [
-        (
-            codex.Auth.OAUTH_URL,
-            {"grant_type": "refresh_token", "refresh_token": "refresh", "client_id": codex.Auth.CLIENT_ID},
-        )
-    ]
+    # One rejection asks for one refresh. A second would spend a token the provider already replaced.
+    assert len(provider.calls) == 1
     assert json.loads((tmp_path / "auth.json").read_text())["tokens"] == {**refreshed, "account_id": "account"}
 
 

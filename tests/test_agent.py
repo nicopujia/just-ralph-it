@@ -12,6 +12,11 @@ if TYPE_CHECKING:
     from openai import OpenAI
 
 
+# This is the round limit the agent applies.
+# Write it here too: a test that reads the constant accepts every change to the constant.
+MAX_ROUNDS = 50
+
+
 def build_agent(rounds: Iterable[Round]) -> "ToolAgent":
     return ToolAgent(cast("OpenAI", FakeClient(rounds)))
 
@@ -34,13 +39,13 @@ def test_resumes_the_tool_loop_until_the_model_replies_with_text() -> None:
 
 
 def test_stops_a_tool_loop_that_never_replies() -> None:
-    client = FakeClient(response(call(f"call-{index}", "echo", text="again")) for index in range(Agent.MAX_ROUNDS + 1))
+    client = FakeClient(response(call(f"call-{index}", "echo", text="again")) for index in range(MAX_ROUNDS + 1))
     agent = ToolAgent(cast("OpenAI", client))
 
-    with pytest.raises(ModelError, match=f"limit of {Agent.MAX_ROUNDS} response rounds"):
+    with pytest.raises(ModelError, match=f"limit of {MAX_ROUNDS} response rounds"):
         list(agent.send_message("Go."))
 
-    assert len(client.responses.inputs) == Agent.MAX_ROUNDS
+    assert len(client.responses.inputs) == MAX_ROUNDS
 
 
 def test_keeps_the_partial_text_of_a_cancelled_response() -> None:

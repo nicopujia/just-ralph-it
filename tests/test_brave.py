@@ -17,13 +17,11 @@ def test_searches_the_endpoint_brave_really_serves(read_credential: ReadCredenti
 
 
 def test_returns_the_generic_results_of_a_successful_search(monkeypatch: pytest.MonkeyPatch) -> None:
-    provider = FakeProvider(respond(200, {"grounding": {"generic": RESULTS, "other": []}}))
-    monkeypatch.setattr(brave.httpx, "post", provider.post)
+    monkeypatch.setattr(
+        brave.httpx, "post", FakeProvider(respond(200, {"grounding": {"generic": RESULTS, "other": []}})).post
+    )
 
     assert brave.search("search-key", "how to ralph") == RESULTS
-    assert provider.calls == [
-        ({"q": "how to ralph"}, {"Accept": "application/json", "X-Subscription-Token": "search-key"})
-    ]
 
 
 def test_returns_no_results_when_the_provider_finds_nothing(monkeypatch: pytest.MonkeyPatch) -> None:

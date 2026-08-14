@@ -70,13 +70,13 @@ def test_appends_a_run_to_the_log_the_session_already_has(tmp_path: Path) -> Non
     (tmp_path / paths.LOG_FILE).write_text(f"{EARLIER_RUN}\n")
 
     logs.configure(settings)
-    Conversation(settings)
+    logging.getLogger("jri").info(OPENING_RECORD)
 
     files = list_log_files(tmp_path)
     assert [file.name for file in files] == [Path(paths.LOG_FILE).name]
     written = files[0].read_text()
     assert EARLIER_RUN in written
-    assert "initialized" in written
+    assert OPENING_RECORD in written
 
 
 def test_names_the_version_and_the_process_on_every_line(tmp_path: Path) -> None:

@@ -14,8 +14,7 @@ STARTED_ROW = ToolCallStarted("commit", "Saving the specifications to your proje
 THOUGHT = ReasoningDelta("Weighing the options.")
 STREAMED_THOUGHT = "part {number} "
 STREAMED_THOUGHTS = 200
-# Check this test support.
-# Check this test support.
+# A stop that never arrives would hang the suite. A stop that will arrive is one poll away.
 STOPS_WITHIN = 10.0
 
 
@@ -29,8 +28,8 @@ def generate_failing(_settings: "Settings", _cancelled: Event | None = None) -> 
     raise RuntimeError("The architect could not be reached.")
 
 
-# Check this test support.
-# Check this test support.
+# The architect's model does not offer the reasoning effort that the request asks for. The provider answers the same
+# way on every attempt of every run.
 def generate_refused(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
     yield STARTED_ROW
     raise ProviderRefusalError("The provider answered 400 Bad Request, saying:\n```\nUnsupported value.\n```")
@@ -57,8 +56,8 @@ def generate_streaming(_settings: "Settings", _cancelled: Event | None = None) -
     return COMMIT
 
 
-# Check this test support.
-# Check this test support.
+# A run spends most of its minutes in a model call that says nothing. A stop must reach the run there, and not at
+# the next thing that the run writes down.
 def generate_silently(_settings: "Settings", cancelled: Event | None = None) -> Generator[object, None, str | None]:
     assert cancelled is not None
     assert cancelled.wait(STOPS_WITHIN), "the stop never reached the run"
@@ -66,10 +65,9 @@ def generate_silently(_settings: "Settings", cancelled: Event | None = None) -> 
     yield
 
 
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
+# The workflow answers a stop with no result at all. A run in a process of its own hears about a stop only after the
+# file that the follower writes reaches its watcher. This double waits for the stop. A test of the flag at this
+# point would find no stop, because no stop could have arrived yet.
 def generate_stopped(_settings: "Settings", cancelled: Event | None = None) -> Generator[object, None, str | None]:
     yield STARTED_ROW
     assert cancelled is not None

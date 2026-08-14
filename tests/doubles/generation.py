@@ -17,29 +17,23 @@ if TYPE_CHECKING:
     from jri.core.settings import Settings
 
 
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
+# A thread stands in for the runner process. This double replaces the spawn and nothing around it. Thus
+# `Generation.start` runs whole: the refusal that a held lock earns, the discard of what a folded run left, the wait
+# for the journal, and the read of a runner that died before it wrote one.
+# `Generation.execute` is the full life of a runner. A thread that runs it takes the same lock, writes the same
+# journal, and hears a stop through the same file. An operating system lock on a file refuses a second taker in the
+# process that holds it, the same as in any other process.
+# A thread leaves out the process boundary. It shares the memory and the descriptors of this process, and it dies
+# with this process. The subprocess tests must show that a run outlives the window that started it, and that
+# the standard error of a runner tells why it fell over.
 #
-# Check this test support.
-# Check this test support.
-# Check this test support.
+# The real runner reads its settings from the workspace. In a test those settings belong to a double, so this double
+# takes them from the JRI that asks for the run, at the moment it asks.
 def run_in_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     asked: list[Settings] = []
     ralph = Conversation.ralph
-    # Check this test support.
-    # Check this test support.
-    # Check this test support.
+    # Keep the real `Popen` before the patch below takes its place. Its type here is a callable of anything, because
+    # every call in JRI that starts a process reaches it, and each call gives keywords of its own.
     popen = cast("Callable[..., subprocess.Popen[bytes]]", subprocess.Popen)
 
     def ask(
@@ -49,31 +43,28 @@ def run_in_thread(monkeypatch: pytest.MonkeyPatch) -> None:
         return ralph(conversation, cancelled, detached)
 
     def spawn(command: list[str], **options: object) -> "subprocess.Popen[bytes] | _Runner":
-        # Check this test support.
-        # Check this test support.
+        # Git and the explorer start their processes through this same call. Each of those stays a real process.
         if tuple(command[1:]) != RUNNER_COMMAND:
             return popen(command, **options)
         return _Runner(asked[-1])
 
-    # Check this test support.
-    # Check this test support.
-    # Check this test support.
+    # A run that reaches a screen polls at a hundred milliseconds. This suite reads a journal that a thread beside it
+    # wrote, and waits for no model.
     monkeypatch.setattr(Generation, "POLL", 0.002)
     monkeypatch.setattr(Conversation, "ralph", ask)
     monkeypatch.setattr(subprocess, "Popen", spawn)
 
 
-# Check this test support.
-# Check this test support.
-# Check this test support.
-# Check this test support.
+# A run that the operating system kills leaves a journal with no ending, a lock that the kernel drops, and no
+# traceback. A thread that stands in for that process must end the same way. An exception that a double raises to
+# kill the thread is the kill, and not a failure of the suite.
 def _execute_until_killed(settings: "Settings") -> None:
     with suppress(BaseException):
         Generation.execute(settings)
 
 
-# Check this test support.
-# Check this test support.
+# The code that spawns a runner reads only this much of what `Popen` hands back: the number that it logs the runner
+# by, and whether the runner is still alive.
 class _Runner:
     def __init__(self, settings: "Settings") -> None:
         self.pid = os.getpid()

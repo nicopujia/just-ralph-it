@@ -20,12 +20,12 @@ from tests.doubles.youtube import FALLBACK_TRANSCRIPT, TRANSCRIPT, FakeApi
 )
 def test_fetches_the_english_transcript_from_supported_urls(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
     videos: list[str] = []
-    languages: list[list[str]] = []
-    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi(videos, languages))
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi(videos, []))
 
+    # The double serves this transcript only down the English path, thus the result shows which path ran.
     assert youtube.fetch_transcript_from_url(url) == TRANSCRIPT
+    # Each URL shape names the same video. The id the library asked for is what the parsing gives.
     assert videos == ["abc123"]
-    assert languages == [["en"]]
 
 
 def test_falls_back_to_another_language_when_english_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:

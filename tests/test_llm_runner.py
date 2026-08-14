@@ -304,7 +304,7 @@ def test_waits_longer_after_each_rate_limit_left_unexplained(waits: list[float])
 
 
 def test_reports_a_rate_limit_that_outlasts_the_retries(waits: list[float]) -> None:
-    runner = build_streaming_runner(*[rate_limited()] * LLMRunner.MAX_ATTEMPTS)
+    runner = build_streaming_runner(*[rate_limited()] * 4)
 
     # A rate limit after all attempts is a provider condition.
     # It is not a JRI fault.
@@ -312,7 +312,7 @@ def test_reports_a_rate_limit_that_outlasts_the_retries(waits: list[float]) -> N
     with pytest.raises(ProviderUnavailableError, match="Rate limit reached"):
         list(runner.respond([]).events)
 
-    assert len(waits) == LLMRunner.MAX_ATTEMPTS - 1
+    assert waits == [2.0, 4.0, 8.0]
 
 
 def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None:

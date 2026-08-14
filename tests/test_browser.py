@@ -23,6 +23,18 @@ def build_command(marker: Path) -> list[str]:
     return [sys.executable, "-c", BROWSER, str(marker), "%s"]
 
 
+# Wait for the page, not for the marker. The browser makes the file before
+# it writes it, so an existing marker can still be empty.
+def read_page(marker: Path) -> str:
+    deadline = time.monotonic() + RUNS_WITHIN
+    while True:
+        page = marker.read_text(encoding="utf-8") if marker.exists() else ""
+        if page:
+            return page
+        assert time.monotonic() < deadline, "the browser was never started"
+        time.sleep(POLL)
+
+
 def use_browser(monkeypatch: pytest.MonkeyPatch, browser: webbrowser.BaseBrowser) -> None:
     monkeypatch.setattr(webbrowser, "get", lambda *_: browser)
 
@@ -33,11 +45,7 @@ def test_starts_a_browser_that_leaves_this_terminal_alone(tmp_path: Path, monkey
 
     assert open_page(PAGE)
 
-    deadline = time.monotonic() + RUNS_WITHIN
-    while not marker.exists():
-        assert time.monotonic() < deadline, "the browser was never started"
-        time.sleep(POLL)
-    assert marker.read_text(encoding="utf-8") == PAGE
+    assert read_page(marker) == PAGE
 
 
 # This is the class that `webbrowser` uses for lynx, w3m, and links.
