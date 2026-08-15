@@ -292,8 +292,11 @@ def _name_test_modules(relative: Path) -> Iterator[str]:
     # When a stem conflicts, prefix it with the enclosing subpackages. Use the nearest prefix first. Continue
     # until no other module claims the name.
     packages = relative.parts[:-1]
+    # A leading underscore keeps a module inside its package. A test covers the same behavior from outside,
+    # so it takes the name without the mark.
+    stem = relative.stem.lstrip("_")
     for start in range(len(packages), -1, -1):
-        yield f"test_{'_'.join([*packages[start:], relative.stem])}.py"
+        yield f"test_{'_'.join([*packages[start:], stem])}.py"
 
 
 def _rank_module(node: ast.stmt) -> int | None:
