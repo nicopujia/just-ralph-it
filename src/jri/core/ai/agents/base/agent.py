@@ -59,6 +59,11 @@ class Agent:
     def get_context(self) -> ResponseInputParam:
         return self.history
 
+    # These are the tools the model can call now. `tools` keeps every tool, because a replay calls a tool the model
+    # can no longer call.
+    def get_tools(self) -> list[Tool]:
+        return self.tools
+
     def send_message(self, message: str, cancelled: Event | None = None) -> Generator["ai.AgentEvent"]:
         self.history.append({"role": "user", "content": message})
         yield from self.respond(cancelled)
@@ -67,7 +72,7 @@ class Agent:
         cancelled = cancelled or Event()
         logger.info("message_started agent=%s model=%s", type(self).__name__, self.model)
 
-        tool_definitions = [tool.definition for tool in self.tools]
+        tool_definitions = [tool.definition for tool in self.get_tools()]
 
         for _ in range(self.MAX_ROUNDS):
             partial_text: list[str] = []
@@ -115,7 +120,7 @@ class Agent:
         self.history.append({"role": "user", "content": message})
         logger.info("parse_started agent=%s model=%s", type(self).__name__, self.model)
 
-        tool_definitions = [tool.definition for tool in self.tools]
+        tool_definitions = [tool.definition for tool in self.get_tools()]
 
         for _ in range(self.MAX_ROUNDS):
             context = self.get_context()
@@ -153,7 +158,7 @@ class Agent:
         arguments = cast("str", output["arguments"])
         call_id = cast("str", output["call_id"])
         # Read the tools on each call. A run can take one away, as the explorer does without a search key.
-        tool = next((candidate for candidate in self.tools if candidate.name == name), None)
+        tool = next((candidate for candidate in self.get_tools() if candidate.name == name), None)
         # Do not open a row for a cancelled call.
         # Close each opened row before return to prevent removal by another process.
         # Yield the row before the call continues. The user can then stop the call.

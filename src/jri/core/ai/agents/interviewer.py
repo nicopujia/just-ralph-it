@@ -9,7 +9,7 @@ from jri.core.workspace import Workspace
 from jri.lib import prompt
 from jri.lib.models import estimate_tokens, get_context_limit
 
-from .base import Agent, Stream, ToolOutput, tool
+from .base import Agent, Stream, Tool, ToolOutput, tool
 from .explorer import Explorer
 
 if TYPE_CHECKING:
@@ -30,6 +30,7 @@ class Interviewer(Agent):
         self.settings = settings
         self.notebook = notebook
         self.offered_ralphing = False
+        self.generated_project = False
         self.initial_topic = notebook.initial_topic
         self.active_topic_id = self.initial_topic.id
         profile = settings.agents.interviewer
@@ -57,7 +58,7 @@ class Interviewer(Agent):
             if ("role" in item and item["role"] == "user") or not turns:
                 turns.append([])
             turns[-1].append(raw_item)
-        tools = [tool.definition for tool in self.tools]
+        tools = [item.definition for item in self.get_tools()]
         context: ResponseInputParam = [self.history[0], pinned, *(item for turn in turns for item in turn)]
         budget = get_context_limit(self.model, self.FALLBACK_CONTEXT_LIMIT) * self.CONTEXT_THRESHOLD
         while len(turns) > self.MIN_CONTEXT_TURNS and estimate_tokens(context, tools) > budget:
@@ -65,11 +66,19 @@ class Interviewer(Agent):
             context = [self.history[0], pinned, *(item for turn in turns for item in turn)]
         return context
 
+    # A generated project is one that JRI cannot change yet, so take the offer away once a run reports no ambiguities.
+    # Keep the tool itself, because a rewind replays the call that made an earlier offer.
+    @override
+    def get_tools(self) -> list[Tool]:
+        if not self.generated_project:
+            return self.tools
+        return [item for item in self.tools if item.name != self.offer_ralphing.__name__]
+
     @tool(
         (
-            "Offer the user the Just Ralph It control, without starting Ralphing. "
+            "Offer the user the Just Ralph It control, without triggering Ralph. "
             "Call it when you and the user agree the definition is complete, and explain that this displays a button "
-            "and that only the user can begin Ralphing by clicking it or pressing Ctrl+X, J."
+            "and that only the user can trigger Ralph by clicking it."
         ),
         started_label="Offering you to just Ralph it",
         finished_label="Offered you to just Ralph it",

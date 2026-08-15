@@ -92,6 +92,9 @@ class Session(BaseModel):
     transcript: list[Turn] = Field(default_factory=list)
     failed_call_ids: list[str] = Field(default_factory=list)
     ready_graph: Graph | None = None
+    # A run that reported no ambiguities built the project. JRI cannot change a built project yet.
+    # A rewind does not undo that build, so this record outlives the turns that a rewind drops.
+    generated_project: bool = False
     show_thinking_blocks: bool = False
     # No theme means the window follows the system appearance. A theme is the one the user selected.
     theme: str | None = None
@@ -281,6 +284,7 @@ class Conversation:
         self.interviewer.history = history
         self.interviewer.active_topic_id = self.session.active_topic_id
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
+        self.interviewer.generated_project = self.session.generated_project
         self.logger.info("restored interview_items=%d", len(self.session.interview))
         self._settle_interrupted_turn()
         return self.session.transcript
@@ -357,11 +361,13 @@ class Conversation:
         # A history item is permanent. It states what happened, not what to do next.
         # The prompt owns actions that persist.
         if isinstance(result, str):
+            self.interviewer.generated_project = True
             workflow_result = (
                 "Specification generation found no ambiguities: the specifications it wrote from the notebook as "
                 "it stands are the ones the project now holds, and they were committed."
             )
         elif isinstance(result, specs_generation.Unchanged):
+            self.interviewer.generated_project = True
             workflow_result = (
                 "Specification generation found no ambiguities and changed nothing: the specifications the project "
                 "already holds are the ones the notebook asks for, so no commit was made."
@@ -377,7 +383,9 @@ class Conversation:
         self.session.transcript[-1] = turn
         # A run that reports consumes its offered notes, regardless of its conclusion.
         # A run without a report leaves the offer active.
-        self.update_session(interview=self.interviewer.history, ready_graph=None)
+        self.update_session(
+            interview=self.interviewer.history, ready_graph=None, generated_project=self.interviewer.generated_project
+        )
         yield from self.interviewer.respond(cancelled)
 
     # This is the only place that saves and ends a turn. Both views read this record instead of deriving their own.
