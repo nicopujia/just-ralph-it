@@ -42,17 +42,20 @@ def test_draws_every_topic_note_and_connection() -> None:
     assert 'n1 -->|"supports"| n2' in diagram
 
 
-def test_hangs_a_note_off_its_topic_only_where_the_topic_does_not_already_point_at_it() -> None:
+# A connection joins a note and its topic in both directions at the same time.
+# A `contains` arrow beside it draws a second edge over the same two nodes.
+@pytest.mark.parametrize(
+    ("source_id", "target_id"), [("t1", "n1"), ("n1", "t1")], ids=["from the topic", "from the note"]
+)
+def test_hangs_a_note_off_its_topic_only_where_no_connection_already_joins_them(source_id: str, target_id: str) -> None:
     graph = build_graph()
-    graph.connections.append(Connection(source_id="t1", target_id="n1", label="asks about"))
-    graph.connections.append(Connection(source_id="n2", target_id="t1", label="answers"))
+    graph.connections.append(Connection(source_id=source_id, target_id=target_id, label="asks about"))
 
     diagram = read_diagram(render(graph))
 
     assert 't1 -->|"contains"| n1' not in diagram
+    assert f'{source_id} -->|"asks about"| {target_id}' in diagram
     assert 't1 -->|"contains"| n2' in diagram
-    assert 't1 -->|"asks about"| n1' in diagram
-    assert 'n2 -->|"answers"| t1' in diagram
 
 
 # These labels are texts that a user can write.

@@ -110,11 +110,15 @@ def render(graph: Graph) -> str:
             label += f"<br/>{_escape(summary)}"
         diagram.append(f'{INDENTATION}{topic.id}(["{label}"]):::topic')
     diagram.extend(f'{INDENTATION}{note.id}["{_escape(note.text)}"]' for note in graph.notes)
-    connected_pairs = {(connection.source_id, connection.target_id) for connection in graph.connections}
+    # A connection joins its two nodes whichever way it points.
+    # Compare the pairs without their direction.
+    # A directed comparison misses the connection from a note to its topic.
+    # Then the diagram draws a second edge over that same pair.
+    connected_pairs = {frozenset({connection.source_id, connection.target_id}) for connection in graph.connections}
     diagram.extend(
         f'{INDENTATION}{note.topic_id} -->|"contains"| {note.id}'
         for note in graph.notes
-        if (note.topic_id, note.id) not in connected_pairs
+        if frozenset({note.topic_id, note.id}) not in connected_pairs
     )
     diagram.extend(
         f'{INDENTATION}{connection.source_id} -->|"{_escape(connection.label)}"| {connection.target_id}'
