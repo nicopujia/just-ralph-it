@@ -22,6 +22,7 @@ from .ai import (
     ToolCallStarted,
     TurnEvent,
     TurnFinished,
+    prompts,
     specs_generation,
 )
 from .exceptions import (
@@ -362,16 +363,10 @@ class Conversation:
         # The prompt owns actions that persist.
         if isinstance(result, str):
             self.interviewer.generated_project = True
-            workflow_result = (
-                "Specification generation found no ambiguities: the specifications it wrote from the notebook as "
-                "it stands are the ones the project now holds, and they were committed."
-            )
+            workflow_result = prompts.read("specification_generation_committed")
         elif isinstance(result, specs_generation.Unchanged):
             self.interviewer.generated_project = True
-            workflow_result = (
-                "Specification generation found no ambiguities and changed nothing: the specifications the project "
-                "already holds are the ones the notebook asks for, so no commit was made."
-            )
+            workflow_result = prompts.read("specification_generation_unchanged")
         else:
             workflow_result = prompt.render(specification_generation_ambiguities=result.ambiguities)
         report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
