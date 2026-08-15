@@ -189,14 +189,27 @@ def check_test_layout(package: Path, tests: Path) -> None:
         for path in sorted(tests.glob("*.py"))
         if not path.name.startswith("test_") and path.name not in TEST_SUPPORT_MODULES
     ]
-    untested = [
-        f"{path}: no {tests.name}/test_{path.stem}.py"
-        for path in sorted(package.rglob("*.py"))
+    modules = [
+        path
+        for path in package.rglob("*.py")
         if path.name != "__init__.py"
         and path.relative_to(package).parts[0] != "tui"
         and any(isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) for node in _walk(path))
-        and not any((tests / name).exists() for name in _name_test_modules(path.relative_to(package)))
     ]
+    # Give a module the nearest name that no other module took. The shallowest module keeps the plain name, so
+    # two modules that share a stem ask for two files and one test cannot report both of them as covered.
+    claimed: set[str] = set()
+    untested: list[str] = []
+    for path in sorted(modules, key=lambda module: (len(module.relative_to(package).parts), module)):
+        name = next(
+            (candidate for candidate in _name_test_modules(path.relative_to(package)) if candidate not in claimed), None
+        )
+        if name is None:
+            untested.append(f"{path}: another module took every name this one can take")
+            continue
+        claimed.add(name)
+        if not (tests / name).exists():
+            untested.append(f"{path}: no {tests.name}/{name}")
     if misplaced or untested:
         raise RuntimeError("Tests laid out wrongly:\n" + "\n".join(misplaced + untested))
 
