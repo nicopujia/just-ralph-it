@@ -1,8 +1,11 @@
 # Testing
+- A new or changed test must be seen to fail. Break the behavior its name states, and quote the failing run and the passing run in the report. A test nobody has seen fail is not evidence, whatever it covers.
 - 80/20.
 - Verb-led behavioral names.
 - Name conflict -> prefix with nearest sub-package(s) until unique.
 - Black-box: assert the result, not the way it was reached. A rewrite that keeps the result keeps the test green. A result is a returned value, the bytes of a file, the state of the repository, the wording of an error, or the prompt sent to the model. The command that ran, the request that was posted, and the order of the calls behind them are not.
+- Write a fixture the way the assertion reads it back: `write_bytes` for a byte assertion, `newline="\n"` for text. Windows writes `\r\n` without it, and the bytes no longer match.
+- Remove a directory with `jri.lib.files.remove_directory`, not `shutil.rmtree`. Git leaves its objects read-only, and Windows refuses to remove them.
 - Deterministic, except a `contract`, which calls the endpoint for real. A double answers with what JRI expects of an endpoint, so no test against it can prove that expectation wrong — its calls show only that something happened, or how often.
 - A `contract` is deselected until a run asks for it: `./scripts/check.py --contracts`.
 - A `contract` with no key, or no way to reach its endpoint, fails. It does not skip. A skip is green, and the release would ship with nothing checked.

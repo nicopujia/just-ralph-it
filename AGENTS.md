@@ -2,6 +2,7 @@
 [Concept doc](https://nicolaspujia.com/just-ralph-it.md)
 
 ## Workflow
+Before changes: report the commit you start from, and the `pytest` count on it
 After changes: `scripts/check.py`
 
 ## Style

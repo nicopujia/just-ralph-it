@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .coverage
+.claude/worktrees/
 .dist/
 .venv/
 .ruff_cache/
