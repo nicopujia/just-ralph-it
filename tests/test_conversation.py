@@ -654,7 +654,7 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
 
     # The analyst wrote these words. They reach the interviewer in a block they cannot close, and never beside
     # JRI's own wording, which they could otherwise imitate.
-    assert f"<specification_generation_ambiguities>\n  - {ambiguity}\n</specification_generation_ambiguities>" in [
+    assert f"<specs_generation_ambiguities>\n  - {ambiguity}\n</specs_generation_ambiguities>" in [
         item.get("content") for item in conversation.session.interview
     ]
     restarted = build_conversation(FakeClient([]))

@@ -363,12 +363,12 @@ class Conversation:
         # The prompt owns actions that persist.
         if isinstance(result, str):
             self.interviewer.generated_project = True
-            workflow_result = prompts.read("specification_generation_committed")
+            workflow_result = prompts.read("specs_generation_committed")
         elif isinstance(result, specs_generation.Unchanged):
             self.interviewer.generated_project = True
-            workflow_result = prompts.read("specification_generation_unchanged")
+            workflow_result = prompts.read("specs_generation_unchanged")
         else:
-            workflow_result = prompt.render(specification_generation_ambiguities=result.ambiguities)
+            workflow_result = prompt.render(specs_generation_ambiguities=result.ambiguities)
         report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
         self.interviewer.history.append(report)
         # After the report, the run is complete.

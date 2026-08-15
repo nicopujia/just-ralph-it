@@ -21,7 +21,7 @@ class Interviewer(Agent):
     FALLBACK_CONTEXT_LIMIT = 100_000
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to make?"
-    EXCERPT_SCOPE = prompts.read("excerpt_scope")
+    EXCERPT_SCOPE = prompts.read("interviewer_excerpt_scope")
 
     def __init__(self, settings: Settings, notebook: Notebook) -> None:
         self.settings = settings
