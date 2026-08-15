@@ -186,12 +186,10 @@ def check_import_depth(*roots: Path) -> None:
         raise RuntimeError(f"Imports must stay within {MAX_IMPORT_DEPTH} levels:\n" + "\n".join(deep))
 
 
-def check_test_layout(package: Path, tests: Path) -> None:
-    misplaced = [
-        f"{path}: helpers belong under {tests.name}/doubles/"
-        for path in sorted(tests.glob("*.py"))
-        if not path.name.startswith("test_") and path.name not in TEST_SUPPORT_MODULES
-    ]
+# This names the test module of every module that a test must cover. `scripts/mutate.py` reads the same answer,
+# so a mutant runs the tests that really import the module it lives in. Two rules would drift apart, and the
+# second one would report a hole in a test file that never imports the module the hole is in.
+def assign_test_modules(package: Path) -> dict[Path, str | None]:
     modules = [
         path
         for path in package.rglob("*.py")
@@ -202,17 +200,30 @@ def check_test_layout(package: Path, tests: Path) -> None:
     # Give a module the nearest name that no other module took. The shallowest module keeps the plain name, so
     # two modules that share a stem ask for two files and one test cannot report both of them as covered.
     claimed: set[str] = set()
-    untested: list[str] = []
+    assigned: dict[Path, str | None] = {}
     for path in sorted(modules, key=lambda module: (len(module.relative_to(package).parts), module)):
         name = next(
             (candidate for candidate in _name_test_modules(path.relative_to(package)) if candidate not in claimed), None
         )
-        if name is None:
-            untested.append(f"{path}: another module took every name this one can take")
-            continue
-        claimed.add(name)
-        if not (tests / name).exists():
-            untested.append(f"{path}: no {tests.name}/{name}")
+        if name is not None:
+            claimed.add(name)
+        assigned[path] = name
+    return assigned
+
+
+def check_test_layout(package: Path, tests: Path) -> None:
+    misplaced = [
+        f"{path}: helpers belong under {tests.name}/doubles/"
+        for path in sorted(tests.glob("*.py"))
+        if not path.name.startswith("test_") and path.name not in TEST_SUPPORT_MODULES
+    ]
+    untested = [
+        f"{path}: another module took every name this one can take"
+        if name is None
+        else f"{path}: no {tests.name}/{name}"
+        for path, name in assign_test_modules(package).items()
+        if name is None or not (tests / name).exists()
+    ]
     if misplaced or untested:
         raise RuntimeError("Tests laid out wrongly:\n" + "\n".join(misplaced + untested))
 
