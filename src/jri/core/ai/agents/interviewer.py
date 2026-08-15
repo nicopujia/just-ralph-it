@@ -7,7 +7,7 @@ from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
 from jri.core.settings import Settings
 from jri.core.workspace import Workspace
 from jri.lib import prompt
-from jri.lib.models import estimate_tokens, get_context_limit
+from jri.lib.models import estimate_tokens, get_context_limit, measure_item, measure_request
 
 from .base import Agent, Stream, Tool, ToolOutput, tool
 from .explorer import Explorer
@@ -53,12 +53,16 @@ class Interviewer(Agent):
                 turns.append([])
             turns[-1].append(raw_item)
         tools = [item.definition for item in self.get_tools()]
-        context: ResponseInputParam = [self.history[0], pinned, *(item for turn in turns for item in turn)]
         budget = get_context_limit(self.profile.model, self.FALLBACK_CONTEXT_LIMIT) * self.CONTEXT_THRESHOLD
-        while len(turns) > self.MIN_CONTEXT_TURNS and estimate_tokens(context, tools) > budget:
-            turns.pop(0)
-            context = [self.history[0], pinned, *(item for turn in turns for item in turn)]
-        return context
+        # Weigh each turn once, and take the weight of a dropped turn off the total. Weighing the whole context
+        # again for each dropped turn would make this grow with the square of the interview length.
+        weights = [sum(measure_item(item) for item in turn) for turn in turns]
+        total = measure_request([self.history[0], pinned], tools) + sum(weights)
+        dropped = 0
+        while len(turns) - dropped > self.MIN_CONTEXT_TURNS and estimate_tokens(total) > budget:
+            total -= weights[dropped]
+            dropped += 1
+        return [self.history[0], pinned, *(item for turn in turns[dropped:] for item in turn)]
 
     # A generated project is one that JRI cannot change yet, so take the offer away once a run reports no ambiguities.
     # Keep the tool itself, because a rewind replays the call that made an earlier offer.

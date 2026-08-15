@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from jri.core.settings import AgentProfiles
-from jri.lib.models import estimate_tokens, get_context_limit
+from jri.lib.models import estimate_tokens, get_context_limit, measure_item, measure_request
 from tests.doubles.models import build_response, serve_catalog, serve_outcome
 
 CONTEXT_LIMIT = 273_000
@@ -108,8 +108,20 @@ def test_reads_the_catalog_once_for_a_model_it_answered_for(monkeypatch: pytest.
 def test_estimates_tokens_from_the_byte_size_of_the_payload() -> None:
     # The estimate uses UTF-8 byte length, not character count, so accented and non-ASCII text must cost more
     # tokens here. Otherwise a budget for such text would run low silently.
-    assert estimate_tokens("é" * 300, None) == estimate_tokens("a" * 300, None) + 100
+    assert estimate_tokens(measure_request("é" * 300, None)) == estimate_tokens(measure_request("a" * 300, None)) + 100
 
 
-def test_estimates_the_tokens_of_the_tools_alongside_the_context() -> None:
-    assert estimate_tokens("prompt", [{"name": "search"}]) > estimate_tokens("prompt", None)
+def test_measures_the_tools_alongside_the_context() -> None:
+    assert measure_request("prompt", [{"name": "search"}]) > measure_request("prompt", None)
+
+
+# A caller weighs a context once and then takes one item off at a time. Each item must cost the same alone as it
+# costs inside the whole payload, or a trimmed context would answer to a budget that no request ever weighed.
+def test_measures_an_item_as_the_payload_holding_it_measures_it() -> None:
+    head = [{"role": "system", "content": "Interview the user."}, {"role": "system", "content": "Notes: n1, n2."}]
+    added = [{"role": "user", "content": "Añadir soporte para «ralphing»"}, {"type": "reasoning", "summary": []}]
+    tools = [{"name": "capture_notes"}]
+
+    weighed = measure_request(head, tools) + sum(measure_item(item) for item in added)
+
+    assert weighed == measure_request([*head, *added], tools)
