@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -275,6 +276,21 @@ def test_creates_the_working_directory_when_it_is_missing(tmp_path: Path) -> Non
     assert installation.workspace.directory == missing / paths.WORKSPACE_DIR
     assert (missing / paths.SETTINGS_FILE).exists()
     assert git.find_root(missing) == missing.resolve()
+
+
+# A project can hold a workspace and no repository: a `.git` removed, or a copy taken out of one project tree and
+# put in a plain directory. The installation makes the repository, thus it must commit the workspace into it.
+# A clone of that new repository gets the ignore rules only from this commit.
+def test_commits_the_workspace_it_finds_into_the_repository_it_makes_for_it(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    shutil.rmtree(tmp_path / ".git")
+
+    installation = install_workspace(tmp_path)
+
+    assert not installation.created
+    assert installation.repository_created
+    assert installation.commit == git.Repository(tmp_path).read_head()
+    assert not git.Repository(tmp_path).read_status(list(paths.INSTALLED_PATHS))
 
 
 def test_preserves_an_existing_workspace_when_initializing_again(tmp_path: Path) -> None:
