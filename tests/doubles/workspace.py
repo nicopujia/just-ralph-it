@@ -25,7 +25,7 @@ from jri.lib.lock import Lock
 
 root, ready, record, held_for = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], float(sys.argv[4])
 assert Lock(root / paths.LOCK_FILE).take(record)
-ready.write_text(str(os.getpid()))
+ready.write_text(str(os.getpid()) + "\\n")
 time.sleep(held_for)
 """
 # This is a process that never took the project. It stands for whatever wears the number of a holder after the
@@ -40,7 +40,7 @@ beat = Path(sys.argv[3])
 # The first tick lands before the pid does, so a reader holding the pid
 # has a beat to count on from the moment it has it.
 beat.write_bytes(b".")
-Path(sys.argv[2]).write_text(str(os.getpid()))
+Path(sys.argv[2]).write_text(str(os.getpid()) + "\\n")
 while True:
     with beat.open("ab") as ticks:
         ticks.write(b".")
@@ -70,7 +70,7 @@ if deaf:
 # anything else stands for a holder JRI has no way of being.
 taken = Lock(root / paths.LOCK_FILE).take(record) if record else Workspace(root).open_hold().take()
 assert taken
-ready.write_text(str(os.getpid()))
+ready.write_text(str(os.getpid()) + "\\n")
 time.sleep({HELD_FOR})
 """
 POLL = 0.01
@@ -89,7 +89,7 @@ root, ready, delay = Path(sys.argv[1]), Path(sys.argv[2]), float(sys.argv[3])
 claim, lock = Lock(root / paths.CLAIM_FILE), Lock(root / paths.LOCK_FILE)
 assert claim.take()
 assert lock.take()
-ready.write_text(str(os.getpid()))
+ready.write_text(str(os.getpid()) + "\\n")
 time.sleep(delay)
 descriptor = os.open(root / paths.LOCK_FILE, os.O_RDWR)
 os.lseek(descriptor, LOCKED_BYTES, os.SEEK_SET)
@@ -214,8 +214,10 @@ def _read_pid(marker: Path) -> int:
     # The pid lands after the process did what it was started to do. A marker that is still empty means a process
     # that never got there. A marker is made a moment before it is written, thus this waits for a number in it and not
     # for the file.
+    # A write of a pid is not one step. A reader can meet the first digits of it and read a number that names another
+    # process. Each writer ends its pid with a line break, thus a number without one is a number still arriving.
     deadline = time.monotonic() + STARTS_WITHIN
-    while not (pid := marker.read_text(encoding="utf-8") if marker.exists() else "").isdigit():
+    while not (pid := marker.read_text(encoding="utf-8") if marker.exists() else "").endswith("\n"):
         assert time.monotonic() < deadline, f"nothing wrote a pid to {marker}"
         time.sleep(POLL)
     return int(pid)
