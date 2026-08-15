@@ -146,6 +146,28 @@ def test_commits_nothing_when_a_forced_start_over_changed_nothing(tmp_path: Path
     assert git.Repository(tmp_path).read_head() == installed.commit
 
 
+# Git writes the files in a run worktree read-only, and Windows refuses to remove one. A start over that raises
+# there leaves the project half replaced, and the user cannot start over at all. Replace what will go, keep what
+# will not, and report the rest.
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
+)
+def test_starts_the_project_over_when_a_path_it_replaces_cannot_be_removed(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    worktree = workspace.reserve_worktree_dir()
+    worktree.mkdir()
+    (worktree / "main.py").write_bytes(b"print('a copy of the project')\n")
+    worktree.chmod(0o500)
+
+    try:
+        install_workspace(tmp_path, force=True)
+    finally:
+        worktree.chmod(0o700)
+
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
+    assert (worktree / "main.py").exists(), "a path JRI could not remove is a path it leaves"
+
+
 def test_leaves_the_workspace_uncommitted_during_a_merge(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:

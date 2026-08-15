@@ -1,6 +1,5 @@
 import logging
 import os
-import shutil
 import signal
 import time
 from contextlib import contextmanager
@@ -8,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from jri.lib import git
+from jri.lib import files, git
 from jri.lib.lock import Lock
 
 from . import paths
@@ -223,10 +222,13 @@ class Workspace:
     def _reset_paths(self) -> tuple[Path, ...]:
         return tuple(self.root / path for path in paths.RESET_PATHS)
 
+    # A run worktree holds the files Git writes read-only, and Windows refuses to remove one. Remove a directory
+    # through `files`, which clears that attribute. A path that still will not go stays, and the reset goes on:
+    # the workspace the user asked for is written, and nothing here removes what another process can hold.
     def _clear(self) -> None:
         for path in self._reset_paths:
             if path.is_dir():
-                shutil.rmtree(path)
+                files.remove_directory(path)
             else:
                 path.unlink(missing_ok=True)
 
