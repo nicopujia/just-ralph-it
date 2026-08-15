@@ -185,7 +185,7 @@ def test_reads_undecodable_bytes_as_a_file_input(tmp_path: Path) -> None:
 
 # The tool offers to read files, plural, of every kind in one call. Each body must follow the header that names it.
 def test_reads_every_file_a_call_names(tmp_path: Path) -> None:
-    (tmp_path / "notes.md").write_text("Notes\n")
+    (tmp_path / "notes.md").write_bytes(b"Notes\n")
     (tmp_path / "diagram.png").write_bytes(PNG_HEADER)
     (tmp_path / "archive.bin").write_bytes(UNDECODABLE)
 

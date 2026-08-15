@@ -203,7 +203,7 @@ def test_reads_the_full_body_of_a_specification_it_judges_relevant(
     repository = create_repository(tmp_path)
     specification = tmp_path / ".jri" / "specs" / "functional" / "behavior.md"
     specification.parent.mkdir(parents=True)
-    specification.write_text(Specs.format(SPECIFICATIONS.files[0]), encoding="utf-8")
+    specification.write_text(Specs.format(SPECIFICATIONS.files[0]), encoding="utf-8", newline="")
     client = FakeClient(
         [], parsed=[response(call("read", "read_functional_specs", paths=["functional/behavior.md"])), SPECIFICATIONS]
     )

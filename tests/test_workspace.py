@@ -1,5 +1,4 @@
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -11,7 +10,7 @@ from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
 from jri.core.workspace import MAX_PID, Hold, Installation, Workspace
-from jri.lib import git
+from jri.lib import files, git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import ROOT_QUESTION, WINDOW_MARKER, install_a_killing_git
 from tests.doubles.lock import hold, take
@@ -283,7 +282,7 @@ def test_creates_the_working_directory_when_it_is_missing(tmp_path: Path) -> Non
 # A clone of that new repository gets the ignore rules only from this commit.
 def test_commits_the_workspace_it_finds_into_the_repository_it_makes_for_it(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    shutil.rmtree(tmp_path / ".git")
+    files.remove_directory(tmp_path / ".git")
 
     installation = install_workspace(tmp_path)
 

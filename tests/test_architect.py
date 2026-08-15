@@ -39,7 +39,7 @@ def write_specifications(repository_path: Path) -> None:
     for file in (*ARCHITECTURE.files, BEHAVIOR):
         specification = repository_path / SPECS_DIR / file.path
         specification.parent.mkdir(parents=True, exist_ok=True)
-        specification.write_text(Specs.format(file), encoding="utf-8")
+        specification.write_text(Specs.format(file), encoding="utf-8", newline="")
 
 
 def drain(
