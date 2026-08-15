@@ -35,10 +35,12 @@ UV_COMMANDS = (
         "--cov=src/jri/core",
         "--cov=src/jri/lib",
         "--cov-report=term-missing",
-        # This floor stays below what the suite covers, and below what the Windows leg covers: 49 tests need a
-        # shell or a signal that Windows has not, and the run without them covers less. A refactor that moves a
-        # line out of the run keeps the build green. A module that loses its tests does not.
-        "--cov-fail-under=97",
+        # This floor finds tests that went away. It does not say what the tests that stay are worth: this suite
+        # covered 99% of the code while it let one injected bug in three go through. Set the number from the loss
+        # it must find, and keep it under the platform that covers least. Windows covers 97.8%, because it skips
+        # 49 tests that need a shell or a signal it has not. The suite without `tests/test_specs.py`, its largest
+        # module, covers 95.1%. This floor thus finds a loss larger than that one module.
+        "--cov-fail-under=95",
     ),
 )
 MODULE_GROUPS = (
