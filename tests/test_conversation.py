@@ -8,7 +8,15 @@ from typing import cast
 import pytest
 
 from jri.core import paths
-from jri.core.ai import Interviewer, LLMRunner, ToolCallFinished, ToolCallStarted, TurnFinished, functional_analyst
+from jri.core.ai import (
+    Interviewer,
+    LLMRunner,
+    ToolCallFinished,
+    ToolCallStarted,
+    TurnFinished,
+    functional_analyst,
+    prompts,
+)
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError, RunDetached
 from jri.core.generation import Generation, Header, RowOpened
@@ -42,6 +50,7 @@ from tests.doubles.specs_generation import (
     generate_stopped,
     generate_succeeding,
     generate_thinking,
+    generate_unchanged,
 )
 from tests.doubles.workspace import install_workspace
 
@@ -638,6 +647,20 @@ def test_offers_no_ralphing_after_a_generated_project_reopens(monkeypatch: pytes
     list(restarted.chat("Add dark mode."))
 
     assert not restarted.is_ready_to_ralph
+
+
+# A run that commits and a run that changes nothing leave the project defined by the same notes, so the
+# interviewer hears one report. It cannot act on which files the run wrote, or on whether it committed them.
+def test_reports_a_generation_that_changed_nothing_to_the_interviewer(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([streamed_reply("Understood."), streamed_reply("Your project is defined.")])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_unchanged)
+
+    list(conversation.ralph())
+
+    assert prompts.read("specs_generation_done") in [item.get("content") for item in conversation.session.interview]
 
 
 def test_asks_the_interviewer_about_the_ambiguities_ralph_found(

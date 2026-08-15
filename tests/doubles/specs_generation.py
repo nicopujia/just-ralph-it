@@ -2,7 +2,7 @@ from collections.abc import Generator, Iterator
 from threading import Event
 from typing import TYPE_CHECKING
 
-from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted
+from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted, specs_generation
 from jri.core.exceptions import ProviderRefusalError, ProviderUnavailableError, RepositoryStateError
 
 if TYPE_CHECKING:
@@ -16,6 +16,9 @@ STREAMED_THOUGHT = "part {number} "
 STREAMED_THOUGHTS = 200
 # A stop that never arrives would hang the suite. A stop that will arrive is one poll away.
 STOPS_WITHIN = 10.0
+# A run that changes nothing closes its own rows. It saves no specifications, so it reports none saved.
+UNCHANGED_FINISHED_ROW = ToolCallFinished("commit", "Your project already holds these specifications", "done")
+UNCHANGED_STARTED_ROW = ToolCallStarted("commit", "Comparing the specifications with your project", "💾")
 
 
 def generate_blocked(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
@@ -46,6 +49,14 @@ def generate_succeeding(_settings: "Settings", _cancelled: Event | None = None) 
     yield STARTED_ROW
     yield FINISHED_ROW
     return COMMIT
+
+
+def generate_unchanged(
+    _settings: "Settings", _cancelled: Event | None = None
+) -> Generator[object, None, specs_generation.Unchanged]:
+    yield UNCHANGED_STARTED_ROW
+    yield UNCHANGED_FINISHED_ROW
+    return specs_generation.Unchanged()
 
 
 def generate_thinking(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:

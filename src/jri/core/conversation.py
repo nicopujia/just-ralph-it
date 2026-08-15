@@ -361,12 +361,11 @@ class Conversation:
 
         # A history item is permanent. It states what happened, not what to do next.
         # The prompt owns actions that persist.
-        if isinstance(result, str):
+        # A commit and an unchanged project are one result to the interviewer: the notes need no more work.
+        # Which files the run wrote, and whether it committed them, are facts the interviewer cannot act on.
+        if isinstance(result, str | specs_generation.Unchanged):
             self.interviewer.generated_project = True
-            workflow_result = prompts.read("specs_generation_committed")
-        elif isinstance(result, specs_generation.Unchanged):
-            self.interviewer.generated_project = True
-            workflow_result = prompts.read("specs_generation_unchanged")
+            workflow_result = prompts.read("specs_generation_done")
         else:
             workflow_result = prompt.render(specs_generation_ambiguities=result.ambiguities)
         report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
