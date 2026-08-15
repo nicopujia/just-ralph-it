@@ -35,12 +35,9 @@ class Explorer(Agent):
     def __init__(self, settings: Settings, directory: Path) -> None:
         self.settings = settings
         self.directory = directory
-        profile = settings.agents.explorer
         super().__init__(
             client=settings.llm.client,
-            model=profile.model,
-            temperature=profile.temperature,
-            reasoning_effort=profile.reasoning_effort,
+            profile=settings.agents.explorer,
             max_input_size=self.MAX_INPUT_SIZE,
             prompt=ai.prompts.read("explorer", working_directory=prompt.render(working_directory=str(directory))),
         )

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from jri.core import ai
 from jri.core.exceptions import ModelError
-from jri.core.settings import ReasoningEffort
+from jri.core.settings import AgentProfile
 from jri.lib import prompt
 
 from .tool import DEFAULT_SYMBOL, Invocation, Tool
@@ -32,10 +32,9 @@ class Agent:
     prompt: InitVar[str]
     initial_context: InitVar[ResponseInputParam | None] = None
 
+    # The client is shared, the profile holds what the user sets, and the code sets the input size limit.
     client: OpenAI
-    model: str
-    reasoning_effort: ReasoningEffort = None
-    temperature: float | None = None
+    profile: AgentProfile
     max_input_size: int | None = None
 
     tools: list[Tool] = field(init=False)
@@ -47,10 +46,10 @@ class Agent:
         self.tools = Tool.discover(self)
         self.runner = ai.LLMRunner(
             client=self.client,
-            model=self.model,
+            model=self.profile.model,
             prompt=prompt,
-            reasoning_effort=self.reasoning_effort,
-            temperature=self.temperature,
+            reasoning_effort=self.profile.reasoning_effort,
+            temperature=self.profile.temperature,
             max_input_size=self.max_input_size,
         )
         self.history = list(initial_context or [])
@@ -70,7 +69,7 @@ class Agent:
 
     def respond(self, cancelled: Event | None = None) -> Generator["ai.AgentEvent"]:
         cancelled = cancelled or Event()
-        logger.info("message_started agent=%s model=%s", type(self).__name__, self.model)
+        logger.info("message_started agent=%s model=%s", type(self).__name__, self.profile.model)
 
         tool_definitions = [tool.definition for tool in self.get_tools()]
 
@@ -118,7 +117,7 @@ class Agent:
         cancelled = cancelled or Event()
         self.history = self.history[:1]
         self.history.append({"role": "user", "content": message})
-        logger.info("parse_started agent=%s model=%s", type(self).__name__, self.model)
+        logger.info("parse_started agent=%s model=%s", type(self).__name__, self.profile.model)
 
         tool_definitions = [tool.definition for tool in self.get_tools()]
 

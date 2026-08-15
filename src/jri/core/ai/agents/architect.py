@@ -57,12 +57,9 @@ class Architect(Agent):
     def __init__(self, settings: Settings, repository: git.Repository, *, final: bool) -> None:
         self.repository = repository
         self._final = final
-        profile = settings.agents.architect
         super().__init__(
             client=settings.llm.client,
-            model=profile.model,
-            reasoning_effort=profile.reasoning_effort,
-            temperature=profile.temperature,
+            profile=settings.agents.architect,
             prompt=self.FINAL_PROMPT if final else self.PROMPT,
         )
 

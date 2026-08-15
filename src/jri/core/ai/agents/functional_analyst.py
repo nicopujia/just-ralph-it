@@ -44,12 +44,9 @@ class FunctionalAnalyst(Agent):
     ) -> None:
         self.repository = repository
         rules = ((self.DIFF_PROMPT, changed), (self.EXISTING_PROMPT, existing), (self.FEEDBACK_PROMPT, feedback))
-        profile = settings.agents.functional_analyst
         super().__init__(
             client=settings.llm.client,
-            model=profile.model,
-            reasoning_effort=profile.reasoning_effort,
-            temperature=profile.temperature,
+            profile=settings.agents.functional_analyst,
             prompt=ai.prompts.read(
                 "functional_analyst",
                 functional_specs_root=FUNCTIONAL_SPECS_ROOT,

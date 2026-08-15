@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from jri.core.ai import Agent, ToolCallFinished, ToolCallStarted, ToolOutput, tool
 from jri.core.exceptions import ModelError
+from jri.core.settings import AgentProfile
 from tests.doubles.openai import FakeClient, Round, call, partial_reply, reply, response
 
 if TYPE_CHECKING:
@@ -214,7 +215,7 @@ class ToolAgent(Agent):
     def __init__(self, client: "OpenAI") -> None:
         self.calls: list[str] = []
         self.narrated: list[str] = []
-        super().__init__(client=client, model="test", prompt="Answer with tools.")
+        super().__init__(client=client, profile=AgentProfile(model="test"), prompt="Answer with tools.")
 
     @tool("Echo the given text.", started_label="Echoing {text}", finished_label="Echoed {text}")
     def echo(self, text: str) -> str:

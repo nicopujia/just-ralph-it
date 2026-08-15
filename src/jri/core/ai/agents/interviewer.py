@@ -30,12 +30,9 @@ class Interviewer(Agent):
         self.generated_project = False
         self.initial_topic = notebook.initial_topic
         self.active_topic_id = self.initial_topic.id
-        profile = settings.agents.interviewer
         super().__init__(
             client=settings.llm.client,
-            model=profile.model,
-            temperature=profile.temperature,
-            reasoning_effort=profile.reasoning_effort,
+            profile=settings.agents.interviewer,
             prompt=prompts.read("interviewer"),
             initial_context=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
         )
@@ -57,7 +54,7 @@ class Interviewer(Agent):
             turns[-1].append(raw_item)
         tools = [item.definition for item in self.get_tools()]
         context: ResponseInputParam = [self.history[0], pinned, *(item for turn in turns for item in turn)]
-        budget = get_context_limit(self.model, self.FALLBACK_CONTEXT_LIMIT) * self.CONTEXT_THRESHOLD
+        budget = get_context_limit(self.profile.model, self.FALLBACK_CONTEXT_LIMIT) * self.CONTEXT_THRESHOLD
         while len(turns) > self.MIN_CONTEXT_TURNS and estimate_tokens(context, tools) > budget:
             turns.pop(0)
             context = [self.history[0], pinned, *(item for turn in turns for item in turn)]
