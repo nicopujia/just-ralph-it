@@ -76,8 +76,13 @@ class Lock:
             _release(descriptor)
 
     # Return whether the lock is free now. Do not wait for a held lock.
-    # Write holder data while taking the lock. A reader cannot read data
-    # from a holder that has already released the lock.
+    # Take the lock first, then write the holder data. A reader can thus
+    # find the lock held before its holder writes the record. The record
+    # also stays after the holder releases the lock, and after the
+    # operating system frees the lock of a process that died. No code of
+    # a dead holder runs to erase it. The record alone therefore does not
+    # name the process that holds the lock now. A reader that must trust
+    # the record needs its own exclusion with the writers.
     def take(self, holder: str = "") -> bool:
         return self._acquire(holder, wait=False)
 

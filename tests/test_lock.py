@@ -155,6 +155,21 @@ def test_replaces_the_record_the_holder_before_it_wrote(tmp_path: Path) -> None:
     second.release()
 
 
+def test_keeps_the_record_of_a_holder_that_let_the_lock_go(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+    lock = Lock(path)
+    assert lock.take("12345")
+
+    lock.release()
+
+    # The operating system frees the lock of a process that dies, and no code of that holder runs to erase its
+    # record. A record that a release erased would therefore promise what a kill can always break. The record stays,
+    # and a check of the lock keeps it, so a reader that wants the process holding the lock now must find the lock
+    # held and read the record under an exclusion of its own.
+    assert not Lock(path).is_held()
+    assert Lock(path).holder == "12345"
+
+
 def test_hands_back_no_record_from_a_write_that_stopped_halfway(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
