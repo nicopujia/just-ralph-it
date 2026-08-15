@@ -118,8 +118,9 @@ def incomplete_response(reason: str | None) -> Round:
 
 
 # The library gives a failed response an error object, and not a message. JRI takes what it shows the user from it.
-def failed_response(message: str) -> Round:
-    error = ResponseError(code="server_error", message=message)
+# The object also holds a code for the class of the failure. A provider can report a failure with no object at all.
+def failed_response(message: str | None) -> Round:
+    error = ResponseError(code="server_error", message=message) if message else None
     return [SimpleNamespace(type="response.failed", response=SimpleNamespace(error=error))]
 
 

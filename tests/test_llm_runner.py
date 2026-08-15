@@ -248,10 +248,18 @@ def test_reports_an_unexplained_cut_short_response() -> None:
         read_parsed(runner)
 
 
-def test_reports_a_failed_response() -> None:
+# The error object holds the provider message, so a partial match accepts the object too. Match the full text.
+def test_reports_why_a_response_failed() -> None:
     runner = build_runner(failed_response("the model overloaded"))
 
-    with pytest.raises(ModelError, match="the model overloaded"):
+    with pytest.raises(ModelError, match=r"^the model overloaded$"):
+        read_parsed(runner)
+
+
+def test_reports_an_unexplained_failed_response() -> None:
+    runner = build_runner(failed_response(None))
+
+    with pytest.raises(ModelError, match="failed for an unknown reason"):
         read_parsed(runner)
 
 

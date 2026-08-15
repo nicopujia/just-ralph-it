@@ -324,6 +324,8 @@ def _diagnose(event: ResponseStreamEvent) -> None:
             details = event.response.incomplete_details
             raise ModelError(f"Model response incomplete: {details.reason if details else 'unknown reason'}")
         case "response.failed":
-            raise ModelError(str(event.response.error))
+            # The provider writes this message. Show it alone, because JRI words next to it are words it can copy.
+            error = event.response.error
+            raise ModelError(error.message if error else "Model response failed for an unknown reason.")
         case "error":
             raise ModelError(event.message)
