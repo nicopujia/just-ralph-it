@@ -85,6 +85,9 @@ def check_project(root: Path, *, contracts: bool) -> None:
     check_public_api(package)
     check_import_depth(source, tests)
     check_test_layout(package, tests)
+    check_error_wording(tests)
+    check_expected_values(tests)
+    check_black_box(tests)
     check_deferred_annotations(source, tests)
     check_docstrings(source, tests, scripts)
     check_prompt_style(package / "core" / "ai" / "prompts")
@@ -214,6 +217,48 @@ def check_test_layout(package: Path, tests: Path) -> None:
         raise RuntimeError("Tests laid out wrongly:\n" + "\n".join(misplaced + untested))
 
 
+# A bare `pytest.raises(SomeError)` accepts every message. Two tests here used one, and each hid a hole. One let
+# the most common model failure ship with wording that nothing held in place. The other stayed green although the
+# code spent a one-time credential before it raised. The wording of an error is a result, so a test names it.
+def check_error_wording(*roots: Path) -> None:
+    loose = [
+        f"{path}:{node.lineno}: pytest.raises names no wording"
+        for root in roots
+        for path in sorted(root.rglob("*.py"))
+        for node in _walk(path)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "raises"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "pytest"
+        and not any(keyword.arg == "match" for keyword in node.keywords)
+    ]
+    if loose:
+        raise RuntimeError("Every expected error must name the wording it expects, with `match=`:\n" + "\n".join(loose))
+
+
+# A test that imports the value it expects compares the module with itself. Such a test cannot fail. One of them
+# stayed green after the shipped notice became a single character, and 1008 other tests stayed green with it.
+def check_expected_values(*roots: Path) -> None:
+    borrowed = [
+        line for root in roots for path in sorted(root.rglob("*.py")) for line in _find_borrowed_expectations(path)
+    ]
+    if borrowed:
+        raise RuntimeError(
+            "A test writes out the value it expects. It does not import it from the code it checks:\n"
+            + "\n".join(borrowed)
+        )
+
+
+# A test asserts the result, and not the way the result was reached. The prompt in `inputs` is a result, so a test
+# reads it. The remaining options of the request are not, and neither is the order of the calls. A test that reads
+# them fails after a rewrite that keeps the result, and misses a change of the result that keeps the request.
+def check_black_box(*roots: Path) -> None:
+    peeking = [line for root in roots for path in sorted(root.rglob("*.py")) for line in _find_request_reads(path)]
+    if peeking:
+        raise RuntimeError("A test asserts the result, and not the request that carried it:\n" + "\n".join(peeking))
+
+
 def check_deferred_annotations(*roots: Path) -> None:
     deferred = [
         f"{path}:{node.lineno}: annotations deferred"
@@ -292,6 +337,38 @@ def _find_private_constants(body: list[ast.stmt], path: Path) -> Iterator[str]:
                 continue
 
 
+def _find_borrowed_expectations(path: Path) -> Iterator[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    # Only a name that the module under test gave this file can hold the expectation hostage. A constant that the
+    # test file writes itself is the written-out value that this rule asks for.
+    imported = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("jri.")
+        for alias in node.names
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assert):
+            continue
+        for comparison in ast.walk(node.test):
+            if not isinstance(comparison, ast.Compare) or [type(op) for op in comparison.ops] != [ast.Eq]:
+                continue
+            for side in (comparison.left, *comparison.comparators):
+                if _name_root(side) in imported:
+                    yield f"{path}:{side.lineno}: {ast.unparse(side)} comes from the code under test"
+
+
+def _find_request_reads(path: Path) -> Iterator[str]:
+    for node in _walk(path):
+        match node:
+            case ast.Attribute(attr="options", value=ast.Attribute(attr="responses")):
+                yield f"{path}:{node.lineno}: {ast.unparse(node)} holds the request that was posted"
+            case ast.Subscript(value=ast.Attribute(attr="calls")):
+                yield f"{path}:{node.lineno}: {ast.unparse(node)} holds the order of the calls"
+            case _:
+                continue
+
+
 def _find_docstrings(path: Path) -> Iterator[int]:
     for node in _walk(path):
         if not isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) or not node.body:
@@ -310,6 +387,14 @@ def _name_test_modules(relative: Path) -> Iterator[str]:
     stem = relative.stem.lstrip("_")
     for start in range(len(packages), -1, -1):
         yield f"test_{'_'.join([*packages[start:], stem])}.py"
+
+
+# A bare name and a chain of attributes on one, such as `notice` or `logs.NOTICE`, name the value they end at. A
+# subscript or a call at the root builds a new value, so the expectation is not the imported one.
+def _name_root(node: ast.expr) -> str | None:
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
 
 
 def _rank_module(node: ast.stmt) -> int | None:

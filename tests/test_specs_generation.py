@@ -165,12 +165,13 @@ def read_prompts(client: FakeClient) -> list[str]:
     ]
 
 
-# The explorer is the only agent that runs a shell, so the call carrying that tool carries its instructions.
+# The explorer is the only agent that works in a directory of its own, so its instructions are the only ones that
+# name that directory.
 def read_explorer_prompt(client: FakeClient) -> str:
-    for options in client.responses.options:
-        tools = cast("list[dict[str, str]]", options.get("tools", ()))
-        if any(capability["name"] == "run_shell" for capability in tools):
-            return str(cast("list[dict[str, object]]", options["input"])[0]["content"])
+    for context in client.responses.inputs:
+        instructions = str(cast("list[dict[str, object]]", context)[0]["content"])
+        if "<working_directory>" in instructions:
+            return instructions
     raise AssertionError("The explorer was never called.")
 
 

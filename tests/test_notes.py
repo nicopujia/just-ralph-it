@@ -49,46 +49,69 @@ def test_allocates_a_topic_id_after_the_highest_one_in_the_file(tmp_path: Path) 
     assert Notebook(path).add_topic("Security").id == "t4"
 
 
+# Each shape below breaks one rule, and each rule has wording of its own. A shape refused for another rule than the
+# one it breaks says the rule it breaks is gone, so every case names the wording that must refuse it.
 @pytest.mark.parametrize(
-    "data",
+    ("data", "wording"),
     [
-        {
-            **VALID_GRAPH,
-            "topics": [
-                {"id": "t1", "name": "Overview", "status": "open"},
-                {"id": "tx", "name": "Delivery", "status": "open"},
-            ],
-        },
-        {
-            **VALID_GRAPH,
-            "notes": [
-                {"id": "n1", "topic_id": "t1", "text": "First"},
-                {"id": "n1", "topic_id": "t1", "text": "Second"},
-            ],
-        },
-        {
-            **VALID_GRAPH,
-            "topics": [
-                {"id": "t1", "name": "Overview", "status": "open"},
-                {"id": "t2", "name": " overview ", "status": "open"},
-            ],
-        },
-        {
-            **VALID_GRAPH,
-            "topics": [{"id": "t2", "name": "Overview", "status": "open"}],
-            "notes": [{"id": "n1", "topic_id": "t2", "text": "A requirement"}],
-        },
-        {**VALID_GRAPH, "notes": [{"id": "n1", "topic_id": "t2", "text": "A requirement"}]},
-        {**VALID_GRAPH, "connections": [{"source_id": "n1", "target_id": "n2", "label": "requires"}]},
-        {
-            **VALID_GRAPH,
-            "connections": [
-                {"source_id": "t1", "target_id": "n1", "label": "contains"},
-                {"source_id": "t1", "target_id": "n1", "label": "contains"},
-            ],
-        },
-        {**VALID_GRAPH, "topics": [{"id": "t1", "name": " ", "status": "open"}]},
-        {**VALID_GRAPH, "next_note_id": "n1"},
+        (
+            {
+                **VALID_GRAPH,
+                "topics": [
+                    {"id": "t1", "name": "Overview", "status": "open"},
+                    {"id": "tx", "name": "Delivery", "status": "open"},
+                ],
+            },
+            "String should match pattern",
+        ),
+        (
+            {
+                **VALID_GRAPH,
+                "notes": [
+                    {"id": "n1", "topic_id": "t1", "text": "First"},
+                    {"id": "n1", "topic_id": "t1", "text": "Second"},
+                ],
+            },
+            "Topic and note IDs must be unique",
+        ),
+        (
+            {
+                **VALID_GRAPH,
+                "topics": [
+                    {"id": "t1", "name": "Overview", "status": "open"},
+                    {"id": "t2", "name": " overview ", "status": "open"},
+                ],
+            },
+            "Topic names must be unique",
+        ),
+        (
+            {
+                **VALID_GRAPH,
+                "topics": [{"id": "t2", "name": "Overview", "status": "open"}],
+                "notes": [{"id": "n1", "topic_id": "t2", "text": "A requirement"}],
+            },
+            "The overview topic `t1` must exist",
+        ),
+        (
+            {**VALID_GRAPH, "notes": [{"id": "n1", "topic_id": "t2", "text": "A requirement"}]},
+            "Every note must reference an existing topic",
+        ),
+        (
+            {**VALID_GRAPH, "connections": [{"source_id": "n1", "target_id": "n2", "label": "requires"}]},
+            "Connection endpoints must reference existing topics or notes",
+        ),
+        (
+            {
+                **VALID_GRAPH,
+                "connections": [
+                    {"source_id": "t1", "target_id": "n1", "label": "contains"},
+                    {"source_id": "t1", "target_id": "n1", "label": "contains"},
+                ],
+            },
+            "Connections must be unique",
+        ),
+        ({**VALID_GRAPH, "topics": [{"id": "t1", "name": " ", "status": "open"}]}, "Graph content cannot be blank"),
+        ({**VALID_GRAPH, "next_note_id": "n1"}, "Note IDs must come before `n1`"),
     ],
     ids=[
         "malformed-id",
@@ -102,8 +125,8 @@ def test_allocates_a_topic_id_after_the_highest_one_in_the_file(tmp_path: Path) 
         "taken-next-id",
     ],
 )
-def test_rejects_invalid_graph_data(data: dict[str, Any]) -> None:
-    with pytest.raises(ValidationError):
+def test_rejects_invalid_graph_data(data: dict[str, Any], wording: str) -> None:
+    with pytest.raises(ValidationError, match=wording):
         Graph.model_validate(data)
 
 
@@ -347,10 +370,16 @@ def test_searches_only_visible_topics(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "query", [{"text": "  "}, {"depth": 0}, {"traverse_from": ["n1"], "depth": -1}], ids=["blank-text", "zero", "under"]
+    ("query", "wording"),
+    [
+        ({"text": "  "}, "Search query cannot be blank"),
+        ({"depth": 0}, "Traversal depth must be at least 1"),
+        ({"traverse_from": ["n1"], "depth": -1}, "Traversal depth must be at least 1"),
+    ],
+    ids=["blank-text", "zero", "under"],
 )
-def test_rejects_invalid_search_selectors(query: dict[str, Any]) -> None:
-    with pytest.raises(ValidationError):
+def test_rejects_invalid_search_selectors(query: dict[str, Any], wording: str) -> None:
+    with pytest.raises(ValidationError, match=wording):
         ReadQuery(**query)
 
 
@@ -441,7 +470,7 @@ def test_keeps_the_last_saved_graph_in_memory_when_writing_fails(tmp_path: Path)
     notebook.path.mkdir()
     (notebook.path / "blocker").write_text("taken")
 
-    with pytest.raises(PersistenceError):
+    with pytest.raises(PersistenceError, match="Could not save the notebook file"):
         notebook.add(["Second"], "t1")
 
     assert notebook.graph == before

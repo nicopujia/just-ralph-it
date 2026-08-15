@@ -3,7 +3,10 @@ from pathlib import Path
 from threading import Event
 from typing import cast
 
+import pytest
+
 from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted, architect
+from jri.core.exceptions import ModelError
 from jri.core.paths import SPECS_DIR
 from jri.core.specs import Specs
 from jri.lib import git
@@ -178,19 +181,28 @@ def test_reports_functional_issues_instead_of_an_architecture(
 ) -> None:
     create_repository(tmp_path)
     issues = architect.Issues(outcome="functional_specification_issues", issues=["Undefined totals."])
-    client = FakeClient([], parsed=[architect.Output(result=issues)])
+    # The model answers with text, and the run reads that text into the shape the pass asked for. An issues report
+    # reads back only where the pass asked for a shape that holds one.
+    client = FakeClient([], parsed=[response(reply(architect.Output(result=issues).model_dump_json()))])
 
     result = drain(build_architect(client, tmp_path).design(CONTEXT, Event()))[1]
 
     assert result == issues
-    assert client.responses.options[-1]["text_format"] is architect.Output
 
 
 def test_leaves_the_final_pass_no_way_to_report_issues(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
-    client = FakeClient([], parsed=[ARCHITECTURE])
+    issues = architect.Issues(outcome="functional_specification_issues", issues=["Undefined totals."])
+    client = FakeClient([], parsed=[response(reply(architect.Output(result=issues).model_dump_json()))])
+
+    with pytest.raises(ModelError, match="could not be read as Architecture"):
+        drain(build_architect(client, tmp_path, final=True).design(CONTEXT, Event()))
+
+
+def test_designs_the_architecture_of_a_final_pass(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    client = FakeClient([], parsed=[response(reply(ARCHITECTURE.model_dump_json()))])
 
     assert drain(build_architect(client, tmp_path, final=True).design(CONTEXT, Event()))[1] == ARCHITECTURE
-    assert client.responses.options[-1]["text_format"] is architect.Architecture
     prompt = cast("list[dict[str, object]]", client.responses.inputs[-1])[0]["content"]
     assert str(prompt).startswith(architect.Architect.FINAL_PROMPT)

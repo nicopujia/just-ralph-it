@@ -11,12 +11,14 @@ from tests.conftest import CreateLink
 # A lone surrogate is the shortest string that UTF-8 cannot encode.
 UNENCODABLE_CONTENT = "\ud800"
 READABLE_BY_EVERYONE = 0o644
+# The stop the test sends carries this wording, so a test can tell it from a stop that the write itself raised.
+STOP_AT_THE_REPLACE = "the user pressed Ctrl-C at the replace"
 
 
 # Ctrl-C ends a run at the next instruction, and it is not an `Exception`. This stands in for the interpreter at the
 # last step of the write, where the temporary file holds the whole of the new contents.
 def kill_the_run_before_replacing(*_: object, **__: object) -> Never:
-    raise KeyboardInterrupt
+    raise KeyboardInterrupt(STOP_AT_THE_REPLACE)
 
 
 def test_replaces_a_file_in_one_step(tmp_path: Path) -> None:
@@ -100,7 +102,7 @@ def test_leaves_no_temporary_file_behind_when_the_contents_cannot_be_encoded(tmp
     target = tmp_path / "file.txt"
     target.write_text("first", encoding="utf-8")
 
-    with pytest.raises(UnicodeEncodeError):
+    with pytest.raises(UnicodeEncodeError, match="surrogates not allowed"):
         files.write_atomically(target, UNENCODABLE_CONTENT)
 
     assert list(tmp_path.iterdir()) == [target]
@@ -110,7 +112,7 @@ def test_keeps_the_previous_contents_when_the_write_fails(tmp_path: Path) -> Non
     target = tmp_path / "file.txt"
     files.write_atomically(target, "first")
 
-    with pytest.raises(UnicodeEncodeError):
+    with pytest.raises(UnicodeEncodeError, match="surrogates not allowed"):
         files.write_atomically(target, UNENCODABLE_CONTENT)
 
     assert target.read_text(encoding="utf-8") == "first"
@@ -125,7 +127,7 @@ def test_leaves_no_temporary_file_behind_when_a_stop_ends_the_write(
     files.write_atomically(target, "first")
     monkeypatch.setattr(Path, "replace", kill_the_run_before_replacing)
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt, match=STOP_AT_THE_REPLACE):
         files.write_atomically(target, "second")
 
     assert list(tmp_path.iterdir()) == [target]

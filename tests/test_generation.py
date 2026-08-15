@@ -66,6 +66,9 @@ sys.exit(1)
 """
 LIVE_JOURNAL = b"what the run that holds the lock wrote\n"
 LIVE_LOG = b"what the run that holds the lock could not journal\n"
+# `RunDetached` is the signal that the window left, and not a failure. It carries no wording at all, and this
+# pattern holds it to that.
+NO_WORDING = "^$"
 POLL = 0.01
 RUNNER_JOURNAL = b"what the run that started now wrote\n"
 # This stands in for a runner that starts and writes its journal. It writes
@@ -561,7 +564,7 @@ def test_leaves_a_run_going_when_the_window_watching_it_leaves(tmp_path: Path, m
     events = generation.follow(None, detached)
     next(events)
     detached.set()
-    with pytest.raises(RunDetached):
+    with pytest.raises(RunDetached, match=NO_WORDING):
         list(events)
 
     assert runner.is_alive()
@@ -588,7 +591,7 @@ def test_hands_on_a_stop_the_window_asked_for_before_it_left(tmp_path: Path, mon
         detached.set()
 
     threading.Timer(STOPS_AFTER, leave).start()
-    with pytest.raises(RunDetached):
+    with pytest.raises(RunDetached, match=NO_WORDING):
         list(generation.follow(cancelled, detached))
 
     assert generation.cancel_file.exists()
@@ -673,7 +676,7 @@ def test_reports_the_last_of_what_a_runner_that_crashed_wrote(tmp_path: Path, mo
     generation = build_generation(tmp_path)
     monkeypatch.setattr("jri.core.generation.RUNNER_COMMAND", ("-c", CRASHING_RUNNER))
 
-    with pytest.raises(Error) as failure:
+    with pytest.raises(Error, match=r"the runner fell over$") as failure:
         generation.start()
 
     assert str(failure.value).endswith("the runner fell over")

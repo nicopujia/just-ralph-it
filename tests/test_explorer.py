@@ -314,7 +314,17 @@ def test_searches_the_web_and_quotes_the_results(monkeypatch: pytest.MonkeyPatch
         "<search_results>\n  https://justralph.it: Just Ralph It\n"
         "  https://ghuntley.com/ralph: Ralph Wiggum as a software engineer\n</search_results>"
     )
-    assert provider.calls[0][1]["X-Subscription-Token"] == "search-key"
+
+
+# The settings hold the name of the variable that carries the search key, and not the key itself. An explorer that
+# searched with that name would reach the provider with no key, and the provider would refuse every search.
+def test_reports_a_web_search_whose_key_variable_is_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SEARCH_API_KEY", raising=False)
+    monkeypatch.setattr(brave.httpx, "post", FakeProvider(respond(200, {"grounding": {"generic": RESULTS}})).post)
+    explorer = Explorer(build_settings(FakeClient([]), search_api_key="SEARCH_API_KEY"), Path.cwd())
+
+    with pytest.raises(KeyError, match="SEARCH_API_KEY"):
+        explorer.search_web("how to ralph")
 
 
 def test_withholds_web_search_without_an_api_key() -> None:

@@ -68,16 +68,19 @@ diff --git a/README.md b/README.md
 KILLED_INITS = (("config.lock", ("config", "HEAD")), ("HEAD.lock", ("HEAD",)))
 # Git ignores SIGPIPE so a broken output pipe does not end it. Sending it here would not kill Git, so it is left
 # out of the signals this test can use to end one.
+# A Git that a signal ends writes nothing before it goes. JRI supplies this wording in place of that silence,
+# so a failure the user reads always says something.
+SILENT_FAILURE = r"Git command failed\."
 HANDLED_SIGNALS_A_COMMIT_DIES_OF = ("HUP", "INT", "QUIT", "TERM")
 
 
 def test_rejects_a_missing_git_executable(tmp_path: Path) -> None:
-    with pytest.raises(git.NotInstalledError):
+    with pytest.raises(git.NotInstalledError, match="Git executable not found"):
         git.Repository(tmp_path, executable="missing-git-executable")
 
 
 def test_refuses_to_open_a_path_outside_any_worktree(tmp_path: Path) -> None:
-    with pytest.raises(git.NotRepositoryError):
+    with pytest.raises(git.NotRepositoryError, match="not a git repository"):
         git.Repository(tmp_path)
 
     assert not (tmp_path / ".git").exists()
@@ -246,7 +249,7 @@ def test_keeps_the_lock_another_command_took_while_a_refused_one_ran(
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
     window = TAKE_THE_LOCK.format(directory=tmp_path / ".git", lock="HEAD.lock") + REFUSE_THE_COMMIT
 
-    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.commit("second", paths=("README.md",))
 
     assert read_git_locks(tmp_path) == (tmp_path / ".git/HEAD.lock",)
@@ -261,7 +264,7 @@ def test_keeps_the_lock_a_running_command_holds_when_a_signal_ends_its_own_git(
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="HEAD.lock") + SIGNAL_THE_GIT.format(name=name)
 
-    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.commit("second", paths=("README.md",))
 
     try:
@@ -285,7 +288,7 @@ def test_keeps_the_index_lock_another_command_took_when_a_signal_ends_its_own_gi
     # its own. Git removes its own locks at a signal it handles, thus what stands after belongs to that command.
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + SIGNAL_THE_GIT.format(name=name)
 
-    with open_a_window(tmp_path, "past", window), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "past", window), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.commit("second", paths=("README.md",))
 
     try:
@@ -321,7 +324,7 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_git_that_neve
 
     with (
         open_a_window(tmp_path, "worktree", window),
-        pytest.raises(git.Error),
+        pytest.raises(git.Error, match=r"Preparing worktree|Git command failed\."),
         repository.open_worktree("HEAD", location=tmp_path / "checkout"),
     ):
         pass
@@ -386,7 +389,7 @@ def test_frees_the_locks_the_git_it_started_died_holding(
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
 
-    with open_a_window(tmp_path, "index", KILL_THE_GIT), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "index", KILL_THE_GIT), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.commit("second", paths=("README.md",))
 
     assert read_git_locks(tmp_path) == ()
@@ -405,7 +408,7 @@ def test_leaves_the_refs_a_commit_died_inside_its_transaction_holding(
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
     branch = tmp_path / ".git" / f"{run_git(tmp_path, 'symbolic-ref', 'HEAD')}.lock"
 
-    with open_a_window(tmp_path, "branch", KILL_THE_GIT), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "branch", KILL_THE_GIT), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.commit("second", paths=("README.md",))
 
     # Git moves HEAD and the branch ref inside one transaction. A stopped process cannot show whether that
@@ -426,7 +429,7 @@ def test_keeps_the_ref_lock_a_running_command_holds_when_a_kill_ends_a_commit(
     name = f"{run_git(tmp_path, 'symbolic-ref', 'HEAD')}.lock" if lock == "branch" else lock
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock=name) + KILL_THE_GIT
 
-    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.commit("second", paths=("README.md",))
 
     try:
@@ -447,7 +450,7 @@ def test_keeps_the_index_lock_that_was_standing_before_a_staging_a_kill_ended(
     install_a_killing_git(monkeypatch, tmp_path, STAGING_QUESTION)
     repository = git.Repository(tmp_path)
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.stage(("README.md",))
 
     assert read_git_locks(tmp_path) == (index_lock,)
@@ -459,7 +462,10 @@ def test_frees_the_index_lock_the_apply_it_started_died_holding(
 ) -> None:
     repository = create_repository(tmp_path)
 
-    with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="smudge"), pytest.raises(git.Error):
+    with (
+        open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="smudge"),
+        pytest.raises(git.Error, match=SILENT_FAILURE),
+    ):
         repository.apply_patch(RENAMING_PATCH, index=True)
 
     assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
@@ -475,7 +481,7 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_an_apply_that_t
     repository = create_repository(tmp_path)
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
 
-    with open_a_filter_window(tmp_path, window, side="smudge"), pytest.raises(git.Error):
+    with open_a_filter_window(tmp_path, window, side="smudge"), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.apply_patch(RENAMING_PATCH)
 
     try:
@@ -492,7 +498,10 @@ def test_frees_the_index_lock_the_staging_it_started_died_holding(
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
 
-    with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="clean"), pytest.raises(git.Error):
+    with (
+        open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="clean"),
+        pytest.raises(git.Error, match=SILENT_FAILURE),
+    ):
         repository.stage(("README.md",))
 
     assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
@@ -509,7 +518,10 @@ def test_frees_the_index_lock_the_restore_it_started_died_holding(
     # bytes it must replace. The edit below makes README.md that path.
     (tmp_path / "README.md").write_bytes(b"# Edited\n")
 
-    with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="smudge"), pytest.raises(git.Error):
+    with (
+        open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="smudge"),
+        pytest.raises(git.Error, match=SILENT_FAILURE),
+    ):
         repository.restore("HEAD", ["README.md"])
 
     assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
@@ -527,7 +539,10 @@ def test_frees_the_index_lock_the_unstaging_it_started_died_holding(
     # makes that refresh read the worktree back, which is where the kill below must land.
     stale_the_filtered_path(tmp_path)
 
-    with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="clean"), pytest.raises(git.Error):
+    with (
+        open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="clean"),
+        pytest.raises(git.Error, match=SILENT_FAILURE),
+    ):
         repository.unstage(["README.md"])
 
     assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
@@ -544,7 +559,7 @@ def test_keeps_the_lock_over_head_a_running_command_holds_when_a_kill_ends_a_sta
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="HEAD.lock") + KILL_THE_GIT
 
-    with open_a_filter_window(tmp_path, window, side="clean"), pytest.raises(git.Error):
+    with open_a_filter_window(tmp_path, window, side="clean"), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.stage(("README.md",))
 
     try:
@@ -564,7 +579,7 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_read(
     stale_the_filtered_path(tmp_path)
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
 
-    with open_a_filter_window(tmp_path, window, side="clean"), pytest.raises(git.Error):
+    with open_a_filter_window(tmp_path, window, side="clean"), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.read_status()
 
     try:
@@ -585,7 +600,7 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_commit_of_no_
     # Getting this wrong would delete another process's real lock instead of leaving it standing.
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
 
-    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.commit("second")
 
     try:
@@ -916,7 +931,7 @@ def test_rejects_a_patch_that_does_not_apply(tmp_path: Path, create_repository: 
     (repository.path / "README.md").write_bytes(b"updated\n")
     patch = repository.diff("HEAD", paths=["README.md"])
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="patch does not apply"):
         repository.apply_patch(patch)
 
 
@@ -935,7 +950,7 @@ diff --git a/README.md b/README.md
 
     assert (repository.path / "README.md").read_bytes() == b"# Project\n"
     assert repository.read_status() == ()
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="patch does not apply"):
         repository.apply_patch(patch, check=True, reverse=True)
 
 
@@ -958,7 +973,7 @@ def test_rejects_a_patch_whose_hunk_carries_no_trailing_context(
     repository = create_repository(tmp_path / "repo")
     (repository.path / "README.md").write_bytes(b"# Project\nThe store keeps orders.\nEverything runs offline.\n")
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="patch does not apply"):
         repository.apply_patch(CONTEXT_FREE_PATCH)
 
 
@@ -976,7 +991,7 @@ diff --git a/README.md b/README.md
 +The reporter renders totals.
 """
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="patch does not apply"):
         repository.apply_patch(patch, zero_context=True)
 
 
@@ -1136,7 +1151,7 @@ def test_copies_the_worktree_where_a_killed_process_left_one(
 
 
 def test_rejects_initializing_without_a_git_executable(tmp_path: Path) -> None:
-    with pytest.raises(git.NotInstalledError):
+    with pytest.raises(git.NotInstalledError, match="Git executable not found"):
         git.Repository.init(tmp_path / "project", executable="missing-git-executable")
 
     assert not (tmp_path / "project").exists()
@@ -1146,7 +1161,7 @@ def test_rejects_initializing_a_repository_over_a_file(tmp_path: Path) -> None:
     target = tmp_path / "project"
     target.write_bytes(b"not a directory\n")
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="Cannot initialize Git"):
         git.Repository.init(target)
 
 
@@ -1169,9 +1184,9 @@ def test_refuses_to_place_a_root_a_killed_git_never_answered_for(
     (repository.path / ".git" / WINDOW_MARKER).touch()
     install_a_killing_git(monkeypatch, repository.path, ROOT_QUESTION)
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="went unanswered"):
         git.find_root(nested)
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="went unanswered"):
         git.Repository.init(nested)
 
     assert not (nested / ".git").exists()
@@ -1185,7 +1200,7 @@ def test_refuses_to_call_a_killed_git_a_missing_worktree(
     (repository.path / ".git" / WINDOW_MARKER).touch()
     install_a_killing_git(monkeypatch, repository.path, WORKTREE_QUESTION)
 
-    with pytest.raises(git.Error) as raised:
+    with pytest.raises(git.Error, match="went unanswered") as raised:
         git.Repository(repository.path)
 
     assert not isinstance(raised.value, git.NotRepositoryError)
@@ -1194,7 +1209,7 @@ def test_refuses_to_call_a_killed_git_a_missing_worktree(
 def test_rejects_reading_the_head_of_a_repository_without_commits(tmp_path: Path) -> None:
     repository = git.Repository.init(tmp_path / "project")
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="unknown revision"):
         repository.read_head()
 
 
@@ -1218,7 +1233,7 @@ def test_refuses_to_answer_for_a_git_that_never_answered(
     (repository.path / ".git" / WINDOW_MARKER).touch()
     install_a_killing_git(monkeypatch, repository.path, HEAD_QUESTION)
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match=SILENT_FAILURE):
         git.Repository(repository.path).has_commit()
 
     assert repository.has_commit()
@@ -1244,10 +1259,10 @@ def test_reports_deleted_paths_on_the_side_they_were_deleted_from(
 def test_rejects_reading_a_file_a_revision_does_not_hold(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="does not exist in 'HEAD'"):
         repository.read_file("HEAD", "missing.md")
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="invalid object name"):
         repository.read_file("no-such-revision", "README.md")
 
 
@@ -1276,7 +1291,7 @@ def test_reads_only_the_tree_below_the_requested_path(tmp_path: Path, create_rep
 def test_rejects_a_commit_with_nothing_staged(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="nothing to commit"):
         repository.commit("jri: test")
 
 
@@ -1286,7 +1301,7 @@ def test_rejects_a_patch_whose_hunk_counts_are_wrong(
 ) -> None:
     repository = create_repository(tmp_path / "repo")
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="corrupt patch"):
         repository.apply_patch(patch)
 
     assert (repository.path / "README.md").read_bytes() == b"# Project\n"
@@ -1301,9 +1316,9 @@ def test_removes_the_worktree_when_the_body_raises(
     def fail_inside_the_worktree() -> None:
         with repository.open_worktree(location=tmp_path / "checkout") as worktree:
             locations.append(worktree.path)
-            raise ZeroDivisionError
+            raise ZeroDivisionError("the body fell over")
 
-    with pytest.raises(ZeroDivisionError):
+    with pytest.raises(ZeroDivisionError, match="the body fell over"):
         fail_inside_the_worktree()
 
     assert not locations[0].exists()
@@ -1326,7 +1341,10 @@ def test_rejects_opening_a_worktree_at_an_unknown_revision(tmp_path: Path, creat
     repository = create_repository(tmp_path / "repo")
     location = tmp_path / "checkout"
 
-    with pytest.raises(git.Error), repository.open_worktree("no-such-revision", location=location):
+    with (
+        pytest.raises(git.Error, match="invalid reference"),
+        repository.open_worktree("no-such-revision", location=location),
+    ):
         pass
 
     assert not location.exists()

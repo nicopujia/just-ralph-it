@@ -202,14 +202,14 @@ def test_falls_back_to_the_defaults_for_a_blank_settings_file(tmp_path: Path) ->
 def test_reports_a_settings_file_that_is_not_yaml(tmp_path: Path) -> None:
     write_settings_text(tmp_path, "llm: [unclosed\n")
 
-    with pytest.raises(yaml.YAMLError):
+    with pytest.raises(yaml.YAMLError, match="while parsing a flow sequence"):
         Settings.load()
 
 
 def test_reports_a_settings_file_that_is_not_a_mapping(tmp_path: Path) -> None:
     write_settings_text(tmp_path, "- llm\n- logging\n")
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="Input should be a valid dictionary or instance of Settings"):
         Settings.load()
 
 
@@ -253,7 +253,7 @@ def test_blames_the_setting_an_unset_environment_variable_belongs_to(tmp_path: P
     values["brave_search"] = {"api_key": "MISSING_SEARCH_API_KEY"}
     write_settings(tmp_path, values)
 
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError, match="but that environment variable is not set") as error:
         Settings.load()
 
     assert error.value.errors()[0]["loc"] == ("brave_search", "api_key")
@@ -264,7 +264,7 @@ def test_blames_the_api_key_a_subscriptionless_provider_needs(tmp_path: Path) ->
     values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": None}
     write_settings(tmp_path, values)
 
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError, match="must name the environment variable holding the API key") as error:
         Settings.load()
 
     assert error.value.errors()[0]["loc"] == ("llm", "api_key")
@@ -298,7 +298,7 @@ def test_reports_a_missing_subscription_login(tmp_path: Path, monkeypatch: pytes
     values["llm"] = {"provider": "openai-subscription"}
     write_settings(tmp_path, values)
 
-    with pytest.raises(codex.AuthError):
+    with pytest.raises(codex.AuthError, match="No file-based Codex login found"):
         Settings.load().llm.validate_authentication()
 
 

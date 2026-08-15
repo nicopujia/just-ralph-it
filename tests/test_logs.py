@@ -64,6 +64,9 @@ SABOTAGED_PATHS_TO_CONTAIN = tuple(
 SMALL_FILE_BYTES = 64 * 1024
 SMALL_RECORDS = 2000
 STAMP = re.compile(r"^\[([\d-]+ [\d:,]+)\]", re.MULTILINE)
+# The line a trim leaves in place of the records it dropped. The test writes it out, so a change to the shipped
+# wording shows here as a failure.
+TRIM_NOTICE = "[earlier records dropped]"
 TURN_RECORDS = 3
 TURNS = 2
 WRITE_SECONDS = 10
@@ -124,7 +127,7 @@ def test_keeps_the_newest_records_of_a_session_that_fills_the_file_over_and_over
     log = read_session_log(tmp_path)
     assert FAILURE_RECORD in log
     assert OPENING_RECORD not in log, "the file keeps its newest records, and this one is older than the limit"
-    assert logs.TRIM_NOTICE in log
+    assert TRIM_NOTICE in log
 
 
 def test_drops_the_record_that_a_trim_cuts_in_two(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,7 +140,7 @@ def test_drops_the_record_that_a_trim_cuts_in_two(tmp_path: Path, monkeypatch: p
     _fill_past_the_bound(logger)
 
     lines = read_session_log(tmp_path).splitlines()
-    assert lines[0] == logs.TRIM_NOTICE, "the file the trim wrote does not say that it dropped records"
+    assert lines[0] == TRIM_NOTICE, "the file the trim wrote does not say that it dropped records"
     # A trim cuts the file inside a record. The end of that record is a line with no stamp, no run, and no level.
     assert all(STAMP.match(line) for line in lines[1:]), "the file keeps the end of the record a trim cut in two"
     assert FAILURE_RECORD in lines[-1]

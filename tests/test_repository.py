@@ -1,7 +1,11 @@
 from pathlib import Path
 
-from jri.core.repository import CO_AUTHOR, Repository
+from jri.core.repository import Repository
 from tests.conftest import CreateRepository, RunGit
+
+# The credit that every commit JRI makes must carry. The test writes it out, so a change to the shipped name or
+# address shows here as a failure.
+CO_AUTHOR = "ralphpujia <ralph@pujia.ar>"
 
 
 def test_credits_ralph_without_being_asked(

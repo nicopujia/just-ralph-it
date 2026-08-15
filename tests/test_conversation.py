@@ -45,6 +45,9 @@ from tests.doubles.specs_generation import (
 )
 from tests.doubles.workspace import install_workspace
 
+# `RunDetached` is the signal that the window left, and not a failure. It carries no wording at all, and this
+# pattern holds it to that.
+NO_WORDING = "^$"
 RUN_STARTED = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -743,7 +746,7 @@ def test_writes_nothing_down_when_the_window_leaves_a_run_running(monkeypatch: p
     watched = [next(events)]
     started = conversation.workspace.session_file.read_bytes()
     detached.set()
-    with pytest.raises(RunDetached):
+    with pytest.raises(RunDetached, match=NO_WORDING):
         watched.extend(events)
 
     # `RunDetached` is a `BaseException`, not an `Exception`: catching it here as a turn failure would report
@@ -759,7 +762,7 @@ def test_ends_a_run_the_window_walked_out_on(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
 
     detached.set()
-    with pytest.raises(RunDetached):
+    with pytest.raises(RunDetached, match=NO_WORDING):
         list(conversation.ralph(None, detached))
 
     restarted = build_conversation(FakeClient([streamed_reply("The specifications are in.")]))
@@ -787,7 +790,7 @@ def test_keeps_the_offer_a_detached_run_never_spent(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
 
     detached.set()
-    with pytest.raises(RunDetached):
+    with pytest.raises(RunDetached, match=NO_WORDING):
         list(conversation.ralph(None, detached))
 
     restarted = build_conversation(FakeClient([]))
@@ -802,7 +805,7 @@ def test_leaves_the_turn_of_a_run_a_window_can_pick_up_open(monkeypatch: pytest.
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
 
     detached.set()
-    with pytest.raises(RunDetached):
+    with pytest.raises(RunDetached, match=NO_WORDING):
         list(conversation.ralph(None, detached))
 
     restarted = build_conversation(FakeClient([streamed_reply("The specifications are in.")]))

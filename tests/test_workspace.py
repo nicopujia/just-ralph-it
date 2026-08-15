@@ -9,7 +9,7 @@ from jri.core import paths
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
-from jri.core.workspace import MAX_PID, Hold, Installation, Workspace
+from jri.core.workspace import Hold, Installation, Workspace
 from jri.lib import files, git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import ROOT_QUESTION, WINDOW_MARKER, install_a_killing_git
@@ -29,6 +29,9 @@ from tests.doubles.workspace import (
 
 # A window lets the project go well inside the wait a takeover gives the operating system before it signals.
 LETS_GO_AFTER = Hold.SIGNALLED_AFTER / 2
+# The largest pid a hold reads as a real process. The test writes it out, so a change to the bound shows here as
+# a failure.
+MAX_PID = 2147483647
 # The claim stays locked until the slow holder writes its own pid.
 # `Hold.take` must wait on that release, or it could read the killed
 # holder's stale record instead of the current one.
@@ -241,9 +244,9 @@ def test_refuses_a_root_a_killed_git_never_placed(
     monkeypatch.chdir(nested)
     install_a_killing_git(monkeypatch, repository.path, ROOT_QUESTION)
 
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="went unanswered"):
         Workspace.find()
-    with pytest.raises(git.Error):
+    with pytest.raises(git.Error, match="went unanswered"):
         install_workspace(nested)
 
     # A Git that dies mid-setup must not leave a half-made workspace or

@@ -114,19 +114,20 @@ def test_stops_a_parse_between_the_events_of_its_stream() -> None:
 def test_asks_for_nothing_on_behalf_of_a_run_already_stopped() -> None:
     cancelled = Event()
     cancelled.set()
-    client = FakeClient([], parsed=[Output(answer="ready")])
+    # The double holds no answer at all. A call to the provider finds nothing to read and fails the test, so a run
+    # that asks for something cannot pass for a run that asks for nothing.
+    client = FakeClient([], parsed=[])
 
     assert read_parsed(LLMRunner(client=cast("OpenAI", client), model="test"), cancelled) is None
-    assert client.responses.options == []
 
 
 def test_stops_a_parse_rather_than_retrying_it_for_a_run_left_behind(monkeypatch: pytest.MonkeyPatch) -> None:
     cancelled = Event()
     monkeypatch.setattr("jri.core.ai.llm_runner.sleep", lambda _: cancelled.set())
-    client = FakeClient([], parsed=[rate_limited(), Output(answer="ready")])
+    # The double holds the rate limit and nothing after it. A retry finds nothing to read and fails the test.
+    client = FakeClient([], parsed=[rate_limited()])
 
     assert read_parsed(LLMRunner(client=cast("OpenAI", client), model="test"), cancelled) is None
-    assert len(client.responses.options) == 1
 
 
 # JRI can point at any OpenAI-compatible provider, not only OpenAI. `response.reasoning.delta` names no event the
@@ -188,14 +189,13 @@ def test_stops_a_parse_the_user_left_mid_thought() -> None:
 # Do not retry after the reader receives reasoning.
 # Report the error from the response that the reader received.
 def test_does_not_retry_a_call_whose_thinking_reached_the_user(waits: list[float]) -> None:
-    client = FakeClient([], parsed=[interrupted_thinking("Weighing the options."), Output(answer="ready")])
-    runner = LLMRunner(client=cast("OpenAI", client), model="test")
+    # The double holds the interrupted round and nothing after it. A retry finds nothing to read and fails the test.
+    runner = build_runner(interrupted_thinking("Weighing the options."))
 
     with pytest.raises(ModelError, match="Rate limit reached"):
         drain(runner.parse([], Output))
 
     assert waits == []
-    assert len(client.responses.options) == 1
 
 
 # The provider reports usage when the response completes.
@@ -265,11 +265,10 @@ def test_reports_an_unexplained_failed_response() -> None:
 
 @pytest.mark.parametrize("temperature", [0, None], ids=["configured", "omitted"])
 def test_sends_temperature_only_when_configured(temperature: float | None) -> None:
-    client = FakeClient([], parsed=[Output(answer="ready")])
+    runner = LLMRunner(client=cast("OpenAI", FakeClient([])), model="test", temperature=temperature)
 
-    read_parsed(LLMRunner(client=cast("OpenAI", client), model="test", temperature=temperature))
-
-    assert client.responses.options[-1]["temperature"] == (omit if temperature is None else temperature)
+    # A provider rejects a temperature of `None`. The runner sends the sentinel that leaves the field out instead.
+    assert runner.sampling == (omit if temperature is None else temperature)
 
 
 # The provider supports the `max` effort level.
@@ -277,11 +276,9 @@ def test_sends_temperature_only_when_configured(temperature: float | None) -> No
 # Send it so the accepted setting has an effect.
 @pytest.mark.parametrize("effort", ["xhigh", "max"], ids=["listed", "unlisted"])
 def test_sends_the_reasoning_effort_it_was_given(effort: ReasoningEffort) -> None:
-    client = FakeClient([], parsed=[Output(answer="ready")])
+    runner = LLMRunner(client=cast("OpenAI", FakeClient([])), model="test", reasoning_effort=effort)
 
-    read_parsed(LLMRunner(client=cast("OpenAI", client), model="test", reasoning_effort=effort))
-
-    assert client.responses.options[-1]["reasoning"] == {"effort": effort, "summary": "auto"}
+    assert runner.reasoning == {"effort": effort, "summary": "auto"}
 
 
 def test_rejects_a_context_over_the_input_size_limit() -> None:
@@ -356,7 +353,7 @@ def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None
         rejection("Unsupported value: 'minimal' is not supported with `gpt-5.6-sol`."), streamed_reply("ready")
     )
 
-    with pytest.raises(ProviderRefusalError) as refusal:
+    with pytest.raises(ProviderRefusalError, match="answered 400 Bad Request") as refusal:
         list(runner.respond([]).events)
 
     # This request gives the same refusal on every attempt.
@@ -377,7 +374,7 @@ def test_names_the_address_it_could_not_reach(waits: list[float]) -> None:
     dropped = disconnection(httpx.ConnectError("[Errno -2] Name or service not known"))
     runner = build_streaming_runner(*[dropped] * LLMRunner.MAX_ATTEMPTS)
 
-    with pytest.raises(ProviderUnavailableError) as failure:
+    with pytest.raises(ProviderUnavailableError, match="Could not reach the provider") as failure:
         list(runner.respond([]).events)
 
     assert str(failure.value) == (f"Could not reach the provider at {BASE_URL}/: [Errno -2] Name or service not known")
@@ -391,7 +388,7 @@ def test_passes_on_a_body_that_says_nothing_of_itself(waits: list[float]) -> Non
     outage = bad_gateway("<html><body><h1>502 Bad Gateway</h1></body></html>")
     runner = build_streaming_runner(*[outage] * LLMRunner.MAX_ATTEMPTS)
 
-    with pytest.raises(ProviderUnavailableError) as failure:
+    with pytest.raises(ProviderUnavailableError, match="answered 502 Bad Gateway") as failure:
         list(runner.respond([]).events)
 
     assert str(failure.value) == (

@@ -387,7 +387,7 @@ def test_stops_asking_for_a_login_after_a_second_rejection(tmp_path: Path, monke
 
     # The flow retries once, not forever, so an account whose login is actually broken fails fast instead of
     # hammering the token endpoint.
-    with pytest.raises(openai.AuthenticationError):
+    with pytest.raises(openai.AuthenticationError, match="Error code: 401"):
         client.responses.with_raw_response.create(model="gpt-5.6-sol", input="Hello.")
 
     assert [request.headers["Authorization"] for request in requests] == [
