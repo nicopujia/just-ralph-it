@@ -76,6 +76,8 @@ class Graph(BaseModel):
             subtree |= frontier
         return subtree
 
+    # A topic reads as trashed when it or any topic above it is. Only the topic the user discarded carries the status,
+    # so restoring it gives the subtree back as it stood.
     def read_trashed_ids(self) -> set[str]:
         by_id = {topic.id: topic for topic in self.topics}
         trashed: set[str] = set()
@@ -171,8 +173,6 @@ class Notebook:
     def initial_topic(self) -> Topic:
         return self.graph.read_overview()
 
-    # A topic reads as trashed when it or any topic above it is. Only the topic the user discarded carries the status,
-    # so restoring it gives the subtree back as it stood.
     @property
     def trashed_topic_ids(self) -> set[str]:
         return self.graph.read_trashed_ids()

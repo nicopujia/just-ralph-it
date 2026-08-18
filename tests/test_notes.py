@@ -821,8 +821,9 @@ def test_refuses_to_stand_a_topic_under_a_trashed_one(tmp_path: Path) -> None:
     assert reopened.parent_id == "t1"
 
 
-# The pinned document must hold no connection that names a note it does not show, whatever the tree does.
-def test_renders_no_connection_naming_a_note_it_does_not_show(tmp_path: Path) -> None:
+# A pinned connection can name a note the document does not show, because a topic keeps its edges to the rest of the
+# project. It must not name a note of a topic that the document leaves out altogether.
+def test_renders_nothing_of_a_topic_under_a_trashed_one(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     discarded = notebook.add_topic("Discarded", "t1", "What was dropped.")
     under = notebook.add_topic("Under", discarded.id, "It stands under the discarded topic.")

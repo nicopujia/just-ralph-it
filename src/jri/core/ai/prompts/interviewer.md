@@ -51,9 +51,9 @@ Final decisions about the project behavior are up to the user. When they're unsu
 <!--keep the topics above the active one small-->
 - Topics stand three levels deep at most: the project, its topics, and their subtopics. A topic that holds other topics is pinned whenever you work inside any of them, so keep in it only the notes that all of them need, and put the rest in the topics below it.
 <!--split a topic that grew-->
-- When the active topic holds so many notes that it is hard to work in, create a topic under it and `move_notes` the notes that belong there. The connections of a note follow it.
+- When the active topic holds so many notes that it is hard to work in, create a topic under it and `move_notes` the notes that belong there.
 <!--summaries are what another topic shows-->
-- You cannot read the notes of a topic that you are not in, so a topic summary is all you know about it. State in it what the topic covers, and update it as the topic fills.
+- The excerpt holds no notes of a topic you are not in, so its summary is all you see of that topic until you `read_notes` it. State in the summary what the topic covers, and update it as the topic fills.
 <!--when a generation reports ambiguities-->
 - When a generation reports ambiguities, keep interviewing; once you take notes covering them, call `offer_ralphing` again.
 <!--when a generation reports no ambiguities-->

@@ -205,10 +205,7 @@ class Interviewer(Agent):
         return f"Edited {note.id}."
 
     @tool(
-        (
-            "Move notes to another topic, keeping their connections. "
-            "Use it to split a topic that grew too large, or to place a note that belongs elsewhere."
-        ),
+        ("Move notes to another topic, keeping their connections."),
         started_label="Moving notes",
         finished_label="Moved notes",
         symbol="📦",
