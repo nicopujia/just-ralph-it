@@ -25,6 +25,7 @@ from tests.doubles.workspace import (
     read_requests_to_go,
     run_a_bystander,
     watch_a_bystander,
+    watch_a_window_go,
 )
 
 # A window lets the project go well inside the wait a takeover gives the operating system before it signals.
@@ -623,7 +624,7 @@ def test_takes_over_the_project_from_the_window_it_killed(tmp_path: Path) -> Non
 
         assert hold.evict()
 
-        assert window.poll() is not None, "the window that held the project is still running"
+        assert watch_a_window_go(window), "the window that held the project is still running"
         assert hold.holder is None
         # Eviction only returns once this process's own take succeeds.
         # Confirm hold now actually holds the project, not just that it
@@ -696,7 +697,7 @@ def test_ends_the_window_that_has_the_project_and_not_the_one_before_it(tmp_path
         with hold_workspace(tmp_path) as second:
             assert hold.evict()
 
-            assert second.poll() is not None, "the window that had the project is still running"
+            assert watch_a_window_go(second), "the window that had the project is still running"
         assert watch_a_bystander(tmp_path, bystander), "a process that never held the project was signalled"
     hold.release()
 
