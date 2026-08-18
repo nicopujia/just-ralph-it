@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast, override
 from openai.types.responses import ResponseInputParam
 
 from jri.core.ai import prompts
-from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
+from jri.core.notes import Connection, NodeId, Notebook, NoteId, ReadQuery, TopicId
 from jri.core.settings import Settings
 from jri.core.workspace import Workspace
 from jri.lib import prompt
@@ -107,46 +107,53 @@ class Interviewer(Agent):
 
     @tool(
         (
-            "Turn to a project topic by its name or ID, creating it when it does not exist."
+            "Turn to a project topic by its name or ID, creating it when it does not exist. "
+            "A topic being created needs a summary, and stands under `parent`, or under the overview topic when "
+            "`parent` is not given. "
             "Capture unresolved unknowns as notes before switching away from a topic."
         ),
         started_label="Switching to {topic}",
         finished_label="Switched to {topic}",
         symbol="📑",
     )
-    def switch_topic(self, topic: str) -> str:
+    def switch_topic(self, topic: str, parent: str | None = None, summary: str | None = None) -> str:
         value = topic.strip()
         resolved = self.notebook.find_topic(value)
         if resolved is None:
             if any(note.id == value for note in self.notebook.graph.notes):
                 raise ValueError(f"Note `{value}` is not a topic.")
-            resolved = self.notebook.add_topic(value)
-        if resolved.status == "trashed":
+            if summary is None:
+                raise ValueError(f"Topic `{value}` does not exist. Give it a summary to create it.")
+            resolved = self.notebook.add_topic(value, self._resolve_topic(parent), summary)
+        elif resolved.id in self.notebook.trashed_topic_ids:
             raise ValueError(f"Topic `{resolved.id}` is trashed. Restore it before switching.")
         self.active_topic_id = resolved.id
         return f"Switched to {resolved.id}."
 
     @tool(
-        "Set a topic's status and optionally replace its summary.",
+        "Set a topic's status, and optionally replace its summary, its name, or the topic it stands under.",
         started_label="Updating topic",
         finished_label="Updated topic",
         symbol="📑",
     )
     def update_topic(
-        self, topic_id: TopicId, status: Literal["open", "done", "trashed"], summary: str | None = None
+        self,
+        topic_id: TopicId,
+        status: Literal["open", "done"] | None = None,
+        summary: str | None = None,
+        name: str | None = None,
+        parent: str | None = None,
     ) -> str:
-        if topic_id == self.initial_topic.id and status == "trashed":
-            raise ValueError(f"The overview topic `{topic_id}` cannot be trashed.")
-        topic = self.notebook.update_topic(topic_id, status, summary)
-        if topic.id == self.active_topic_id and topic.status == "trashed":
-            self.active_topic_id = self.initial_topic.id
+        topic = self.notebook.update_topic(
+            topic_id, status, summary, name, None if parent is None else self._resolve_topic(parent)
+        )
         return f"Updated {topic.id} ({topic.status})."
 
     @tool(
         (
             "Read all notes when called without a query. Set `query.text` for fuzzy search, `query.ids` for exact "
-            "lookup, `query.topic_ids` to filter by topic, or `query.traverse_from` with `direction` and `depth` for "
-            "graph traversal."
+            "lookup, `query.topic_ids` to filter by topics and everything under them, or `query.traverse_from` with "
+            "`direction` and `depth` for graph traversal."
         ),
         started_label="Reading notes",
         finished_label="Read notes",
@@ -189,20 +196,36 @@ class Interviewer(Agent):
         return f"Edited {note.id}."
 
     @tool(
-        "Delete notes and every semantic connection touching them.",
-        started_label="Discarding notes",
-        finished_label="Discarded notes",
-        symbol="🗑️",
+        (
+            "Move notes to another topic, keeping their connections. "
+            "Use it to split a topic that grew too large, or to place a note that belongs elsewhere."
+        ),
+        started_label="Moving notes",
+        finished_label="Moved notes",
+        symbol="📦",
     )
-    def delete_notes(self, note_ids: list[NoteId]) -> str:
-        return f"Deleted notes: {', '.join(self.notebook.delete(note_ids))}."
+    def move_notes(self, note_ids: list[NoteId], topic_id: TopicId) -> str:
+        return f"Moved notes: {', '.join(self.notebook.move(note_ids, topic_id))}."
 
     @tool(
         (
-            "Create directed, labeled semantic connections between notes and/or topics, "
-            "useful to express relationships and/or hierarchy between them. "
-            "Connect a note and a topic only when the label states something that placement does not, "
-            "as the note already sits under its topic."
+            "Discard topics and notes. A trashed topic keeps everything under it, and setting its status back to "
+            "`open` brings the whole subtree back. Discarded notes go, with every connection that touches them."
+        ),
+        started_label="Discarding",
+        finished_label="Discarded",
+        symbol="🗑️",
+    )
+    def trash(self, node_ids: list[NodeId]) -> str:
+        trashed = self.notebook.trash(node_ids)
+        if self.active_topic_id in self.notebook.trashed_topic_ids:
+            self.active_topic_id = self.initial_topic.id
+        return f"Trashed: {', '.join(trashed)}."
+
+    @tool(
+        (
+            "Create directed, labeled semantic connections between notes, "
+            "useful to express relationships and/or hierarchy between them."
         ),
         started_label="Organizing notes",
         finished_label="Organized notes",
@@ -212,10 +235,20 @@ class Interviewer(Agent):
         return f"Connected {self.notebook.connect(connections)} relationship(s)."
 
     @tool(
-        "Remove directed, labeled semantic connections between notes and/or topics.",
+        "Remove directed, labeled semantic connections between notes.",
         started_label="Reorganizing notes",
         finished_label="Reorganized notes",
         symbol="📎",
     )
     def disconnect_notes(self, connections: list[Connection]) -> str:
         return f"Disconnected {self.notebook.disconnect(connections)} relationship(s)."
+
+    # A model names a topic the way it names one everywhere else, so resolve a name or an ID here and let the
+    # notebook see an ID.
+    def _resolve_topic(self, value: str | None) -> str:
+        if value is None:
+            return self.initial_topic.id
+        resolved = self.notebook.find_topic(value.strip())
+        if resolved is None:
+            raise ValueError(f"Unknown topic `{value.strip()}`.")
+        return resolved.id

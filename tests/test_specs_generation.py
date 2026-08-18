@@ -275,11 +275,11 @@ def test_writes_specifications_from_the_topics_the_user_kept(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    notebook = Notebook(tmp_path / paths.NOTEBOOK_FILE)
+    notebook = Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme")
     notebook.add(["Ship a web app."], "t1")
-    discarded = notebook.add_topic("Discarded")
+    discarded = notebook.add_topic("Discarded", "t1", "What discarded covers.")
     notebook.add(["Build a rocket instead."], discarded.id)
-    notebook.update_topic(discarded.id, "trashed")
+    notebook.trash([discarded.id])
     client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
 
     generate(client)
@@ -293,13 +293,13 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    notebook = Notebook(tmp_path / paths.NOTEBOOK_FILE)
+    notebook = Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme")
     notebook.add(["Ship a web app."], "t1")
-    discarded = notebook.add_topic("Discarded")
+    discarded = notebook.add_topic("Discarded", "t1", "What discarded covers.")
     notebook.add(["Build a rocket instead."], discarded.id)
-    notebook.update_topic(discarded.id, "trashed")
+    notebook.trash([discarded.id])
     commit_specs()
-    Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Export the data as CSV."], "t1")
+    Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Export the data as CSV."], "t1")
     client = FakeClient(
         [streamed_reply("Repository report")],
         parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],
@@ -316,7 +316,7 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
 # A first generation has no accepted baseline. A diff against nothing would only repeat the notebook it already sends.
 def test_writes_a_first_generation_without_a_notebook_diff(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Ship a web app."], "t1")
+    Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Ship a web app."], "t1")
     client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
 
     _, result = generate(client)
@@ -335,7 +335,7 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     run_git(tmp_path, "add", "--force", paths.NOTEBOOK_FILE)
     run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
     (tmp_path / paths.NOTEBOOK_FILE).unlink()
-    Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Ship a web app."], "t1")
+    Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Ship a web app."], "t1")
     client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
 
     _, result = generate(client)
@@ -636,7 +636,7 @@ def test_keeps_the_accepted_specification_a_round_left_out(
         parsed=[written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}), designed_architecture()],
     )
     generate(client)
-    Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Report the totals too."], "t1")
+    Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Report the totals too."], "t1")
 
     _, result = generate(
         FakeClient(
@@ -685,7 +685,7 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     commit_specs()
-    Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Report the totals too."], "t1")
+    Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Report the totals too."], "t1")
     client = FakeClient(
         [streamed_reply("Repository report")],
         parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],

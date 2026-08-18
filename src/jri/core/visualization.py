@@ -1,5 +1,7 @@
+from collections.abc import Iterator
+
 from . import issues
-from .notes import Graph
+from .notes import Graph, Topic
 
 DRAW_ERROR = f"The graph viewer loaded, but it could not draw the graph. Report it at {issues.URL}."
 # The page fetches its drawing libraries instead of carrying them. JRI requires a model-provider network connection.
@@ -102,34 +104,38 @@ HTML = """\
 
 
 def render(graph: Graph) -> str:
-    diagram = ["flowchart TD", "    classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px"]
+    subtopics: dict[str, list[Topic]] = {}
     for topic in graph.topics:
-        summary = topic.summary
-        label = f"{_escape(topic.name)}<br/>[{topic.status}]"
-        if summary:
-            label += f"<br/>{_escape(summary)}"
-        diagram.append(f'{INDENTATION}{topic.id}(["{label}"]):::topic')
-    diagram.extend(f'{INDENTATION}{note.id}["{_escape(note.text)}"]' for note in graph.notes)
-    # A connection joins its two nodes whichever way it points.
-    # Compare the pairs without their direction.
-    # A directed comparison misses the connection from a note to its topic.
-    # Then the diagram draws a second edge over that same pair.
-    connected_pairs = {frozenset({connection.source_id, connection.target_id}) for connection in graph.connections}
-    diagram.extend(
-        f'{INDENTATION}{note.topic_id} -->|"contains"| {note.id}'
-        for note in graph.notes
-        if frozenset({note.topic_id, note.id}) not in connected_pairs
-    )
+        if topic.parent_id is not None:
+            subtopics.setdefault(topic.parent_id, []).append(topic)
+    root = next(topic for topic in graph.topics if topic.parent_id is None)
+    diagram = ["flowchart TD", f"{INDENTATION}classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px"]
+    diagram.extend(_draw_topic(root, graph, subtopics, 1))
+    # A note sits inside the box of its topic, so containment needs no edge. Draw the connections after every box,
+    # because an edge written inside one puts both of its notes in that box.
     diagram.extend(
         f'{INDENTATION}{connection.source_id} -->|"{_escape(connection.label)}"| {connection.target_id}'
         for connection in graph.connections
     )
+    diagram.append(f"{INDENTATION}class {','.join(topic.id for topic in graph.topics)} topic")
     return (
         HTML
         .replace(DIAGRAM_SLOT, "\n".join(diagram))
         .replace(LOAD_ERROR_SLOT, LOAD_ERROR)
         .replace(DRAW_ERROR_SLOT, DRAW_ERROR)
     )
+
+
+def _draw_topic(topic: Topic, graph: Graph, subtopics: dict[str, list[Topic]], depth: int) -> Iterator[str]:
+    margin = INDENTATION + "    " * depth
+    label = f"{_escape(topic.name)}<br/>[{topic.status}]"
+    if topic.summary:
+        label += f"<br/>{_escape(topic.summary)}"
+    yield f'{margin}subgraph {topic.id}["{label}"]'
+    yield from (f'{margin}    {note.id}["{_escape(note.text)}"]' for note in graph.notes if note.topic_id == topic.id)
+    for child in subtopics.get(topic.id, []):
+        yield from _draw_topic(child, graph, subtopics, depth + 1)
+    yield f"{margin}end"
 
 
 def _escape(value: str) -> str:

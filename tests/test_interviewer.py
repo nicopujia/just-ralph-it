@@ -18,7 +18,7 @@ TURNS = 12
 
 
 def build_interviewer(path: Path, client: FakeClient | None = None) -> Interviewer:
-    return Interviewer(build_settings(client or FakeClient([])), Notebook(path / "notebook.yaml"))
+    return Interviewer(build_settings(client or FakeClient([])), Notebook(path / "notebook.yaml", "Acme"))
 
 
 def test_keeps_at_least_ten_recent_turns_in_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -92,7 +92,10 @@ def test_quotes_the_pinned_project_excerpt_a_note_tries_to_break_out_of(forged_t
     assert content.count(closing) == 1
     document = content.partition(f"<{closing.removeprefix('</')}\n")[2].removesuffix(f"\n{closing}")
     assert safe_load(document) == {
-        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": note}}],
+        "id": "t1",
+        "name": "Acme",
+        "status": "open",
+        "notes": {"n1": note},
         "connections": [],
     }
 
@@ -100,13 +103,36 @@ def test_quotes_the_pinned_project_excerpt_a_note_tries_to_break_out_of(forged_t
 def test_creates_a_topic_named_by_the_model(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
 
-    assert interviewer.switch_topic("Delivery") == "Switched to t2."
+    assert interviewer.switch_topic("Delivery", summary="How it ships.") == "Switched to t2."
     assert interviewer.active_topic_id == "t2"
+    assert [(topic.id, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [("t1", None), ("t2", "t1")]
+
+
+def test_refuses_to_create_a_topic_without_a_summary(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+
+    with pytest.raises(ValueError, match="Give it a summary"):
+        interviewer.switch_topic("Delivery")
+
+    assert [topic.id for topic in interviewer.notebook.graph.topics] == ["t1"]
+    assert interviewer.active_topic_id == "t1"
+
+
+def test_creates_a_topic_under_the_one_the_model_names(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+    interviewer.switch_topic("Delivery", summary="How it ships.")
+
+    assert interviewer.switch_topic("Rollout", parent="Delivery", summary="How it reaches users.") == "Switched to t3."
+    assert [(topic.id, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [
+        ("t1", None),
+        ("t2", "t1"),
+        ("t3", "t2"),
+    ]
 
 
 def test_resolves_an_existing_topic_by_its_id(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
-    interviewer.switch_topic("Delivery")
+    interviewer.switch_topic("Delivery", summary="How it ships.")
 
     assert interviewer.switch_topic("t2") == "Switched to t2."
     assert interviewer.active_topic_id == "t2"
@@ -114,17 +140,17 @@ def test_resolves_an_existing_topic_by_its_id(tmp_path: Path) -> None:
 
 def test_resolves_a_topic_name_regardless_of_case_and_spacing(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
-    interviewer.switch_topic("Delivery")
+    interviewer.switch_topic("Delivery", summary="How it ships.")
     interviewer.switch_topic("t1")
 
     assert interviewer.switch_topic("  delivery ") == "Switched to t2."
     assert interviewer.active_topic_id == "t2"
-    assert [topic.name for topic in interviewer.notebook.graph.topics] == ["Project overview", "Delivery"]
+    assert [topic.name for topic in interviewer.notebook.graph.topics] == ["Acme", "Delivery"]
 
 
 def test_rejects_switching_to_a_note(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
-    interviewer.switch_topic("Delivery")
+    interviewer.switch_topic("Delivery", summary="How it ships.")
     interviewer.notebook.add(["Deploy from the main branch."], "t2")
 
     with pytest.raises(ValueError, match="`n1` is not a topic"):
@@ -135,8 +161,8 @@ def test_rejects_switching_to_a_note(tmp_path: Path) -> None:
 
 def test_rejects_switching_to_a_trashed_topic(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
-    interviewer.switch_topic("Delivery")
-    interviewer.update_topic("t2", "trashed")
+    interviewer.switch_topic("Delivery", summary="How it ships.")
+    interviewer.trash(["t2"])
 
     with pytest.raises(ValueError, match="is trashed"):
         interviewer.switch_topic("t2")
@@ -144,18 +170,18 @@ def test_rejects_switching_to_a_trashed_topic(tmp_path: Path) -> None:
 
 def test_falls_back_to_the_overview_when_the_active_topic_is_trashed(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
-    interviewer.switch_topic("Delivery")
+    interviewer.switch_topic("Delivery", summary="How it ships.")
 
-    assert interviewer.update_topic("t2", "trashed") == "Updated t2 (trashed)."
+    assert interviewer.trash(["t2"]) == "Trashed: t2."
     assert interviewer.active_topic_id == "t1"
 
 
 def test_stays_on_the_active_topic_when_another_one_is_trashed(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
-    interviewer.switch_topic("Delivery")
-    interviewer.switch_topic("Pricing")
+    interviewer.switch_topic("Delivery", summary="How it ships.")
+    interviewer.switch_topic("Pricing", summary="How it is priced.")
 
-    assert interviewer.update_topic("t2", "trashed") == "Updated t2 (trashed)."
+    assert interviewer.trash(["t2"]) == "Trashed: t2."
     assert interviewer.active_topic_id == "t3"
 
 
@@ -171,14 +197,14 @@ def test_rejects_trashing_the_overview_topic(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
 
     with pytest.raises(ValueError, match="cannot be trashed"):
-        interviewer.update_topic("t1", "trashed")
+        interviewer.trash(["t1"])
 
     assert interviewer.notebook.graph.topics[0].status == "open"
 
 
 def test_captures_several_notes_under_the_active_topic(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
-    interviewer.switch_topic("Delivery")
+    interviewer.switch_topic("Delivery", summary="How it ships.")
 
     assert interviewer.capture_notes(["Ships weekly.", "Deploys on Fridays."]) == "Added notes: n1, n2."
     assert [(note.id, note.topic_id) for note in interviewer.notebook.graph.notes] == [("n1", "t2"), ("n2", "t2")]
@@ -241,7 +267,7 @@ def test_deletes_every_requested_note(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
     interviewer.capture_notes(["First.", "Second.", "Third."])
 
-    assert interviewer.delete_notes(["n1", "n3"]) == "Deleted notes: n1, n3."
+    assert interviewer.trash(["n1", "n3"]) == "Trashed: n1, n3."
     assert [note.id for note in interviewer.notebook.graph.notes] == ["n2"]
 
 
@@ -351,3 +377,41 @@ def test_reports_an_unwritable_notebook_to_the_model(tmp_path: Path) -> None:
 
     assert invocation.outcome == "failed"
     assert cast("str", invocation.output).startswith("<tool_call_failed>\nCould not save the notebook file")
+
+
+def test_moves_notes_to_the_topic_the_model_names(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+    interviewer.capture_notes(["Ships weekly.", "Runs on the web."])
+    interviewer.switch_topic("Delivery", summary="How it ships.")
+
+    assert interviewer.move_notes(["n1"], "t2") == "Moved notes: n1."
+    assert [(note.id, note.topic_id) for note in interviewer.notebook.graph.notes] == [("n1", "t2"), ("n2", "t1")]
+
+
+def test_renames_the_project_through_the_overview_topic(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+
+    assert interviewer.update_topic("t1", name="Acme Billing") == "Updated t1 (open)."
+    assert interviewer.notebook.initial_topic.name == "Acme Billing"
+
+
+def test_moves_a_topic_under_the_one_the_model_names(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+    interviewer.switch_topic("Delivery", summary="How it ships.")
+    interviewer.switch_topic("Rollout", summary="How it reaches users.")
+
+    assert interviewer.update_topic("t3", parent="Delivery") == "Updated t3 (open)."
+    assert [(topic.id, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [
+        ("t1", None),
+        ("t2", "t1"),
+        ("t3", "t2"),
+    ]
+
+
+def test_rejects_a_parent_topic_that_does_not_exist(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+
+    with pytest.raises(ValueError, match="Unknown topic `Nowhere`"):
+        interviewer.switch_topic("Delivery", parent="Nowhere", summary="How it ships.")
+
+    assert [topic.id for topic in interviewer.notebook.graph.topics] == ["t1"]

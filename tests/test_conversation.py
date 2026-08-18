@@ -20,7 +20,7 @@ from jri.core.ai import (
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError, RunDetached
 from jri.core.generation import Generation, Header, RowOpened
-from jri.core.notes import Graph, Notebook
+from jri.core.notes import Graph, Notebook, Topic
 from tests.conftest import CreateRepository
 from tests.doubles.generation import run_in_thread
 from tests.doubles.lock import hold
@@ -151,7 +151,10 @@ def test_reads_the_notes_without_reaching_the_provider() -> None:
 )
 def test_ends_every_turn_with_its_rows_closed(last_round: object, finished: TurnFinished) -> None:
     conversation = build_conversation(
-        FakeClient([response(call("switch", "switch_topic", topic="Delivery")), cast("Round", last_round)])
+        FakeClient([
+            response(call("switch", "switch_topic", topic="Delivery", summary="How it ships.")),
+            cast("Round", last_round),
+        ])
     )
 
     events = list(conversation.chat("Deploy from main."))
@@ -247,7 +250,7 @@ def test_restores_a_completed_interview_turn() -> None:
     conversation = build_conversation(
         FakeClient([
             response(
-                call("switch", "switch_topic", topic="Delivery"),
+                call("switch", "switch_topic", topic="Delivery", summary="How it ships."),
                 call("capture", "capture_notes", texts=["Deploy from the main branch."]),
             ),
             streamed_reply("How should failed deployments be handled?"),
@@ -260,10 +263,7 @@ def test_restores_a_completed_interview_turn() -> None:
     turns = restarted.restore()
 
     assert restarted.interviewer.active_topic_id == "t2"
-    assert {(topic.id, topic.name) for topic in restarted.interviewer.notebook.graph.topics} == {
-        ("t1", "Project overview"),
-        ("t2", "Delivery"),
-    }
+    assert [(topic.id, topic.name) for topic in restarted.interviewer.notebook.graph.topics[1:]] == [("t2", "Delivery")]
     assert [(note.topic_id, note.text) for note in restarted.interviewer.notebook.graph.notes] == [
         ("t2", "Deploy from the main branch.")
     ]
@@ -276,7 +276,7 @@ def test_restores_a_completed_interview_turn() -> None:
 def test_groups_every_restored_item_under_the_prompt_that_caused_it() -> None:
     conversation = build_conversation(
         FakeClient([
-            response(call("switch", "switch_topic", topic="Delivery")),
+            response(call("switch", "switch_topic", topic="Delivery", summary="How it ships.")),
             streamed_reply("Noted."),
             response(call("capture", "capture_notes", texts=["Deploy from the main branch."])),
             streamed_reply("Anything else?"),
@@ -419,7 +419,10 @@ def test_closes_a_stopped_call_without_closing_its_nested_row_again() -> None:
 
 def test_records_a_row_the_session_was_written_under() -> None:
     conversation = build_conversation(
-        FakeClient([response(call("switch", "switch_topic", topic="Delivery")), streamed_reply("Noted.")])
+        FakeClient([
+            response(call("switch", "switch_topic", topic="Delivery", summary="How it ships.")),
+            streamed_reply("Noted."),
+        ])
     )
 
     events = conversation.chat("Deploy from main.")
@@ -1083,11 +1086,16 @@ def test_rejects_a_session_saved_before_a_turn_recorded_its_work() -> None:
 
 def test_rejects_a_session_whose_topic_the_notebook_no_longer_holds() -> None:
     conversation = build_conversation(
-        FakeClient([response(call("switch", "switch_topic", topic="Delivery")), streamed_reply("Noted.")])
+        FakeClient([
+            response(call("switch", "switch_topic", topic="Delivery", summary="How it ships.")),
+            streamed_reply("Noted."),
+        ])
     )
     list(conversation.chat("Deploy from main."))
     assert conversation.interviewer.active_topic_id == "t2"
-    Notebook(conversation.workspace.notebook_file).restore(Graph())
+    Notebook(conversation.workspace.notebook_file, "Acme").restore(
+        Graph(topics=[Topic(id="t1", name="Acme", status="open")])
+    )
 
     # The notes went back to before the topic this conversation stands on. No turn of it can continue there.
     with pytest.raises(PersistenceError, match=r"Delete it .*--force"):
@@ -1096,11 +1104,14 @@ def test_rejects_a_session_whose_topic_the_notebook_no_longer_holds() -> None:
 
 def test_rejects_a_session_whose_topic_the_notebook_trashed() -> None:
     conversation = build_conversation(
-        FakeClient([response(call("switch", "switch_topic", topic="Delivery")), streamed_reply("Noted.")])
+        FakeClient([
+            response(call("switch", "switch_topic", topic="Delivery", summary="How it ships.")),
+            streamed_reply("Noted."),
+        ])
     )
     list(conversation.chat("Deploy from main."))
     assert conversation.interviewer.active_topic_id == "t2"
-    Notebook(conversation.workspace.notebook_file).update_topic("t2", "trashed")
+    Notebook(conversation.workspace.notebook_file, "Acme").trash(["t2"])
 
     # Trashed thinking is thinking the user threw away. The interview cannot go on under it.
     with pytest.raises(PersistenceError, match=r"Delete it .*--force"):
@@ -1226,7 +1237,10 @@ def test_keeps_the_stopped_mark_on_the_cancelled_turn_when_the_next_one_fails() 
 
 def test_leaves_valid_history_when_a_tool_call_is_cancelled() -> None:
     cancelled = Event()
-    client = FakeClient([response(call("switch", "switch_topic", topic="Delivery")), streamed_reply("Still works.")])
+    client = FakeClient([
+        response(call("switch", "switch_topic", topic="Delivery", summary="How it ships.")),
+        streamed_reply("Still works."),
+    ])
     conversation = build_conversation(client)
     events = conversation.chat("Switch topics.", cancelled)
 
@@ -1247,7 +1261,7 @@ def test_rolls_back_the_changes_of_a_failed_turn() -> None:
             response(call("first-capture", "capture_notes", texts=["The project has a terminal UI."])),
             streamed_reply("What should it display?"),
             response(
-                call("switch", "switch_topic", topic="Delivery"),
+                call("switch", "switch_topic", topic="Delivery", summary="How it ships."),
                 call("second-capture", "capture_notes", texts=["Deploy automatically."]),
             ),
             failure("provider failed"),
@@ -1329,17 +1343,17 @@ def test_removes_knowledge_captured_after_the_rewind_point() -> None:
     conversation = build_conversation(
         FakeClient([
             response(
-                call("delivery-switch", "switch_topic", topic="Delivery"),
+                call("delivery-switch", "switch_topic", topic="Delivery", summary="How it ships."),
                 call("delivery-capture", "capture_notes", texts=["Deploy from main."]),
             ),
             streamed_reply("Delivery captured."),
             response(
-                call("security-switch", "switch_topic", topic="Security"),
+                call("security-switch", "switch_topic", topic="Security", summary="How it is secured."),
                 call("security-capture", "capture_notes", texts=["Encrypt stored credentials."]),
             ),
             streamed_reply("Security captured."),
             response(
-                call("billing-switch", "switch_topic", topic="Billing"),
+                call("billing-switch", "switch_topic", topic="Billing", summary="How it is billed."),
                 call("billing-capture", "capture_notes", texts=["Charge monthly."]),
             ),
             streamed_reply("Billing captured."),
@@ -1358,7 +1372,7 @@ def test_removes_knowledge_captured_after_the_rewind_point() -> None:
     graph = reopened.interviewer.notebook.graph
 
     assert reopened.interviewer.active_topic_id == "t2"
-    assert {(topic.id, topic.name) for topic in graph.topics} == {("t1", "Project overview"), ("t2", "Delivery")}
+    assert [(topic.id, topic.name) for topic in graph.topics[1:]] == [("t2", "Delivery")]
     assert [(note.topic_id, note.text) for note in graph.notes] == [("t2", "Deploy from main.")]
     assert {"Encrypt stored credentials.", "Charge monthly."}.isdisjoint(turn.message for turn in turns)
 
@@ -1369,7 +1383,7 @@ def test_skips_failed_and_cancelled_tool_calls_when_rewinding() -> None:
         FakeClient([
             response(call("failed", "switch_topic", topic="")),
             streamed_reply("That topic was invalid."),
-            response(call("cancelled", "switch_topic", topic="Delivery")),
+            response(call("cancelled", "switch_topic", topic="Delivery", summary="How it ships.")),
             streamed_reply("Latest turn."),
         ])
     )
@@ -1384,15 +1398,15 @@ def test_skips_failed_and_cancelled_tool_calls_when_rewinding() -> None:
 
     turns = build_conversation(FakeClient([])).restore()
     assert conversation.interviewer.active_topic_id == "t1"
-    assert [(topic.id, topic.name) for topic in conversation.interviewer.notebook.graph.topics] == [
-        ("t1", "Project overview")
-    ]
+    assert [topic.id for topic in conversation.interviewer.notebook.graph.topics] == ["t1"]
     assert "Keep this only until rewind." not in [turn.message for turn in turns]
 
 
 def test_skips_cancelled_tool_calls_when_rewinding_after_restart() -> None:
     cancelled = Event()
-    conversation = build_conversation(FakeClient([response(call("cancelled", "switch_topic", topic="Delivery"))]))
+    conversation = build_conversation(
+        FakeClient([response(call("cancelled", "switch_topic", topic="Delivery", summary="How it ships."))])
+    )
     events = conversation.chat("Cancel this switch.", cancelled)
     next(events)
     cancelled.set()
@@ -1404,9 +1418,7 @@ def test_skips_cancelled_tool_calls_when_rewinding_after_restart() -> None:
     restarted.rewind(1)
 
     assert restarted.interviewer.active_topic_id == "t1"
-    assert [(topic.id, topic.name) for topic in restarted.interviewer.notebook.graph.topics] == [
-        ("t1", "Project overview")
-    ]
+    assert [topic.id for topic in restarted.interviewer.notebook.graph.topics] == ["t1"]
 
 
 def test_keeps_the_connections_between_replayed_notes_when_rewinding() -> None:
@@ -1538,10 +1550,10 @@ def test_refuses_a_rewind_whose_replay_fails_inside_a_tool_that_took_the_call() 
     conversation = build_conversation(
         FakeClient([
             response(
-                call("switch", "switch_topic", topic="Delivery"),
+                call("switch", "switch_topic", topic="Delivery", summary="How it ships."),
                 call("capture", "capture_notes", texts=["Deploy from main."]),
                 call("ready", "offer_ralphing"),
-                call("trash", "update_topic", topic_id="t2", status="trashed"),
+                call("trash", "trash", node_ids=["t2"]),
             ),
             streamed_reply("Delivery trashed."),
             streamed_reply("Noted."),
@@ -1549,7 +1561,7 @@ def test_refuses_a_rewind_whose_replay_fails_inside_a_tool_that_took_the_call() 
     )
     list(conversation.chat("Deploy from main."))
     list(conversation.chat("One more thing."))
-    rewrite_recorded_call(conversation, "update_topic", topic_id="t1")
+    rewrite_recorded_call(conversation, "trash", node_ids=["t1"])
 
     restarted = build_conversation(
         FakeClient([response(call("more", "capture_notes", texts=["Roll back on failure."])), streamed_reply("Noted.")])
@@ -1621,7 +1633,7 @@ def test_rewinds_through_a_failed_call_to_a_tool_this_version_no_longer_has() ->
 
     reopened = build_conversation(FakeClient([]))
     assert [turn.message for turn in reopened.restore()] == ["Switch to nothing."]
-    assert [topic.name for topic in reopened.notebook.graph.topics] == ["Project overview"]
+    assert [topic.id for topic in reopened.notebook.graph.topics] == ["t1"]
 
 
 def test_rewinds_to_before_a_tool_this_version_no_longer_has() -> None:

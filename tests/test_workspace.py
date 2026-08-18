@@ -51,7 +51,10 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
         "session.json\nlogs\nvisualization.html\n/lock\n/lock.claim\n/generation/\n/worktree/\n"
     )
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text(encoding="utf-8")) == {
-        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
+        "id": "t1",
+        "name": tmp_path.name,
+        "status": "open",
+        "notes": {},
         "connections": [],
         "next_note_id": "n1",
     }
@@ -345,7 +348,7 @@ def test_initializes_a_workspace_directory_that_holds_no_settings(tmp_path: Path
 
 def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path) -> None:
     notebook = {
-        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Keep this note."}}],
+        "topics": [{"id": "t1", "name": "Acme", "status": "open", "notes": {"n1": "Keep this note."}}],
         "connections": [],
         "next_note_id": "n2",
     }
@@ -358,7 +361,10 @@ def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path)
     assert not installation.created
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text(encoding="utf-8")) == {
-        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
+        "id": "t1",
+        "name": tmp_path.name,
+        "status": "open",
+        "notes": {},
         "connections": [],
         "next_note_id": "n1",
     }
@@ -384,7 +390,7 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     assert conversation.restore() == []
     assert conversation.session.show_thinking_blocks is False
     assert [(topic.id, topic.name) for topic in conversation.interviewer.notebook.graph.topics] == [
-        ("t1", "Project overview")
+        ("t1", tmp_path.name)
     ]
     assert conversation.workspace.notebook_file == base_dir / "notebook.yaml"
     assert settings_file.read_text(encoding="utf-8") == Settings.render()

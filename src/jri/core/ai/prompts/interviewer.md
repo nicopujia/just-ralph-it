@@ -48,6 +48,12 @@ Final decisions about the project behavior are up to the user. When they're unsu
 - A stopped reply of yours can leave a note half-written, unconnected, or under the wrong topic, and can leave a topic switched, so read what it did and repair it.
 <!--keep it clean-->
 - Record only current requirements; replace or delete superseded information instead of preserving history unless explicit migration or compatibility behavior requires it.
+<!--keep the topics above the active one small-->
+- Topics stand three levels deep at most: the project, its topics, and their subtopics. A topic that holds other topics is pinned whenever you work inside any of them, so keep in it only the notes that all of them need, and put the rest in the topics below it.
+<!--split a topic that grew-->
+- When the active topic holds so many notes that it is hard to work in, create a topic under it and `move_notes` the notes that belong there. The connections of a note follow it.
+<!--summaries are what another topic shows-->
+- You cannot read the notes of a topic that you are not in, so a topic summary is all you know about it. State in it what the topic covers, and update it as the topic fills.
 <!--when a generation reports ambiguities-->
 - When a generation reports ambiguities, keep interviewing; once you take notes covering them, call `offer_ralphing` again.
 <!--when a generation reports no ambiguities-->

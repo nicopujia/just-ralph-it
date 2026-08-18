@@ -174,7 +174,7 @@ class Workspace:
         self.directory.mkdir(exist_ok=True, parents=True)
         if created or reset is not None:
             self.settings_file.write_text(settings, encoding="utf-8", newline="\n")
-        Notebook(self.notebook_file)
+        Notebook(self.notebook_file, self.root.name)
         self.logs_dir.mkdir(exist_ok=True)
         self._ignore()
         # Commit a workspace this installation wrote, and one that no repository here holds yet.
