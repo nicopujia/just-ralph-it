@@ -38,10 +38,20 @@ def test_opens_the_diagram_with_its_type_and_the_topic_style() -> None:
 def test_draws_every_topic_note_and_connection() -> None:
     diagram = read_diagram(render(build_graph()))
 
-    assert 'subgraph t1["Delivery<br/>[open]<br/>How it ships"]' in diagram
+    assert 'subgraph t1["Delivery [open] — How it ships"]' in diagram
     assert 'n1["Runs in a terminal."]' in diagram
     assert 'n2["Ships as a wheel."]' in diagram
     assert 'n1 -->|"supports"| n2' in diagram
+
+
+# Mermaid gives the title of a subgraph one line of space and cuts off the lines below it.
+# A summary is optional, so its separator must come with it.
+def test_draws_a_topic_that_has_no_summary_without_a_separator() -> None:
+    graph = Graph(topics=[Topic(id="t1", name="Delivery", status="open")], next_note_id="n1")
+
+    diagram = read_diagram(render(graph))
+
+    assert 'subgraph t1["Delivery [open]"]' in diagram
 
 
 # A note sits in the box of its topic and a topic sits in the box of the topic above it, so the drawing states
@@ -59,9 +69,9 @@ def test_draws_a_note_and_a_subtopic_inside_the_topic_that_holds_them() -> None:
     diagram = read_diagram(render(graph))
 
     assert (
-        '                subgraph t1["Delivery<br/>[open]<br/>How it ships"]\n'
+        '                subgraph t1["Delivery [open] — How it ships"]\n'
         '                    n1["Ships as a wheel."]\n'
-        '                    subgraph t2["Rollout<br/>[open]<br/>How it reaches users"]\n'
+        '                    subgraph t2["Rollout [open] — How it reaches users"]\n'
         '                        n2["By region."]\n'
         "                    end\n"
         "                end"
@@ -103,7 +113,7 @@ def test_draws_a_connection_whose_label_holds_a_delimiter() -> None:
 def test_draws_a_topic_whose_name_holds_a_delimiter() -> None:
     diagram = read_diagram(render(build_graph(name="Delivery | Packaging")))
 
-    assert 'subgraph t1["Delivery #124; Packaging<br/>[open]<br/>How it ships"]' in diagram
+    assert 'subgraph t1["Delivery #124; Packaging [open] — How it ships"]' in diagram
 
 
 # The page embeds CSS and JavaScript, and both use `%` and `{}`. A `%`-format or `str.format` substitution would

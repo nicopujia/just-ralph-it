@@ -128,9 +128,11 @@ def render(graph: Graph) -> str:
 
 def _draw_topic(topic: Topic, graph: Graph, subtopics: dict[str, list[Topic]], depth: int) -> Iterator[str]:
     margin = INDENTATION + "    " * depth
-    label = f"{_escape(topic.name)}<br/>[{topic.status}]"
+    # Mermaid gives the title of a subgraph one line of space and cuts off the lines below it.
+    # Keep the name, the status and the summary on that one line.
+    label = f"{_escape(topic.name)} [{topic.status}]"
     if topic.summary:
-        label += f"<br/>{_escape(topic.summary)}"
+        label += f" — {_escape(topic.summary)}"
     yield f'{margin}subgraph {topic.id}["{label}"]'
     yield from (f'{margin}    {note.id}["{_escape(note.text)}"]' for note in graph.notes if note.topic_id == topic.id)
     for child in subtopics.get(topic.id, []):
