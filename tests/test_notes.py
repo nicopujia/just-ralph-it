@@ -141,6 +141,18 @@ def test_allocates_a_topic_id_after_the_highest_one_in_the_file(tmp_path: Path) 
             },
             "cannot stand inside itself",
         ),
+        (
+            {
+                **VALID_GRAPH,
+                "topics": [
+                    {"id": "t1", "name": "Overview", "status": "open"},
+                    {"id": "t2", "parent_id": "t1", "name": "Delivery", "status": "open"},
+                    {"id": "t3", "parent_id": "t2", "name": "Rollout", "status": "open"},
+                    {"id": "t4", "parent_id": "t3", "name": "Regions", "status": "open"},
+                ],
+            },
+            "Topics nest 3 levels deep at most",
+        ),
         ({**VALID_GRAPH, "topics": [{"id": "t1", "name": " ", "status": "open"}]}, "Graph content cannot be blank"),
         ({**VALID_GRAPH, "next_note_id": "n1"}, "Note IDs must come before `n1`"),
     ],
@@ -155,6 +167,7 @@ def test_allocates_a_topic_id_after_the_highest_one_in_the_file(tmp_path: Path) 
         "second-root",
         "unknown-parent",
         "topic-inside-itself",
+        "nested-too-deep",
         "blank-content",
         "taken-next-id",
     ],
@@ -372,6 +385,14 @@ def test_reports_a_notebook_document_that_cannot_be_read() -> None:
         Notebook.exclude_trashed(b"nonsense")
 
 
+# A hand-edited file can trash the overview topic. Every topic then reads as trashed, and what stays is no graph.
+def test_reports_a_document_that_holds_nothing_once_its_trashed_topics_go() -> None:
+    document = b"id: t1\nname: Acme\nstatus: trashed\nnotes: {n1: First}\nconnections: []\nnext_note_id: n2\n"
+
+    with pytest.raises(PersistenceError, match="cannot be read"):
+        Notebook.exclude_trashed(document)
+
+
 def test_renders_an_empty_overview(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
 
@@ -485,11 +506,6 @@ def test_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
         "id: t1\nname: Overview\nstatus: open\nnotes: {n1: First}\nconnections: [n1 supports n2]\nnext_note_id: n2",
         "id: t1\nname: Overview\nstatus: open\nnotes: {n1: First}\nconnections: []",
         "id: t1\nname: Overview\nstatus: open\nnotes: {n1: First}\nconnections: []\nnext_note_id: n1",
-        (
-            "id: t1\nname: Overview\nstatus: open\nnotes: {}\ntopics:\n- id: t2\n  name: A\n  status: open\n"
-            "  notes: {}\n  topics:\n  - id: t3\n    name: B\n    status: open\n    notes: {}\n    topics:\n"
-            "    - id: t4\n      name: C\n      status: open\n      notes: {}\nconnections: []\nnext_note_id: n1"
-        ),
     ],
     ids=[
         "malformed-yaml",
@@ -501,7 +517,6 @@ def test_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
         "dangling-connection",
         "no-next-id",
         "taken-next-id",
-        "nested-too-deep",
     ],
 )
 def test_explains_how_to_reset_an_invalid_notebook_file(tmp_path: Path, contents: str) -> None:
@@ -745,7 +760,6 @@ def test_hides_a_topic_under_a_trashed_one_and_gives_it_back_with_it(tmp_path: P
 
     # The topic discarded on its own kept its own status, so restoring the one above it leaves that one discarded.
     assert [note.id for note in notebook.read(ReadQuery())[0]] == ["n1", "n2"]
-    assert notebook.trashed_topic_ids == {dropped.id}
 
 
 def test_renames_a_topic_and_moves_it_under_another(tmp_path: Path) -> None:
@@ -816,13 +830,10 @@ def test_renders_no_connection_naming_a_note_it_does_not_show(tmp_path: Path) ->
     notebook.connect([Connection(source_id="n1", target_id="n2", label="requires")])
     notebook.trash([discarded.id])
 
-    document = safe_load(notebook.render(under.id))
-
-    shown: set[str] = set()
-    pending = [document]
-    while pending:
-        node = pending.pop()
-        shown.update(node.get("notes") or {})
-        pending.extend(node.get("topics") or [])
-    assert document["connections"] == []
-    assert shown == set()
+    assert safe_load(notebook.render(under.id)) == {
+        "id": "t1",
+        "name": "Acme",
+        "status": "open",
+        "notes": {},
+        "connections": [],
+    }

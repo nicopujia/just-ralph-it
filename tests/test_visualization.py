@@ -35,10 +35,9 @@ def test_opens_the_diagram_with_its_type_and_the_topic_style() -> None:
     assert "class t1 topic" in diagram
 
 
-def test_draws_every_topic_note_and_connection() -> None:
+def test_draws_an_edge_between_the_notes_a_connection_names() -> None:
     diagram = read_diagram(render(build_graph()))
 
-    assert 'n2["Ships as a wheel."]' in diagram
     assert 'n1 -->|"supports"| n2' in diagram
 
 

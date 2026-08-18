@@ -49,12 +49,44 @@ class Graph(BaseModel):
     connections: list[Connection] = Field(default_factory=list)
     next_note_id: NoteId = "n1"
 
+    def read_overview(self) -> Topic:
+        return next(topic for topic in self.topics if topic.id == OVERVIEW_TOPIC_ID)
+
     def read_subtopics(self) -> dict[str, list[Topic]]:
         subtopics: dict[str, list[Topic]] = {}
         for topic in self.topics:
             if topic.parent_id is not None:
                 subtopics.setdefault(topic.parent_id, []).append(topic)
         return subtopics
+
+    def read_ancestor_ids(self, topic_id: str) -> set[str]:
+        by_id = {topic.id: topic for topic in self.topics}
+        current = by_id[topic_id]
+        ancestors = {current.id}
+        while current.parent_id is not None:
+            current = by_id[current.parent_id]
+            ancestors.add(current.id)
+        return ancestors
+
+    def read_subtree_ids(self, topic_ids: list[str]) -> set[str]:
+        subtree = set(topic_ids)
+        frontier = set(topic_ids)
+        while frontier:
+            frontier = {topic.id for topic in self.topics if topic.parent_id in frontier} - subtree
+            subtree |= frontier
+        return subtree
+
+    def read_trashed_ids(self) -> set[str]:
+        by_id = {topic.id: topic for topic in self.topics}
+        trashed: set[str] = set()
+        for topic in self.topics:
+            current: Topic | None = topic
+            while current is not None:
+                if current.status == "trashed":
+                    trashed.add(topic.id)
+                    break
+                current = by_id[current.parent_id] if current.parent_id is not None else None
+        return trashed
 
     @model_validator(mode="after")
     def validate_graph(self) -> "Graph":
@@ -137,13 +169,13 @@ class Notebook:
 
     @property
     def initial_topic(self) -> Topic:
-        return next(topic for topic in self.graph.topics if topic.id == OVERVIEW_TOPIC_ID)
+        return self.graph.read_overview()
 
     # A topic reads as trashed when it or any topic above it is. Only the topic the user discarded carries the status,
     # so restoring it gives the subtree back as it stood.
     @property
     def trashed_topic_ids(self) -> set[str]:
-        return self._read_trashed_ids(self.graph)
+        return self.graph.read_trashed_ids()
 
     def read(self, query: ReadQuery) -> tuple[list[Note], list[Connection]]:
         topic_ids = {topic.id for topic in self.graph.topics}
@@ -152,9 +184,7 @@ class Notebook:
         # A named topic reads with everything under it. Naming a trashed topic still reads it, which is how the model
         # sees what it would restore.
         allowed_topics = (
-            self._read_subtree_ids(self.graph, query.topic_ids)
-            if query.topic_ids
-            else topic_ids - self.trashed_topic_ids
+            self.graph.read_subtree_ids(query.topic_ids) if query.topic_ids else topic_ids - self.trashed_topic_ids
         )
         by_id = {note.id: note for note in self.graph.notes}
         candidates = {note.id: note for note in self.graph.notes if note.topic_id in allowed_topics}
@@ -246,7 +276,7 @@ class Notebook:
             if topic.id == OVERVIEW_TOPIC_ID:
                 raise ValueError(f"The overview topic `{topic.id}` cannot stand under another topic.")
             self._find_topic(graph, parent_id)
-            if parent_id in self._read_trashed_ids(graph):
+            if parent_id in graph.read_trashed_ids():
                 raise ValueError(f"Topic `{parent_id}` is trashed. Restore it before standing a topic under it.")
             topic.parent_id = parent_id
         if status is not None:
@@ -274,7 +304,7 @@ class Notebook:
             raise ValueError("Provide one or more unique note IDs.")
         graph = self.graph.model_copy(deep=True)
         self._find_topic(graph, topic_id)
-        if topic_id in self._read_trashed_ids(graph):
+        if topic_id in graph.read_trashed_ids():
             raise ValueError(f"Topic `{topic_id}` is trashed. Restore it before moving notes into it.")
         for note_id in note_ids:
             self._find_note(graph, note_id).topic_id = topic_id
@@ -365,23 +395,22 @@ class Notebook:
             return ""
         try:
             graph = cls._parse(safe_load(document))
-        except (AttributeError, KeyError, OSError, TypeError, ValueError, YAMLError) as error:
-            logger.exception("document_parse_failed")
-            raise PersistenceError("The notebook document cannot be read.") from error
-        trashed = cls._read_trashed_ids(graph)
-        topics = [topic for topic in graph.topics if topic.id not in trashed]
-        notes = [note for note in graph.notes if note.topic_id in {topic.id for topic in topics}]
-        visible = {note.id for note in notes}
-        return cls._dump(
-            Graph(
-                topics=topics,
+            kept_topic_ids = {topic.id for topic in graph.topics} - graph.read_trashed_ids()
+            notes = [note for note in graph.notes if note.topic_id in kept_topic_ids]
+            visible = {note.id for note in notes}
+            remaining = Graph(
+                topics=[topic for topic in graph.topics if topic.id in kept_topic_ids],
                 notes=notes,
                 connections=[
                     item for item in graph.connections if item.source_id in visible and item.target_id in visible
                 ],
                 next_note_id=graph.next_note_id,
             )
-        )
+        except (AttributeError, KeyError, OSError, TypeError, ValueError, YAMLError) as error:
+            logger.exception("document_parse_failed")
+            raise PersistenceError("The notebook document cannot be read.") from error
+        else:
+            return cls._dump(remaining)
 
     def _traverse(self, query: ReadQuery, by_id: dict[str, Note]) -> dict[str, Note]:
         frontier = set(query.traverse_from or [])
@@ -468,18 +497,13 @@ class Notebook:
     def _dump(graph: Graph, topic_id: TopicId | None = None) -> str:
         # A trashed topic stops the walk, so it and the topics above the active one that stand under it render
         # nothing. Take them out of the pinned set, which then names the topics whose notes the document holds.
-        pinned = (
-            None
-            if topic_id is None
-            else Notebook._read_ancestor_ids(graph, topic_id) - Notebook._read_trashed_ids(graph)
-        )
-        rendered = set() if pinned is None else {note.id for note in graph.notes if note.topic_id in pinned}
-        overview = next(topic for topic in graph.topics if topic.id == OVERVIEW_TOPIC_ID)
-        data = Notebook._build_topic(overview, graph, graph.read_subtopics(), pinned)
+        pinned = None if topic_id is None else graph.read_ancestor_ids(topic_id) - graph.read_trashed_ids()
+        rendered = {note.id for note in graph.notes if pinned is None or note.topic_id in pinned}
+        data = Notebook._build_topic(graph.read_overview(), graph, graph.read_subtopics(), pinned)
         data["connections"] = [
             f"{item.source_id} {item.label} {item.target_id}"
             for item in graph.connections
-            if pinned is None or item.source_id in rendered or item.target_id in rendered
+            if item.source_id in rendered or item.target_id in rendered
         ]
         if topic_id is None:
             data["next_note_id"] = graph.next_note_id
@@ -502,38 +526,6 @@ class Notebook:
         if children:
             data["topics"] = children
         return data
-
-    @staticmethod
-    def _read_ancestor_ids(graph: Graph, topic_id: str) -> set[str]:
-        by_id = {topic.id: topic for topic in graph.topics}
-        current = by_id[topic_id]
-        ancestors = {current.id}
-        while current.parent_id is not None:
-            current = by_id[current.parent_id]
-            ancestors.add(current.id)
-        return ancestors
-
-    @staticmethod
-    def _read_subtree_ids(graph: Graph, topic_ids: list[str]) -> set[str]:
-        subtree = set(topic_ids)
-        frontier = set(topic_ids)
-        while frontier:
-            frontier = {topic.id for topic in graph.topics if topic.parent_id in frontier} - subtree
-            subtree |= frontier
-        return subtree
-
-    @staticmethod
-    def _read_trashed_ids(graph: Graph) -> set[str]:
-        by_id = {topic.id: topic for topic in graph.topics}
-        trashed: set[str] = set()
-        for topic in graph.topics:
-            current: Topic | None = topic
-            while current is not None:
-                if current.status == "trashed":
-                    trashed.add(topic.id)
-                    break
-                current = by_id[current.parent_id] if current.parent_id is not None else None
-        return trashed
 
     @staticmethod
     def _find_note(graph: Graph, note_id: str) -> Note:
