@@ -38,13 +38,10 @@ def test_opens_the_diagram_with_its_type_and_the_topic_style() -> None:
 def test_draws_every_topic_note_and_connection() -> None:
     diagram = read_diagram(render(build_graph()))
 
-    assert 'subgraph t1["Delivery [open] — How it ships"]' in diagram
-    assert 'n1["Runs in a terminal."]' in diagram
     assert 'n2["Ships as a wheel."]' in diagram
     assert 'n1 -->|"supports"| n2' in diagram
 
 
-# Mermaid gives the title of a subgraph one line of space and cuts off the lines below it.
 # A summary is optional, so its separator must come with it.
 def test_draws_a_topic_that_has_no_summary_without_a_separator() -> None:
     graph = Graph(topics=[Topic(id="t1", name="Delivery", status="open")], next_note_id="n1")

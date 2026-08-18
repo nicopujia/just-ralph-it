@@ -110,6 +110,7 @@ class Interviewer(Agent):
             "Turn to a project topic by its name or ID, creating it when it does not exist. "
             "A topic being created needs a summary, and stands under `parent`, or under the overview topic when "
             "`parent` is not given. "
+            "`summary` and `parent` are ignored for a topic that exists, so change them with `update_topic`. "
             "Capture unresolved unknowns as notes before switching away from a topic."
         ),
         started_label="Switching to {topic}",
@@ -126,7 +127,6 @@ class Interviewer(Agent):
             if given_summary is None:
                 raise ValueError(f"Topic `{value}` does not exist. Give it a summary to create it.")
             given_parent = _omit_blank(parent)
-            # A new topic stands under the overview topic when the model names no parent.
             parent_id = self.initial_topic.id if given_parent is None else self._resolve_topic(given_parent)
             resolved = self.notebook.add_topic(value, parent_id, given_summary)
         elif resolved.id in self.notebook.trashed_topic_ids:
@@ -149,13 +149,12 @@ class Interviewer(Agent):
         parent: str | None = None,
     ) -> str:
         given_parent = _omit_blank(parent)
-        # A topic keeps the topic it stands under when the model names no parent.
         topic = self.notebook.update_topic(
             topic_id,
-            status,
-            _omit_blank(summary),
-            _omit_blank(name),
-            None if given_parent is None else self._resolve_topic(given_parent),
+            status=status,
+            summary=_omit_blank(summary),
+            name=_omit_blank(name),
+            parent_id=None if given_parent is None else self._resolve_topic(given_parent),
         )
         return f"Updated {topic.id} ({topic.status})."
 

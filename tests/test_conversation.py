@@ -263,7 +263,9 @@ def test_restores_a_completed_interview_turn() -> None:
     turns = restarted.restore()
 
     assert restarted.interviewer.active_topic_id == "t2"
-    assert [(topic.id, topic.name) for topic in restarted.interviewer.notebook.graph.topics[1:]] == [("t2", "Delivery")]
+    assert [(topic.id, topic.name) for topic in restarted.interviewer.notebook.graph.topics if topic.id != "t1"] == [
+        ("t2", "Delivery")
+    ]
     assert [(note.topic_id, note.text) for note in restarted.interviewer.notebook.graph.notes] == [
         ("t2", "Deploy from the main branch.")
     ]
@@ -1372,7 +1374,7 @@ def test_removes_knowledge_captured_after_the_rewind_point() -> None:
     graph = reopened.interviewer.notebook.graph
 
     assert reopened.interviewer.active_topic_id == "t2"
-    assert [(topic.id, topic.name) for topic in graph.topics[1:]] == [("t2", "Delivery")]
+    assert [(topic.id, topic.name) for topic in graph.topics if topic.id != "t1"] == [("t2", "Delivery")]
     assert [(note.topic_id, note.text) for note in graph.notes] == [("t2", "Deploy from main.")]
     assert {"Encrypt stored credentials.", "Charge monthly."}.isdisjoint(turn.message for turn in turns)
 

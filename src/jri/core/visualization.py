@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 
 from . import issues
-from .notes import Graph, Topic
+from .notes import OVERVIEW_TOPIC_ID, Graph, Topic
 
 DRAW_ERROR = f"The graph viewer loaded, but it could not draw the graph. Report it at {issues.URL}."
 # The page fetches its drawing libraries instead of carrying them. JRI requires a model-provider network connection.
@@ -104,13 +104,9 @@ HTML = """\
 
 
 def render(graph: Graph) -> str:
-    subtopics: dict[str, list[Topic]] = {}
-    for topic in graph.topics:
-        if topic.parent_id is not None:
-            subtopics.setdefault(topic.parent_id, []).append(topic)
-    root = next(topic for topic in graph.topics if topic.parent_id is None)
+    overview = next(topic for topic in graph.topics if topic.id == OVERVIEW_TOPIC_ID)
     diagram = ["flowchart TD", f"{INDENTATION}classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px"]
-    diagram.extend(_draw_topic(root, graph, subtopics, 1))
+    diagram.extend(_draw_topic(overview, graph, graph.read_subtopics(), 1))
     # A note sits inside the box of its topic, so containment needs no edge. Draw the connections after every box,
     # because an edge written inside one puts both of its notes in that box.
     diagram.extend(

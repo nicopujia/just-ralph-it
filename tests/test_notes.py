@@ -179,7 +179,7 @@ def test_rejects_an_invalid_connection_batch_without_changing_anything(tmp_path:
     assert Notebook(notebook.path, "Acme").graph == before
 
 
-def test_never_reuses_the_id_of_a_deleted_note(tmp_path: Path) -> None:
+def test_never_reuses_the_id_of_a_trashed_note(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     notebook.add(["First", "Second", "Third"], "t1")
 
@@ -201,7 +201,7 @@ def test_keeps_the_next_note_id_when_restoring_an_earlier_graph(tmp_path: Path) 
     assert notebook.add(["Third"], "t1")[0].id == "n3"
 
 
-def test_removes_the_connections_of_a_deleted_note(tmp_path: Path) -> None:
+def test_removes_the_connections_of_a_trashed_note(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     notebook.add(["First", "Second", "Third"], "t1")
     notebook.connect([
@@ -580,9 +580,9 @@ def test_keeps_the_last_saved_graph_in_memory_when_writing_fails(tmp_path: Path)
         "move-to-an-unknown-topic",
         "edit-to-blank-text",
         "edit-an-unknown-note",
-        "delete-nothing",
-        "delete-a-repeated-note",
-        "delete-an-unknown-note-mid-batch",
+        "trash-nothing",
+        "trash-a-repeated-note",
+        "trash-an-unknown-note-mid-batch",
         "connect-nothing",
         "connect-a-repeated-connection",
         "connect-with-a-blank-label",
@@ -791,3 +791,38 @@ def test_discards_topics_and_notes_in_one_request(tmp_path: Path) -> None:
     assert [note.id for note in graph.notes] == ["n1"]
     assert graph.connections == []
     assert [(topic.id, topic.status) for topic in graph.topics] == [("t1", "open"), ("t2", "trashed")]
+
+
+def test_refuses_to_stand_a_topic_under_a_trashed_one(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
+    discarded = notebook.add_topic("Discarded", "t1", "What was dropped.")
+    live = notebook.add_topic("Live", "t1", "Still wanted.")
+    notebook.trash([discarded.id])
+
+    with pytest.raises(ValueError, match="is trashed"):
+        notebook.update_topic(live.id, parent_id=discarded.id)
+
+    reopened = Notebook(notebook.path, "Acme").find_topic(live.id)
+    assert reopened is not None
+    assert reopened.parent_id == "t1"
+
+
+# The pinned document must hold no connection that names a note it does not show, whatever the tree does.
+def test_renders_no_connection_naming_a_note_it_does_not_show(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
+    discarded = notebook.add_topic("Discarded", "t1", "What was dropped.")
+    under = notebook.add_topic("Under", discarded.id, "It stands under the discarded topic.")
+    notebook.add(["First.", "Second."], under.id)
+    notebook.connect([Connection(source_id="n1", target_id="n2", label="requires")])
+    notebook.trash([discarded.id])
+
+    document = safe_load(notebook.render(under.id))
+
+    shown: set[str] = set()
+    pending = [document]
+    while pending:
+        node = pending.pop()
+        shown.update(node.get("notes") or {})
+        pending.extend(node.get("topics") or [])
+    assert document["connections"] == []
+    assert shown == set()

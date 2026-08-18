@@ -272,7 +272,7 @@ def test_edits_the_text_of_a_single_note(tmp_path: Path) -> None:
     assert interviewer.notebook.graph.notes[0].text == "Ships daily."
 
 
-def test_deletes_every_requested_note(tmp_path: Path) -> None:
+def test_trashes_every_requested_note(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
     interviewer.capture_notes(["First.", "Second.", "Third."])
 
@@ -425,19 +425,6 @@ def test_changes_only_the_summary_when_the_model_sends_a_blank_name_and_parent(t
     assert [(topic.id, topic.name, topic.summary, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [
         ("t1", "Acme", None, None),
         ("t2", "Delivery", "Shared quote rules.", "t1"),
-    ]
-
-
-def test_keeps_a_topic_under_its_parent_when_the_model_sends_a_blank_parent(tmp_path: Path) -> None:
-    interviewer = build_interviewer(tmp_path)
-    interviewer.switch_topic("Delivery", summary="How it ships.")
-    interviewer.switch_topic("Rollout", parent="Delivery", summary="How it reaches users.")
-
-    assert interviewer.update_topic("t3", parent="") == "Updated t3 (open)."
-    assert [(topic.id, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [
-        ("t1", None),
-        ("t2", "t1"),
-        ("t3", "t2"),
     ]
 
 

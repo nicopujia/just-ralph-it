@@ -14,7 +14,7 @@ type TopicId = Annotated[str, Field(pattern=r"^t\d+$")]
 type NoteId = Annotated[str, Field(pattern=r"^n\d+$")]
 type NodeId = Annotated[str, Field(pattern=r"^[nt]\d+$")]
 
-ROOT_TOPIC_ID = "t1"
+OVERVIEW_TOPIC_ID = "t1"
 # The root, a topic, and a subtopic. Every ancestor of the active topic is pinned on each request, so one more level
 # is one more always-sent body. Placement also becomes a guess the deeper the tree goes.
 MAX_DEPTH = 3
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class Topic(BaseModel):
     id: TopicId
-    # Only the root has no parent. Placement lives in this field, and the file expresses it as nesting.
+    # Placement lives in this field, and the file expresses it as nesting.
     parent_id: TopicId | None = None
     name: str
     summary: str | None = None
@@ -44,10 +44,17 @@ class Connection(BaseModel):
 
 
 class Graph(BaseModel):
-    topics: list[Topic] = Field(default_factory=list)
+    topics: list[Topic]
     notes: list[Note] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
     next_note_id: NoteId = "n1"
+
+    def read_subtopics(self) -> dict[str, list[Topic]]:
+        subtopics: dict[str, list[Topic]] = {}
+        for topic in self.topics:
+            if topic.parent_id is not None:
+                subtopics.setdefault(topic.parent_id, []).append(topic)
+        return subtopics
 
     @model_validator(mode="after")
     def validate_graph(self) -> "Graph":
@@ -64,8 +71,8 @@ class Graph(BaseModel):
         ]
         if any(not value.strip() for value in content):
             raise ValueError("Graph content cannot be blank.")
-        if ROOT_TOPIC_ID not in topic_ids:
-            raise ValueError(f"The overview topic `{ROOT_TOPIC_ID}` must exist.")
+        if OVERVIEW_TOPIC_ID not in topic_ids:
+            raise ValueError(f"The overview topic `{OVERVIEW_TOPIC_ID}` must exist.")
         names = [topic.name.strip().casefold() for topic in self.topics]
         if len(names) != len(set(names)):
             raise ValueError("Topic names must be unique.")
@@ -83,12 +90,11 @@ class Graph(BaseModel):
         self._validate_tree()
         return self
 
-    # The root is the project itself, so it is the one topic without a parent.
     def _validate_tree(self) -> None:
         by_id = {topic.id: topic for topic in self.topics}
         rootless = [topic.id for topic in self.topics if topic.parent_id is None]
-        if rootless != [ROOT_TOPIC_ID]:
-            raise ValueError(f"Only the overview topic `{ROOT_TOPIC_ID}` stands without a parent topic.")
+        if rootless != [OVERVIEW_TOPIC_ID]:
+            raise ValueError(f"Only the overview topic `{OVERVIEW_TOPIC_ID}` stands without a parent topic.")
         if any(topic.parent_id is not None and topic.parent_id not in by_id for topic in self.topics):
             raise ValueError("Every topic must reference an existing parent topic.")
         for topic in self.topics:
@@ -131,7 +137,7 @@ class Notebook:
 
     @property
     def initial_topic(self) -> Topic:
-        return next(topic for topic in self.graph.topics if topic.id == ROOT_TOPIC_ID)
+        return next(topic for topic in self.graph.topics if topic.id == OVERVIEW_TOPIC_ID)
 
     # A topic reads as trashed when it or any topic above it is. Only the topic the user discarded carries the status,
     # so restoring it gives the subtree back as it stood.
@@ -237,9 +243,11 @@ class Notebook:
         ):
             raise ValueError(f"Topic `{name.strip()}` already exists.")
         if parent_id is not None:
-            if topic.id == ROOT_TOPIC_ID:
+            if topic.id == OVERVIEW_TOPIC_ID:
                 raise ValueError(f"The overview topic `{topic.id}` cannot stand under another topic.")
             self._find_topic(graph, parent_id)
+            if parent_id in self._read_trashed_ids(graph):
+                raise ValueError(f"Topic `{parent_id}` is trashed. Restore it before standing a topic under it.")
             topic.parent_id = parent_id
         if status is not None:
             topic.status = status
@@ -282,8 +290,8 @@ class Notebook:
         graph = self.graph.model_copy(deep=True)
         topic_ids = [node_id for node_id in node_ids if node_id.startswith("t")]
         note_ids = [node_id for node_id in node_ids if node_id.startswith("n")]
-        if ROOT_TOPIC_ID in topic_ids:
-            raise ValueError(f"The overview topic `{ROOT_TOPIC_ID}` cannot be trashed.")
+        if OVERVIEW_TOPIC_ID in topic_ids:
+            raise ValueError(f"The overview topic `{OVERVIEW_TOPIC_ID}` cannot be trashed.")
         for topic_id in topic_ids:
             self._find_topic(graph, topic_id).status = "trashed"
         for note_id in note_ids:
@@ -399,7 +407,7 @@ class Notebook:
     def _load(self) -> Graph:
         if not self.path.exists():
             # The project has no name of its own yet, so it starts with the name of the directory it lives in.
-            graph = Graph(topics=[Topic(id=ROOT_TOPIC_ID, name=self.project_name, status="open")])
+            graph = Graph(topics=[Topic(id=OVERVIEW_TOPIC_ID, name=self.project_name, status="open")])
             self._write(graph)
             logger.debug("file_created")
             return graph
@@ -458,14 +466,16 @@ class Notebook:
     # every trashed subtree, the connections that reach none of the rendered notes, and the note ID allocator.
     @staticmethod
     def _dump(graph: Graph, topic_id: TopicId | None = None) -> str:
-        subtopics: dict[str, list[Topic]] = {}
-        for topic in graph.topics:
-            if topic.parent_id is not None:
-                subtopics.setdefault(topic.parent_id, []).append(topic)
-        pinned = None if topic_id is None else Notebook._read_ancestor_ids(graph, topic_id)
-        rendered: set[str] = set()
-        root = next(topic for topic in graph.topics if topic.id == ROOT_TOPIC_ID)
-        data = Notebook._render_topic(root, graph, subtopics, pinned, rendered)
+        # A trashed topic stops the walk, so it and the topics above the active one that stand under it render
+        # nothing. Take them out of the pinned set, which then names the topics whose notes the document holds.
+        pinned = (
+            None
+            if topic_id is None
+            else Notebook._read_ancestor_ids(graph, topic_id) - Notebook._read_trashed_ids(graph)
+        )
+        rendered = set() if pinned is None else {note.id for note in graph.notes if note.topic_id in pinned}
+        overview = next(topic for topic in graph.topics if topic.id == OVERVIEW_TOPIC_ID)
+        data = Notebook._build_topic(overview, graph, graph.read_subtopics(), pinned)
         data["connections"] = [
             f"{item.source_id} {item.label} {item.target_id}"
             for item in graph.connections
@@ -476,18 +486,16 @@ class Notebook:
         return safe_dump(data, sort_keys=False, allow_unicode=True, width=10**9)
 
     @staticmethod
-    def _render_topic(
-        topic: Topic, graph: Graph, subtopics: dict[str, list[Topic]], pinned: set[str] | None, rendered: set[str]
+    def _build_topic(
+        topic: Topic, graph: Graph, subtopics: dict[str, list[Topic]], pinned: set[str] | None
     ) -> dict[str, Any]:
         # Placement is what the nesting states, so the field that carries it says nothing further here.
         data: dict[str, Any] = topic.model_dump(exclude_none=True, exclude={"parent_id"})
         if pinned is None or topic.id in pinned:
-            notes = {note.id: note.text for note in graph.notes if note.topic_id == topic.id}
-            data["notes"] = notes
-            rendered.update(notes)
+            data["notes"] = {note.id: note.text for note in graph.notes if note.topic_id == topic.id}
         # Stopping at a trashed topic takes its subtree with it.
         children = [
-            Notebook._render_topic(child, graph, subtopics, pinned, rendered)
+            Notebook._build_topic(child, graph, subtopics, pinned)
             for child in subtopics.get(topic.id, [])
             if pinned is None or child.status != "trashed"
         ]

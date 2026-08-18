@@ -349,7 +349,10 @@ def test_initializes_a_workspace_directory_that_holds_no_settings(tmp_path: Path
 
 def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path) -> None:
     notebook = {
-        "topics": [{"id": "t1", "name": "Acme", "status": "open", "notes": {"n1": "Keep this note."}}],
+        "id": "t1",
+        "name": "Acme",
+        "status": "open",
+        "notes": {"n1": "Keep this note."},
         "connections": [],
         "next_note_id": "n2",
     }
