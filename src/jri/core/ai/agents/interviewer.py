@@ -122,9 +122,13 @@ class Interviewer(Agent):
         if resolved is None:
             if any(note.id == value for note in self.notebook.graph.notes):
                 raise ValueError(f"Note `{value}` is not a topic.")
-            if summary is None:
+            given_summary = _omit_blank(summary)
+            if given_summary is None:
                 raise ValueError(f"Topic `{value}` does not exist. Give it a summary to create it.")
-            resolved = self.notebook.add_topic(value, self._resolve_topic(parent), summary)
+            given_parent = _omit_blank(parent)
+            # A new topic stands under the overview topic when the model names no parent.
+            parent_id = self.initial_topic.id if given_parent is None else self._resolve_topic(given_parent)
+            resolved = self.notebook.add_topic(value, parent_id, given_summary)
         elif resolved.id in self.notebook.trashed_topic_ids:
             raise ValueError(f"Topic `{resolved.id}` is trashed. Restore it before switching.")
         self.active_topic_id = resolved.id
@@ -144,8 +148,14 @@ class Interviewer(Agent):
         name: str | None = None,
         parent: str | None = None,
     ) -> str:
+        given_parent = _omit_blank(parent)
+        # A topic keeps the topic it stands under when the model names no parent.
         topic = self.notebook.update_topic(
-            topic_id, status, summary, name, None if parent is None else self._resolve_topic(parent)
+            topic_id,
+            status,
+            _omit_blank(summary),
+            _omit_blank(name),
+            None if given_parent is None else self._resolve_topic(given_parent),
         )
         return f"Updated {topic.id} ({topic.status})."
 
@@ -245,10 +255,14 @@ class Interviewer(Agent):
 
     # A model names a topic the way it names one everywhere else, so resolve a name or an ID here and let the
     # notebook see an ID.
-    def _resolve_topic(self, value: str | None) -> str:
-        if value is None:
-            return self.initial_topic.id
-        resolved = self.notebook.find_topic(value.strip())
+    def _resolve_topic(self, value: str) -> str:
+        resolved = self.notebook.find_topic(value)
         if resolved is None:
-            raise ValueError(f"Unknown topic `{value.strip()}`.")
+            raise ValueError(f"Unknown topic `{value}`.")
         return resolved.id
+
+
+# The tools are strict, so a model must send every property. A model that does not want a property sends an empty
+# string. Read a blank value as a property the model did not send.
+def _omit_blank(value: str | None) -> str | None:
+    return (value or "").strip() or None

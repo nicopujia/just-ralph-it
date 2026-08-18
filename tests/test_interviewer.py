@@ -108,14 +108,23 @@ def test_creates_a_topic_named_by_the_model(tmp_path: Path) -> None:
     assert [(topic.id, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [("t1", None), ("t2", "t1")]
 
 
-def test_refuses_to_create_a_topic_without_a_summary(tmp_path: Path) -> None:
+@pytest.mark.parametrize("summary", [None, ""], ids=["no summary", "a blank summary"])
+def test_refuses_to_create_a_topic_without_a_summary(summary: str | None, tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
 
     with pytest.raises(ValueError, match="Give it a summary"):
-        interviewer.switch_topic("Delivery")
+        interviewer.switch_topic("Delivery", summary=summary)
 
     assert [topic.id for topic in interviewer.notebook.graph.topics] == ["t1"]
     assert interviewer.active_topic_id == "t1"
+
+
+# A strict tool makes a model send every property, and a model fills the ones it does not use with a blank string.
+def test_creates_a_topic_under_the_overview_when_the_model_sends_a_blank_parent(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+
+    assert interviewer.switch_topic("Delivery", parent="", summary="How it ships.") == "Switched to t2."
+    assert [(topic.id, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [("t1", None), ("t2", "t1")]
 
 
 def test_creates_a_topic_under_the_one_the_model_names(tmp_path: Path) -> None:
@@ -401,6 +410,30 @@ def test_moves_a_topic_under_the_one_the_model_names(tmp_path: Path) -> None:
     interviewer.switch_topic("Rollout", summary="How it reaches users.")
 
     assert interviewer.update_topic("t3", parent="Delivery") == "Updated t3 (open)."
+    assert [(topic.id, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [
+        ("t1", None),
+        ("t2", "t1"),
+        ("t3", "t2"),
+    ]
+
+
+def test_changes_only_the_summary_when_the_model_sends_a_blank_name_and_parent(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+    interviewer.switch_topic("Delivery", summary="How it ships.")
+
+    assert interviewer.update_topic("t2", "open", "Shared quote rules.", "", "") == "Updated t2 (open)."
+    assert [(topic.id, topic.name, topic.summary, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [
+        ("t1", "Acme", None, None),
+        ("t2", "Delivery", "Shared quote rules.", "t1"),
+    ]
+
+
+def test_keeps_a_topic_under_its_parent_when_the_model_sends_a_blank_parent(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+    interviewer.switch_topic("Delivery", summary="How it ships.")
+    interviewer.switch_topic("Rollout", parent="Delivery", summary="How it reaches users.")
+
+    assert interviewer.update_topic("t3", parent="") == "Updated t3 (open)."
     assert [(topic.id, topic.parent_id) for topic in interviewer.notebook.graph.topics] == [
         ("t1", None),
         ("t2", "t1"),
