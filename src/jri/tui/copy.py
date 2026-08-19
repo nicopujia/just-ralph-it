@@ -14,8 +14,13 @@ CLI_FORCE_HELP = (
     "Re-create the JRI workspace: write the settings file again and delete the conversation, the notes, "
     "the logs, the generated specifications, and what the last Just Ralph It run left behind."
 )
+CLI_HALT_HELP = "Kill the Just Ralph It run at once."
 CLI_INIT_HELP = "Set the project up with the default JRI settings."
+CLI_JSON_HELP = "Print the report as JSON."
 CLI_NO_COMMENTS_HELP = "Write the settings file with no comments and only the settings that have a value."
+CLI_START_HELP = "Start a Just Ralph It run and wait here until it ends."
+CLI_STATUS_HELP = "Report what the Just Ralph It run of this project is doing."
+CLI_STOP_HELP = "Ask the Just Ralph It run to stop at its next check."
 CLI_VERSION_HELP = "Show the JRI version and exit."
 CLI_VIEW_HELP = "Visualize the notes graph."
 CLI_YES_HELP = "Answer yes to the confirmation --force asks for."
@@ -32,6 +37,8 @@ FORCE_WARNING = """--force replaces these, and what they hold cannot be brought 
 
 GIT_ERROR = "Git failed: {error}"
 
+HALT_KILLED = "Killed the run. The work of the step it was on can be lost."
+HALT_NO_RUN = "No run is going, so nothing was killed."
 HIDE_THINKING_BLOCKS = "Hide thinking blocks"
 
 INIT_COMMITTED = "Committed the workspace files to Git."
@@ -92,6 +99,16 @@ All commands, including `jri view`, use these settings.
 """
 SHORTCUTS = "Shortcuts"
 SHOW_THINKING_BLOCKS = "Show thinking blocks"
+STATUS_DRAFT = "Specifications are drafted and saved. The next run starts again from them."
+STATUS_ENDED = "The last run ended with `{ending}`. The next `jri chat` window puts that result in the conversation."
+STATUS_HELD = "The window running process {holder} holds this project."
+STATUS_IDLE = "No run is going, and no run left anything here."
+STATUS_INCOMPLETE = "The last run wrote no ending, and its process is gone. Nothing continues it, so start a new run."
+STATUS_RUNNING = "A run is going, in process {pid}, since {started}."
+STATUS_STEP = "The step is {step}, since {started}."
+STATUS_STOPPING = "A stop is asked for. The run stops at its next check."
+STOP_ASKED = "Asked the run to stop. It stops at its next check and writes its ending."
+STOP_NO_RUN = "No run is going, so nothing was asked to stop."
 
 THINKING_BLOCKS = "Thinking blocks"
 THINKING_BLOCKS_COMMAND = "Toggle model's chain-of-thought (reasoning) text blocks."

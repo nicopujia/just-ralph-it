@@ -352,7 +352,7 @@ class Conversation:
         # Events can arrive live or all at once after forty minutes.
         generation = Generation(self.workspace)
         if not generation.exists:
-            generation.start()
+            generation.spawn()
         # A leaving window stops watching only. `RunDetached` is not a failure, so `_report_turn` does not end the turn.
         # The window that resumes the run ends the turn.
         result = yield from generation.follow(cancelled, detached)

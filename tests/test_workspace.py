@@ -735,6 +735,34 @@ def test_names_the_window_that_has_the_project_and_not_the_one_before_it(tmp_pat
         assert hold.holder != killed.pid
 
 
+def test_names_the_window_that_holds_the_project_now(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    with hold_workspace(tmp_path) as window:
+        assert Workspace(tmp_path).open_hold().find_holder() == window.pid
+
+
+# The record of a window stays in the lock after that window has left. Only the operating system says whether the
+# window behind it is alive.
+def test_names_no_window_when_the_one_that_held_the_project_left(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    with hold_workspace(tmp_path) as window:
+        end_a_window(tmp_path, window)
+
+    assert Workspace(tmp_path).open_hold().find_holder() is None
+
+    # A read takes the lock to find that out, and a read that keeps it would leave the project to no window.
+    assert take(tmp_path / paths.LOCK_FILE)
+
+
+def test_writes_no_lock_when_no_window_ever_held_the_project(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    assert Workspace(tmp_path).open_hold().find_holder() is None
+
+    assert not (tmp_path / paths.LOCK_FILE).exists()
+
+
 def test_refuses_a_project_held_by_something_that_does_not_name_itself(tmp_path: Path) -> None:
     install_workspace(tmp_path)
 

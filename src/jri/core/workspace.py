@@ -284,6 +284,18 @@ class Hold:
         self.claim = Lock(workspace.root / paths.CLAIM_FILE)
         self.holder: int | None = None
 
+    # This states which process holds the project now, and nothing when no process holds it.
+    # The record alone is not the answer: only the operating system says whether a holder is alive, and the record
+    # stays after its window has left. Take the lock to find that out, and release a lock that this call takes.
+    # A project without a lock file has no window, and finding that out must not make one.
+    def find_holder(self) -> int | None:
+        if not self.lock.path.exists():
+            return None
+        if self.take():
+            self.release()
+            return None
+        return self.holder
+
     # This states whether this process holds the project. When it does not, it records the holding JRI PID.
     # The lock proves that the holder is running because the operating system releases it at exit.
     # The lock record identifies the process and is read under its claim.

@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+from datetime import datetime
 
 import yaml
 from dotenv import load_dotenv
@@ -25,6 +26,8 @@ from .app import App
 HANGUP_STATUS = 129
 # This is the shell status for an interrupt requested by the user. Do not show a traceback for the requested operation.
 INTERRUPTED_STATUS = 130
+# A report shows a moment in the local time of the machine that reads it. `--json` keeps the recorded time.
+TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +41,16 @@ def main() -> None:
     init_parser.add_argument("--force", action="store_true", help=copy.CLI_FORCE_HELP)
     init_parser.add_argument("--yes", action="store_true", help=copy.CLI_YES_HELP)
     init_parser.add_argument("--no-comments", action="store_true", help=copy.CLI_NO_COMMENTS_HELP)
-    for name, description in (("chat", copy.CLI_CHAT_HELP), ("view", copy.CLI_VIEW_HELP)):
+    for name, description in (
+        ("chat", copy.CLI_CHAT_HELP),
+        ("view", copy.CLI_VIEW_HELP),
+        ("start", copy.CLI_START_HELP),
+        ("stop", copy.CLI_STOP_HELP),
+        ("halt", copy.CLI_HALT_HELP),
+    ):
         subparsers.add_parser(name, help=description, description=description)
-    # `jri chat` starts this command in a separate process. It has no `help` text, so users do not see it as a command.
-    # It is not a JRI operation. A manual run would report to a conversation that did not request it.
-    subparsers.add_parser("generate")
+    status_parser = subparsers.add_parser("status", help=copy.CLI_STATUS_HELP, description=copy.CLI_STATUS_HELP)
+    status_parser.add_argument("--json", action="store_true", help=copy.CLI_JSON_HELP)
 
     arguments = parser.parse_args()
     if arguments.command is None:
@@ -53,7 +61,10 @@ def main() -> None:
         "init": lambda: _initialize(force=arguments.force, yes=arguments.yes, comments=not arguments.no_comments),
         "chat": _chat,
         "view": _view,
-        "generate": _generate,
+        "start": _start,
+        "stop": _stop,
+        "halt": _halt,
+        "status": lambda: _status(json=arguments.json),
     }
 
     try:
@@ -121,15 +132,6 @@ def _chat() -> None:
         logging.shutdown()
 
 
-# This is a run without a window. It takes the project generation lock, not the chat lock.
-# The starter window still has the chat lock, notes, and session.
-def _generate() -> None:
-    settings = _load_settings()
-    logs.configure(settings)
-    settings.llm.validate_authentication()
-    Generation.execute(settings)
-
-
 def _view() -> None:
     settings = _load_settings()
     logs.configure(settings)
@@ -143,11 +145,60 @@ def _view() -> None:
     print(copy.VIEW_NEXT_STEPS if graph.notes else copy.VIEW_NO_NOTES)
 
 
-def _load_settings() -> Settings:
+# This is a run without a window. It takes the project generation lock, not the chat lock.
+# The command is the run itself: it holds this terminal until the run ends.
+# A supervisor that starts it thus owns the run for all its life.
+def _start() -> None:
+    settings = _load_settings()
+    logs.configure(settings)
+    settings.llm.validate_authentication()
+    Generation.execute(settings)
+
+
+def _stop() -> None:
+    print(copy.STOP_ASKED if Generation(_find_workspace()).stop() else copy.STOP_NO_RUN)
+
+
+def _halt() -> None:
+    print(copy.HALT_KILLED if Generation(_find_workspace()).halt() else copy.HALT_NO_RUN)
+
+
+# This command only reads. It asks for no settings and for no provider account.
+# The settings can be broken, and that is when a reader needs this report most.
+def _status(*, json: bool) -> None:
+    status = Generation(_find_workspace()).read_status()
+    if json:
+        print(status.model_dump_json())
+        return
+    lines = []
+    if status.pid is not None and status.started is not None:
+        lines.append(copy.STATUS_RUNNING.format(pid=status.pid, started=_describe_time(status.started)))
+    if status.step and status.step_started is not None:
+        lines.append(copy.STATUS_STEP.format(step=status.step, started=_describe_time(status.step_started)))
+    if status.stopping:
+        lines.append(copy.STATUS_STOPPING)
+    if status.ending:
+        lines.append(copy.STATUS_ENDED.format(ending=status.ending))
+    # A journal with no ending and no process is a run that the machine or a halt ended.
+    if status.recorded and not status.ending and status.pid is None:
+        lines.append(copy.STATUS_INCOMPLETE)
+    if status.draft:
+        lines.append(copy.STATUS_DRAFT)
+    if status.holder is not None:
+        lines.append(copy.STATUS_HELD.format(holder=status.holder))
+    print("\n".join(lines) if lines else copy.STATUS_IDLE)
+
+
+def _find_workspace() -> Workspace:
     workspace = Workspace.find()
     if not workspace.settings_file.exists():
         print(copy.WORKSPACE_MISSING)
         raise SystemExit(1)
+    return workspace
+
+
+def _load_settings() -> Settings:
+    workspace = _find_workspace()
     load_dotenv(workspace.root / ".env")
     try:
         return Settings.load()
@@ -159,6 +210,10 @@ def _load_settings() -> Settings:
         )
         print(copy.SETTINGS_ERROR.format(errors="\n".join(error_lines)))
         raise SystemExit(1) from error
+
+
+def _describe_time(moment: datetime) -> str:
+    return moment.astimezone().strftime(TIME_FORMAT)
 
 
 def _describe_issue(issue: ErrorDetails) -> str:
