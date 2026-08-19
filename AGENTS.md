@@ -2,7 +2,8 @@
 [Concept doc](https://nicolaspujia.com/just-ralph-it.md)
 
 ## Workflow
-After changes: `scripts/check.py`
+- After changes: `scripts/check.py`
+- Before a pull request: `scripts/mutate.py`
 
 ## Style
 - Prefer cleanest long-term approach—no backwards-compat code

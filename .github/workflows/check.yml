@@ -26,3 +26,25 @@ jobs:
       # secret a fork does not have. The script is run rather than
       # executed, since Windows has no shebang.
       - run: uv run --script scripts/check.py
+
+  # A mutant asks whether the tests read the lines a change wrote. It reads a
+  # diff, so it has a base revision to read only on a pull request. One
+  # platform answers for all three: a line that only one of them takes reports
+  # `UNREACHED` on the others, which says nothing the gate can fail on.
+  mutants:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          # The default depth of 1 holds no merge base, and `base...HEAD`
+          # needs one.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - run: uv python install
+      # Name the branch the pull request targets. Only a remote-tracking ref
+      # comes out of the checkout, and a pull request does not always target
+      # the default branch.
+      - run: uv run --script scripts/mutate.py "origin/$BASE_REF"
+        env:
+          BASE_REF: ${{ github.base_ref }}
