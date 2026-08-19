@@ -21,7 +21,8 @@ from openai.types.responses import ResponseFunctionCallOutputItemListParam
 from pydantic import PlainSerializer
 
 from jri.core import ai
-from jri.core.ai import Agent, Invocation, tool
+from jri.core.ai.agent import Agent
+from jri.core.ai.tool import Invocation, tool
 from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, files, prompt, youtube
 

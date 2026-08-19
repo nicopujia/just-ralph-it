@@ -57,7 +57,9 @@ MODULE_GROUPS = (
 CLASS_GROUPS = ("constant", "nested type", "magic method", "method", "private method")
 # Each package can import these packages and itself.
 LAYERS = {"lib": frozenset[str](), "core": frozenset({"lib"}), "tui": frozenset({"core", "lib"})}
-MAX_IMPORT_DEPTH = 3
+# This depth names a module in a package, such as `jri.core.ai.tool`, which the roles beside it import. It does
+# not name a module below that one, such as `jri.core.ai.roles.interviewer`, which stays behind its package.
+MAX_IMPORT_DEPTH = 4
 # This package can be reused outside JRI. Its modules declare exports instead of making every name reachable.
 PUBLIC_API_PACKAGE = "lib"
 TEST_SUPPORT_MODULES = frozenset({"__init__.py", "conftest.py"})

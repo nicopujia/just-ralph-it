@@ -5,7 +5,8 @@ from typing import Literal
 from pydantic import BaseModel
 
 from jri.core import ai
-from jri.core.ai import Agent, tool
+from jri.core.ai.agent import Agent
+from jri.core.ai.tool import tool
 from jri.core.paths import ARCHITECTURE_SPECS_ROOT, FUNCTIONAL_SPECS_ROOT, WORKSPACE_DIR
 from jri.core.settings import Settings
 from jri.core.specs import File, Specs
