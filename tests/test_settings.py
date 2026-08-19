@@ -1,13 +1,13 @@
 import re
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
 
 from jri.core import paths
-from jri.core.settings import LLM, AgentProfile, Settings
+from jri.core.settings import AgentProfile, Settings
 from jri.lib.providers import codex
 from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
 
@@ -270,12 +270,11 @@ def test_blames_the_api_key_a_subscriptionless_provider_needs(tmp_path: Path) ->
     assert error.value.errors()[0]["loc"] == ("llm", "api_key")
 
 
-def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path) -> None:
     values = yaml.safe_load(Settings.render())
-    values["llm"] = {"provider": "openai-subscription"}
-    write_settings(tmp_path, values)
     # The subscription has its own login. It must not need the variable that llm.api_key names.
-    monkeypatch.delenv(cast("str", LLM().api_key), raising=False)
+    values["llm"] = {"provider": "openai-subscription", "api_key": "MISSING_API_KEY"}
+    write_settings(tmp_path, values)
 
     assert isinstance(Settings.load().llm.client, codex.Client)
 
