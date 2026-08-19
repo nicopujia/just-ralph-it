@@ -1078,6 +1078,18 @@ def test_snapshots_the_working_tree_when_no_revision_is_given(
         assert b"+uncommitted edit" in snapshot.diff(None)
 
 
+# `git ls-files` output is read with `-z`, NUL-separated, so a real file name that embeds a newline stays one
+# entry. A naive newline split would misread its tail as a second, unrelated path the copy cannot find.
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows holds no file whose name carries a newline")
+def test_snapshots_a_file_whose_name_holds_a_newline(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "notes.md\nsecret.md").write_bytes(b"# Notes\n")
+
+    with repository.open_worktree(None, location=tmp_path / "snapshot") as snapshot:
+        assert (snapshot.path / "notes.md\nsecret.md").read_text() == "# Notes\n"
+        assert not (snapshot.path / "secret.md").exists()
+
+
 def test_keeps_the_project_untouched_while_a_snapshot_worktree_is_open(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:

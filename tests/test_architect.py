@@ -17,7 +17,6 @@ from tests.doubles.settings import build_settings
 CONTEXT = architect.Input(
     functional_specs_index="functional/behavior.md: How the product behaves.",
     current_architecture_index="(empty)",
-    tracked_repository_tree=["README.md"],
     explorer_report="One Python package.",
 )
 ARCHITECTURE = architect.Architecture(

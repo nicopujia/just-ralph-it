@@ -18,7 +18,6 @@ type Result = Issues | Architecture
 class Input(BaseModel):
     functional_specs_index: str
     current_architecture_index: str
-    tracked_repository_tree: list[str]
     explorer_report: str
 
 
@@ -69,7 +68,6 @@ class Architect(Agent):
         message = prompt.render(
             functional_specifications_index=context.functional_specs_index,
             current_architecture_index=context.current_architecture_index,
-            tracked_repository_tree=context.tracked_repository_tree,
             repository_analysis_report=context.explorer_report,
         )
         if self._final:

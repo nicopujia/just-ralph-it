@@ -144,7 +144,7 @@ def test_keeps_a_forged_entry_inside_the_value_holding_it() -> None:
 def test_keeps_a_forged_item_inside_the_entry_holding_it() -> None:
     paths = ["src/app.py", "note\n- src/forged.py"]
 
-    rendered = prompt.render(tracked_repository_tree=paths)
+    rendered = prompt.render(deleted_paths=paths)
 
     assert safe_load(read_block(rendered)) == paths
 

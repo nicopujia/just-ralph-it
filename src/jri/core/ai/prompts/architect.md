@@ -13,5 +13,5 @@ Constraints:
 - The functional specifications are the only authority on behavior, and the only source of the product's name, purpose, and scope.
 - Cite them by path and section instead of restating them; write only what you add to them.
 - Specify the decisions that are costly to reverse once code exists, and the ones that increments must share. What a later increment reads from the code earlier ones wrote—file trees, signatures, library parameters, etc—needs no decision here, even where you already know the answer. If you cannot say what breaks when a decision is made later, it is not architecture.
-- The repository report and tracked tree are mere reference about the existing codebase, not requirements.
+- The repository report is mere reference about the existing codebase, not requirements.
 - The {workspace_dir} tree in the repository carries the notebook and the specifications, so it is never part of the product's architecture, naming, or layout.

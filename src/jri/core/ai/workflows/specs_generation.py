@@ -116,7 +116,6 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 architect.Input(
                     functional_specs_index=specs.index(functional),
                     current_architecture_index=specs.index(specs.read(staging, paths.ARCHITECTURE_SPECS_DIR)),
-                    tracked_repository_tree=list(specs.repository.read_worktree_paths()),
                     explorer_report=explorer_report,
                 ),
                 cancelled,

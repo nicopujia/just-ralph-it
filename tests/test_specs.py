@@ -564,7 +564,7 @@ def test_shows_specifications_to_the_models_under_neutral_roots(
 
     prompts = [str(item) for item in client.responses.inputs]
     functional_input = next(item for item in prompts if "<notebook_diff_from_accepted_baseline>" in item)
-    architect_input = next(item for item in prompts if "<tracked_repository_tree>" in item)
+    architect_input = next(item for item in prompts if "<current_architecture_index>" in item)
     analyst_index = read_block(functional_input, "current_functional_specifications_index")
     architect_functional_index = read_block(architect_input, "functional_specifications_index")
     architect_architecture_index = read_block(architect_input, "current_architecture_index")
@@ -574,7 +574,7 @@ def test_shows_specifications_to_the_models_under_neutral_roots(
     assert ".jri" not in functional_input
     assert "functional/behavior.md" in architect_functional_index
     assert "architecture/design.md" in architect_architecture_index
-    # The repository tree beside these two blocks names the storage paths, so guard each index on its own.
+    # The repository report beside these two blocks can name the storage paths, so guard each index on its own.
     assert ".jri" not in architect_functional_index
     assert ".jri" not in architect_architecture_index
 

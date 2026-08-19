@@ -1,4 +1,3 @@
-import sys
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
@@ -6,7 +5,6 @@ from threading import Event
 from typing import cast
 
 import pytest
-from yaml import safe_load
 
 from jri.core import paths
 from jri.core.ai import (
@@ -970,14 +968,8 @@ def test_keeps_what_the_repository_study_writes_out_of_the_project(
     assert not run_git(tmp_path, "status", "--short")
 
 
-def test_studies_the_project_as_it_stands_on_disk(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
+def test_studies_the_project_as_it_stands_on_disk(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "app.py").write_text("print('hello')\n")
-    run_git(tmp_path, "add", "src/app.py")
-    run_git(tmp_path, "commit", "-qm", "feat: add an application")
     client = FakeClient(
         [response(call("read", "read_files", paths=[paths.NOTEBOOK_FILE])), streamed_reply("Repository report")],
         parsed=[written_specs(), designed_architecture()],
@@ -985,47 +977,12 @@ def test_studies_the_project_as_it_stands_on_disk(
 
     generate(client)
 
-    tree = next(prompt for prompt in read_prompts(client) if "<tracked_repository_tree>" in prompt)
-    assert "src/app.py" in tree
-    assert paths.NOTEBOOK_FILE in tree
     instructions = read_explorer_prompt(client)
     directory = Path(instructions.split("<working_directory>\n")[1].split("\n</working_directory>")[0])
     # The explorer works in a disposable copy of the repository, not the project directory itself. That copy stands
     # in the run snapshot directory, so its own reported working directory is never the real project path.
     assert directory == (tmp_path / paths.SNAPSHOT_DIR).resolve()
     assert any(str(directory / paths.NOTEBOOK_FILE) in output for output in read_tool_outputs(client))
-
-
-def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Path, run_git: RunGit) -> None:
-    run_git(tmp_path, "init", "-q")
-    (tmp_path / "README.md").write_text("# Project\n")
-    install_workspace(tmp_path)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
-
-    generate(client)
-
-    # `README.md` is never committed here. Listing worktree files, not only the tracked tree, catches a file the
-    # user has not committed yet.
-    tree = next(prompt for prompt in read_prompts(client) if "<tracked_repository_tree>" in prompt)
-    assert "README.md" in tree
-
-
-# `git ls-files` output is read with `-z`, NUL-separated, so a real file name that embeds a newline stays one
-# entry. A naive newline split would misread its tail as a second, unrelated path.
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows holds no file whose name carries a newline")
-def test_reports_a_file_name_holding_a_newline_as_one_tracked_path(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    build_workspace(tmp_path, create_repository)
-    (tmp_path / "notes.md\nsecret.md").write_text("# Notes\n")
-    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
-
-    generate(client)
-
-    tree = next(prompt for prompt in read_prompts(client) if "<tracked_repository_tree>" in prompt)
-    listed = safe_load(tree.partition("<tracked_repository_tree>\n")[2].partition("\n</tracked_repository_tree>")[0])
-    assert "notes.md\nsecret.md" in listed
-    assert "secret.md" not in listed
 
 
 def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: CreateRepository) -> None:
