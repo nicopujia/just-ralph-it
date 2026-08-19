@@ -118,7 +118,50 @@ def test_leaves_the_percentages_and_braces_of_the_page_alone() -> None:
     page = render(build_graph())
 
     assert "width: 100%;" in page
-    assert 'mermaid.initialize({ startOnLoad: false, theme: "default" });' in page
+    assert "mermaid.initialize({" in page
+
+
+# Mermaid draws 500 edges and 50,000 characters of diagram at the most, and a notebook passes both numbers while a
+# browser still draws it. A diagram cannot raise either limit, so the page states them where Mermaid reads them.
+def test_raises_the_sizes_mermaid_draws_up_to() -> None:
+    page = render(build_graph())
+
+    assert "maxEdges: 600," in page
+    assert "maxTextSize: 100000," in page
+
+
+# Above its limits Mermaid puts a red box in the place of the graph, or it stops with an error that the page
+# reports as a JRI failure. JRI counts the connections first, so the page states the size instead.
+def test_says_the_notebook_is_too_large_when_it_holds_more_connections_than_the_viewer_draws() -> None:
+    graph = Graph(
+        topics=[Topic(id="t1", name="Delivery", status="open")],
+        notes=[Note(id=f"n{number}", topic_id="t1", text="A note.") for number in range(1, 603)],
+        connections=[
+            Connection(source_id=f"n{number}", target_id=f"n{number + 1}", label="supports") for number in range(1, 602)
+        ],
+        next_note_id="n603",
+    )
+
+    page = render(graph)
+
+    assert "It has 601 connections and " in page
+    assert "draws 600 connections and 100000 characters at the most" in page
+    # The message stands alone in the body. A drawing that ran would report a failure over it.
+    assert '<pre class="mermaid">' not in page
+    assert 'if (document.querySelector(".mermaid"))' in page
+
+
+def test_says_the_notebook_is_too_large_when_its_diagram_is_longer_than_the_viewer_draws() -> None:
+    graph = Graph(
+        topics=[Topic(id="t1", name="Delivery", status="open")],
+        notes=[Note(id=f"n{number}", topic_id="t1", text="A note. " * 125) for number in range(1, 121)],
+        next_note_id="n121",
+    )
+
+    page = render(graph)
+
+    assert "characters of diagram, and the graph viewer draws" in page
+    assert '<pre class="mermaid">' not in page
 
 
 # These colors must remain together.
