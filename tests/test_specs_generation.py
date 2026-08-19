@@ -15,10 +15,11 @@ from jri.core.ai import (
     functional_analyst,
     specs_generation,
 )
-from jri.core.exceptions import RepositoryStateError, SpecsError
+from jri.core.exceptions import NotebookTooLargeError, RepositoryStateError, SpecsError
 from jri.core.notes import Notebook
 from jri.core.repository import ACCEPTANCE_TRAILER
 from tests.conftest import CreateRepository, RunGit
+from tests.doubles.models_dot_dev import serve_catalog
 from tests.doubles.openai import (
     FakeClient,
     Round,
@@ -1047,3 +1048,20 @@ def test_refuses_an_architecture_that_leaves_its_root(tmp_path: Path, create_rep
 
     with pytest.raises(SpecsError, match=r"cannot change `functional/behavior\.md`"):
         generate(client)
+
+
+# A row states a model call. A request that JRI cannot send makes no call, so the run must refuse it before it opens
+# the row for one, and must leave the transcript without a row that nothing closes. This run has no draft to pick
+# up, so the writing row is the first event it would yield.
+def test_refuses_a_notebook_it_cannot_send_before_it_opens_a_row(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    serve_catalog(monkeypatch, {"test": {"limit": {"context": 1}}})
+    client = FakeClient([], parsed=[written_specs()])
+    run = specs_generation.generate(build_settings(client), Event())
+
+    with pytest.raises(NotebookTooLargeError, match="too large"):
+        next(run)
+
+    assert not client.responses.inputs

@@ -812,3 +812,6 @@ def _describe_ending(ending: TurnEnding | None, detail: str) -> tuple[str, str]:
         # A repository state that the user must fix is not a crash. It is not a reply either.
         case "blocked":
             return copy.TURN_BLOCKED.format(error=detail), styles.INTERVIEWER_BLOCKED_CLASSES
+        # A notebook that JRI cannot carry is a JRI failure, so it takes the failure border. The user clears nothing.
+        case "oversized":
+            return copy.TURN_OVERSIZED.format(error=detail), styles.INTERVIEWER_ERROR_CLASSES

@@ -2,7 +2,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 type AgentEvent = ReasoningDelta | TextDelta | ToolCallStarted | ToolCallFinished
-type Ending = Literal["replied", "empty", "stopped", "failed", "refused", "unavailable", "exhausted", "blocked"]
+type Ending = Literal[
+    "replied", "empty", "stopped", "failed", "refused", "unavailable", "exhausted", "blocked", "oversized"
+]
 type Outcome = Literal["done", "empty", "stopped", "failed"]
 type TurnEvent = AgentEvent | TurnFinished
 

@@ -26,6 +26,7 @@ from .ai import (
     specs_generation,
 )
 from .exceptions import (
+    NotebookTooLargeError,
     PersistenceError,
     ProviderRefusalError,
     ProviderUnavailableError,
@@ -414,6 +415,8 @@ class Conversation:
             ending = "unavailable"
         elif isinstance(failure, RepositoryStateError):
             ending = "blocked"
+        elif isinstance(failure, NotebookTooLargeError):
+            ending = "oversized"
         elif failure is not None:
             ending = "failed"
         elif replied:

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from jri.core import paths
 from jri.core.ai import ReasoningDelta, ToolCallStarted
 from jri.core.exceptions import (
     Error,
+    NotebookTooLargeError,
     PersistenceError,
     ProviderRefusalError,
     ProviderUnavailableError,
@@ -39,6 +41,7 @@ from tests.doubles.specs_generation import (
     THOUGHT,
     generate_blocked,
     generate_failing,
+    generate_oversized,
     generate_refused,
     generate_silently,
     generate_stopped,
@@ -290,9 +293,10 @@ def test_reads_back_the_ending_a_run_wrote_before_it_freed_its_lock(tmp_path: Pa
     [
         (generate_blocked, RepositoryStateError, "Your project has uncommitted changes."),
         (generate_failing, Error, "The architect could not be reached."),
+        (generate_oversized, NotebookTooLargeError, "too large"),
         (generate_refused, ProviderRefusalError, "400 Bad Request"),
     ],
-    ids=["blocked", "failed", "refused"],
+    ids=["blocked", "failed", "oversized", "refused"],
 )
 def test_names_the_failure_a_run_ended_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workflow: object, error: type[Exception], message: str
@@ -301,6 +305,18 @@ def test_names_the_failure_a_run_ended_on(
 
     with pytest.raises(error, match=message):
         list(generation.follow())
+
+
+# A run that ends on a notebook JRI cannot send is not a crash, so it leaves no traceback. The log line is what a
+# report reads back to say the run reached this ending and why.
+def test_logs_the_notebook_a_run_could_not_send(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with caplog.at_level(logging.INFO, logger="jri"):
+        run(tmp_path, monkeypatch, generate_oversized)
+
+    record = next(record for record in caplog.records if record.message.startswith("generation_oversized"))
+    assert "The notebook is too large" in record.message
 
 
 def test_names_a_spent_budget_a_run_could_not_finish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

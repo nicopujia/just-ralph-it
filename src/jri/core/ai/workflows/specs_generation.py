@@ -43,11 +43,6 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
         while True:
             cycle += 1
             logger.info("specs_cycle_started cycle=%d", cycle)
-            # Each row identifies one model call by cycle. Its feedback count equals the list sent to the analyst.
-            # This keeps the UI count accurate.
-            yield ai.ToolCallStarted(
-                f"functional-{cycle}", _describe_writing(cycle, len(functional_context.architect_feedback or ())), "✍️"
-            )
             # A fresh agent per cycle keeps each call stateless, matching the fresh input built for it.
             analyst = functional_analyst.FunctionalAnalyst(
                 settings,
@@ -55,6 +50,13 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 changed=functional_context.notebook_diff is not None,
                 existing=functional_context.current_specs_index is not None,
                 feedback=bool(functional_context.architect_feedback),
+            )
+            # A request that is too large makes no model call, so measure it before the row that reports one opens.
+            analyst.check_size(functional_context)
+            # Each row identifies one model call by cycle. Its feedback count equals the list sent to the analyst.
+            # This keeps the UI count accurate.
+            yield ai.ToolCallStarted(
+                f"functional-{cycle}", _describe_writing(cycle, len(functional_context.architect_feedback or ())), "✍️"
             )
             functional_result = yield from analyst.write(functional_context, cancelled)
             if functional_result is None:

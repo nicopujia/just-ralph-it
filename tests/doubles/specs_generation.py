@@ -3,7 +3,12 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted, specs_generation
-from jri.core.exceptions import ProviderRefusalError, ProviderUnavailableError, RepositoryStateError
+from jri.core.exceptions import (
+    NotebookTooLargeError,
+    ProviderRefusalError,
+    ProviderUnavailableError,
+    RepositoryStateError,
+)
 
 if TYPE_CHECKING:
     from jri.core.settings import Settings
@@ -24,6 +29,13 @@ UNCHANGED_STARTED_ROW = ToolCallStarted("commit", "Comparing the specifications 
 def generate_blocked(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
     yield STARTED_ROW
     raise RepositoryStateError("Your project has uncommitted changes.")
+
+
+# The notebook does not fit one model call. Every run of this notebook ends here until JRI carries a notebook of
+# this size, so no retry of the user changes the result.
+def generate_oversized(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
+    yield STARTED_ROW
+    raise NotebookTooLargeError("The notebook is too large to write specifications from.")
 
 
 def generate_failing(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
