@@ -25,6 +25,7 @@ from tests.doubles.workspace import (
     read_requests_to_go,
     run_a_bystander,
     watch_a_bystander,
+    watch_a_window_go,
 )
 
 # A window lets the project go well inside the wait a takeover gives the operating system before it signals.
@@ -51,7 +52,10 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
         "session.json\nlogs\nvisualization.html\n/lock\n/lock.claim\n/generation/\n/worktree/\n"
     )
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text(encoding="utf-8")) == {
-        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
+        "id": "t1",
+        "name": tmp_path.name,
+        "status": "open",
+        "notes": {},
         "connections": [],
         "next_note_id": "n1",
     }
@@ -345,7 +349,10 @@ def test_initializes_a_workspace_directory_that_holds_no_settings(tmp_path: Path
 
 def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path) -> None:
     notebook = {
-        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Keep this note."}}],
+        "id": "t1",
+        "name": "Acme",
+        "status": "open",
+        "notes": {"n1": "Keep this note."},
         "connections": [],
         "next_note_id": "n2",
     }
@@ -358,7 +365,10 @@ def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path)
     assert not installation.created
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text(encoding="utf-8")) == {
-        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
+        "id": "t1",
+        "name": tmp_path.name,
+        "status": "open",
+        "notes": {},
         "connections": [],
         "next_note_id": "n1",
     }
@@ -384,7 +394,7 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     assert conversation.restore() == []
     assert conversation.session.show_thinking_blocks is False
     assert [(topic.id, topic.name) for topic in conversation.interviewer.notebook.graph.topics] == [
-        ("t1", "Project overview")
+        ("t1", tmp_path.name)
     ]
     assert conversation.workspace.notebook_file == base_dir / "notebook.yaml"
     assert settings_file.read_text(encoding="utf-8") == Settings.render()
@@ -617,7 +627,7 @@ def test_takes_over_the_project_from_the_window_it_killed(tmp_path: Path) -> Non
 
         assert hold.evict()
 
-        assert window.poll() is not None, "the window that held the project is still running"
+        assert watch_a_window_go(window), "the window that held the project is still running"
         assert hold.holder is None
         # Eviction only returns once this process's own take succeeds.
         # Confirm hold now actually holds the project, not just that it
@@ -690,7 +700,7 @@ def test_ends_the_window_that_has_the_project_and_not_the_one_before_it(tmp_path
         with hold_workspace(tmp_path) as second:
             assert hold.evict()
 
-            assert second.poll() is not None, "the window that had the project is still running"
+            assert watch_a_window_go(second), "the window that had the project is still running"
         assert watch_a_bystander(tmp_path, bystander), "a process that never held the project was signalled"
     hold.release()
 

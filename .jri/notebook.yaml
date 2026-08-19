@@ -1,15 +1,15 @@
+id: t1
+name: Just Ralph It
+status: open
+notes:
+  n103: The tracked project-knowledge artifact is `.jri/notebook.yaml`.
+  n104: The notebook is persisted as compact YAML while the in-memory knowledge model still consists of topics, notes, directed labeled connections, and a `Graph` model.
+  n105: The ignored terminal-session artifact is `.jri/session.json`.
+  n106: The ignored generated notebook visualization is `.jri/visualization.html`.
+  n107: 'As of repository version 0.5.0, Project implementation remains unimplemented: there is no `just_ralph_it` tool, workflow package, specification persistence, Git worktree manager, or Ralph loop in source code.'
+  n108: The README's project-notebook artifact reference is stale and must be updated to `.jri/notebook.yaml`.
+  n109: Project notes and summaries should use only current artifact names; superseded file names and migration history should be omitted unless they affect required behavior.
 topics:
-- id: t1
-  name: Project overview
-  status: open
-  notes:
-    n103: The tracked project-knowledge artifact is `.jri/notebook.yaml`.
-    n104: The notebook is persisted as compact YAML while the in-memory knowledge model still consists of topics, notes, directed labeled connections, and a `Graph` model.
-    n105: The ignored terminal-session artifact is `.jri/session.json`.
-    n106: The ignored generated notebook visualization is `.jri/visualization.html`.
-    n107: 'As of repository version 0.5.0, Project implementation remains unimplemented: there is no `just_ralph_it` tool, workflow package, specification persistence, Git worktree manager, or Ralph loop in source code.'
-    n108: The README's project-notebook artifact reference is stale and must be updated to `.jri/notebook.yaml`.
-    n109: Project notes and summaries should use only current artifact names; superseded file names and migration history should be omitted unless they affect required behavior.
 - id: t2
   name: Project implementation
   status: open

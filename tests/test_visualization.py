@@ -25,37 +25,53 @@ def read_diagram(page: str) -> str:
     return page.split('<pre class="mermaid">')[1].split("</pre>", maxsplit=1)[0]
 
 
-# Mermaid reads the diagram type from the first line, and a `:::topic` node needs that class declared.
-# A page missing either shows a parse error instead of the graph.
+# Mermaid reads the diagram type from the first line, and a topic box painted by a class needs that class
+# declared. A page missing either shows a parse error instead of the graph.
 def test_opens_the_diagram_with_its_type_and_the_topic_style() -> None:
     diagram = read_diagram(render(build_graph()))
 
-    assert diagram.strip().startswith("flowchart TD\n    classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px\n")
+    assert diagram.strip().startswith("flowchart TD\n")
+    assert "classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px" in diagram
+    assert "class t1 topic" in diagram
 
 
-def test_draws_every_topic_note_and_connection() -> None:
+def test_draws_an_edge_between_the_notes_a_connection_names() -> None:
     diagram = read_diagram(render(build_graph()))
 
-    assert 't1(["Delivery<br/>[open]<br/>How it ships"]):::topic' in diagram
-    assert 'n1["Runs in a terminal."]' in diagram
-    assert 'n2["Ships as a wheel."]' in diagram
     assert 'n1 -->|"supports"| n2' in diagram
 
 
-# A connection joins a note and its topic in both directions at the same time.
-# A `contains` arrow beside it draws a second edge over the same two nodes.
-@pytest.mark.parametrize(
-    ("source_id", "target_id"), [("t1", "n1"), ("n1", "t1")], ids=["from the topic", "from the note"]
-)
-def test_hangs_a_note_off_its_topic_only_where_no_connection_already_joins_them(source_id: str, target_id: str) -> None:
-    graph = build_graph()
-    graph.connections.append(Connection(source_id=source_id, target_id=target_id, label="asks about"))
+# A summary is optional, so its separator must come with it.
+def test_draws_a_topic_that_has_no_summary_without_a_separator() -> None:
+    graph = Graph(topics=[Topic(id="t1", name="Delivery", status="open")], next_note_id="n1")
 
     diagram = read_diagram(render(graph))
 
-    assert 't1 -->|"contains"| n1' not in diagram
-    assert f'{source_id} -->|"asks about"| {target_id}' in diagram
-    assert 't1 -->|"contains"| n2' in diagram
+    assert 'subgraph t1["Delivery [open]"]' in diagram
+
+
+# A note sits in the box of its topic and a topic sits in the box of the topic above it, so the drawing states
+# where every note stands without an edge for it.
+def test_draws_a_note_and_a_subtopic_inside_the_topic_that_holds_them() -> None:
+    graph = Graph(
+        topics=[
+            Topic(id="t1", name="Delivery", status="open", summary="How it ships"),
+            Topic(id="t2", parent_id="t1", name="Rollout", status="open", summary="How it reaches users"),
+        ],
+        notes=[Note(id="n1", topic_id="t1", text="Ships as a wheel."), Note(id="n2", topic_id="t2", text="By region.")],
+        next_note_id="n3",
+    )
+
+    diagram = read_diagram(render(graph))
+
+    assert (
+        '                subgraph t1["Delivery [open] — How it ships"]\n'
+        '                    n1["Ships as a wheel."]\n'
+        '                    subgraph t2["Rollout [open] — How it reaches users"]\n'
+        '                        n2["By region."]\n'
+        "                    end\n"
+        "                end"
+    ) in diagram
 
 
 # These labels are texts that a user can write.
@@ -93,7 +109,7 @@ def test_draws_a_connection_whose_label_holds_a_delimiter() -> None:
 def test_draws_a_topic_whose_name_holds_a_delimiter() -> None:
     diagram = read_diagram(render(build_graph(name="Delivery | Packaging")))
 
-    assert 't1(["Delivery #124; Packaging<br/>[open]<br/>How it ships"]):::topic' in diagram
+    assert 'subgraph t1["Delivery #124; Packaging [open] — How it ships"]' in diagram
 
 
 # The page embeds CSS and JavaScript, and both use `%` and `{}`. A `%`-format or `str.format` substitution would

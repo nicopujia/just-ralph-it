@@ -93,7 +93,10 @@ ready.write_text(str(os.getpid()) + "\\n")
 time.sleep(delay)
 descriptor = os.open(root / paths.LOCK_FILE, os.O_RDWR)
 os.lseek(descriptor, LOCKED_BYTES, os.SEEK_SET)
-os.write(descriptor, str(os.getpid()).encode())
+written = os.write(descriptor, str(os.getpid()).encode())
+# End the file at this pid, as `Lock` does. A shorter pid over a longer one leaves the digits of the window before
+# it, and the reader then reads a number that names no process.
+os.ftruncate(descriptor, LOCKED_BYTES + written)
 os.close(descriptor)
 claim.release()
 time.sleep({HELD_FOR})
@@ -182,6 +185,17 @@ def end_a_window(root: Path, window: "Process") -> None:
         time.sleep(POLL)
 
 
+# `Hold.evict` returns as soon as the project comes free, and the operating system frees the lock of a window it
+# ended while that window is still on its way out. A read of the process at that moment finds a window that is going
+# and reports a window that stands. Wait for the end itself, as `end_a_window` waits for the release.
+def watch_a_window_go(window: "Process") -> bool:
+    try:
+        window.wait(Hold.FREED_WITHIN)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
 @dataclass(frozen=True)
 class Process:
     # A virtual environment on Windows starts the interpreter behind a launcher of its own. The number a spawn gives
@@ -196,8 +210,8 @@ class Process:
     def poll(self) -> int | None:
         return self.spawn.poll()
 
-    def wait(self) -> int:
-        return self.spawn.wait()
+    def wait(self, timeout: float | None = None) -> int:
+        return self.spawn.wait(timeout)
 
 
 def _beat(root: Path) -> Path:
