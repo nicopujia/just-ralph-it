@@ -173,8 +173,10 @@ def _status(*, json: bool) -> None:
     lines = []
     if status.pid is not None and status.started is not None:
         lines.append(copy.STATUS_RUNNING.format(pid=status.pid, started=_describe_time(status.started)))
+    # A run that is gone left the step it was on. Report that step in the past, so it does not read as work in hand.
     if status.step and status.step_started is not None:
-        lines.append(copy.STATUS_STEP.format(step=status.step, started=_describe_time(status.step_started)))
+        step_copy = copy.STATUS_STEP if status.pid is not None else copy.STATUS_LAST_STEP
+        lines.append(step_copy.format(step=status.step, started=_describe_time(status.step_started)))
     if status.stopping:
         lines.append(copy.STATUS_STOPPING)
     if status.ending:

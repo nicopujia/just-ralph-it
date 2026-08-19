@@ -104,6 +104,7 @@ STATUS_ENDED = "The last run ended with `{ending}`. The next `jri chat` window p
 STATUS_HELD = "The window running process {holder} holds this project."
 STATUS_IDLE = "No run is going, and no run left anything here."
 STATUS_INCOMPLETE = "The last run wrote no ending, and its process is gone. Nothing continues it, so start a new run."
+STATUS_LAST_STEP = "The last step was {step}, from {started}."
 STATUS_RUNNING = "A run is going, in process {pid}, since {started}."
 STATUS_STEP = "The step is {step}, since {started}."
 STATUS_STOPPING = "A stop is asked for. The run stops at its next check."
