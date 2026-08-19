@@ -7,10 +7,11 @@
 
 # To start using JRI, you need an LLM inference provider.
 #
-# OpenRouter is set as the default one for simplicity—with one key, it gives you access to
-# practically all models from all providers. You can get an API key at https://openrouter.ai/keys.
-# It is also useful because if you already have API keys from other providers, it lets you unify
-# them under a single provider, as it supports to Bring Your Own Key (BYOK).
+# Vercel AI Gateway is set as the default one for simplicity—with one key, it gives you access to
+# practically all models from all providers. You can get an API key at
+# https://vercel.com/d?to=/[team]/~/ai-gateway/api-keys. It is also useful because if you already
+# have API keys from other providers, it lets you unify them under a single provider, as it supports
+# to Bring Your Own Key (BYOK).
 #
 # Nevertheless, you can also use any OpenAI-compatible provider of your choice, or even a ChatGPT
 # subscription.
@@ -18,10 +19,10 @@ llm:
   # Here you can set the base URL of any OpenAI-compatible provider.
   # Or, for a ChatGPT subscription, write `openai-subscription`. For that, you need the Codex CLI
   # (https://learn.chatgpt.com/docs/codex/cli) installed and logged in.
-  provider: https://openrouter.ai/api/v1
+  provider: https://ai-gateway.vercel.sh/v1
 
   # Name of the environment variable (NOT the key itself!)
-  api_key: OPENROUTER_API_KEY
+  api_key: VERCEL_AI_GATEWAY_API_KEY
 
 # [Optional] Get a key at https://brave.com/search/api/ to add web search support.
 # brave_search:
@@ -34,7 +35,7 @@ agents:
   # Use a smart model with a relatively fast reasoning_effort.
   interviewer:
     # The ID of the model, as the provider writes it.
-    model: x-ai/grok-4.6
+    model: xai/grok-4.6
 
     # One of none, minimal, low, medium, high, xhigh, max. Not all models accept all the values.
     reasoning_effort: medium

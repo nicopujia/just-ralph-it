@@ -1,13 +1,13 @@
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
 
 from jri.core import paths
-from jri.core.settings import AgentProfile, Settings
+from jri.core.settings import LLM, AgentProfile, Settings
 from jri.lib.providers import codex
 from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
 
@@ -275,7 +275,7 @@ def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path, monke
     values["llm"] = {"provider": "openai-subscription"}
     write_settings(tmp_path, values)
     # The subscription has its own login. It must not need the variable that llm.api_key names.
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv(cast("str", LLM().api_key), raising=False)
 
     assert isinstance(Settings.load().llm.client, codex.Client)
 

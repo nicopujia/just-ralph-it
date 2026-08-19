@@ -52,7 +52,7 @@ class AgentProfile(BaseModel):
 
 class AgentProfiles(BaseModel):
     interviewer: AgentProfile = Field(
-        default=AgentProfile(model="x-ai/grok-4.6", reasoning_effort="medium"),
+        default=AgentProfile(model="xai/grok-4.6", reasoning_effort="medium"),
         examples=[{"temperature": 0.75}],
         description=("Interacts with you and takes notes.\nUse a smart model with a relatively fast reasoning_effort."),
     )
@@ -82,14 +82,14 @@ class AgentProfiles(BaseModel):
 
 class LLM(BaseModel):
     provider: str = Field(
-        default="https://openrouter.ai/api/v1",
+        default="https://ai-gateway.vercel.sh/v1",
         description=(
             "Here you can set the base URL of any OpenAI-compatible provider.\n"
             "Or, for a ChatGPT subscription, write `openai-subscription`. "
             "For that, you need the Codex CLI (https://learn.chatgpt.com/docs/codex/cli) installed and logged in."
         ),
     )
-    api_key: str | None = Field(default="OPENROUTER_API_KEY", description=API_KEY_DESCRIPTION)
+    api_key: str | None = Field(default="VERCEL_AI_GATEWAY_API_KEY", description=API_KEY_DESCRIPTION)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -121,8 +121,9 @@ class Settings(BaseModel):
         default_factory=LLM,
         description=(
             "To start using JRI, you need an LLM inference provider.\n\n"
-            "OpenRouter is set as the default one for simplicity—with one key, it gives you access to "
-            "practically all models from all providers. You can get an API key at https://openrouter.ai/keys. "
+            "Vercel AI Gateway is set as the default one for simplicity—with one key, it gives you access to "
+            "practically all models from all providers. You can get an API key at "
+            "https://vercel.com/d?to=/[team]/~/ai-gateway/api-keys. "
             "It is also useful because if you already have API keys from other providers, it lets you unify "
             "them under a single provider, as it supports to Bring Your Own Key (BYOK).\n\n"
             "Nevertheless, you can also use any OpenAI-compatible provider of your choice, or even a ChatGPT "
