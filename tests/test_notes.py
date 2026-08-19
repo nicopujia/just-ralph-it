@@ -573,6 +573,9 @@ def test_keeps_the_last_saved_graph_in_memory_when_writing_fails(tmp_path: Path)
         (lambda notebook: notebook.delete([]), "unique note IDs"),
         (lambda notebook: notebook.delete(["n1", "n1"]), "unique note IDs"),
         (lambda notebook: notebook.delete(["n1", "n9"]), "Unknown note `n9`"),
+        (lambda notebook: notebook.delete(["t1"]), "Unknown note `t1`"),
+        (lambda notebook: notebook.trash([]), "unique topic IDs"),
+        (lambda notebook: notebook.trash(["t1", "t1"]), "unique topic IDs"),
         (lambda notebook: notebook.connect([]), "Provide one or more connections"),
         (lambda notebook: notebook.connect([CONNECTION, CONNECTION]), "must be unique"),
         (lambda notebook: notebook.connect([BLANK_LABEL_CONNECTION]), "Connection labels cannot be blank"),
@@ -598,6 +601,9 @@ def test_keeps_the_last_saved_graph_in_memory_when_writing_fails(tmp_path: Path)
         "delete-nothing",
         "delete-a-repeated-note",
         "delete-an-unknown-note-mid-batch",
+        "delete-a-topic",
+        "trash-nothing",
+        "trash-a-repeated-topic",
         "connect-nothing",
         "connect-a-repeated-connection",
         "connect-with-a-blank-label",
@@ -693,7 +699,7 @@ def test_ignores_an_empty_selector_list(tmp_path: Path) -> None:
     assert [note.id for note in notebook.read(ReadQuery(topic_ids=[]))[0]] == ["n1"]
 
 
-def test_hides_a_trashed_note_requested_by_id(tmp_path: Path) -> None:
+def test_hides_a_note_under_a_trashed_topic_requested_by_id(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     topic = notebook.add_topic("Discarded idea", "t1", "What discarded idea covers.")
     notebook.add(["Do not show this by default."], topic.id)
@@ -809,16 +815,6 @@ def test_keeps_the_notes_of_a_trashed_topic_so_a_restore_gives_them_back(tmp_pat
     notebook.update_topic(dropped.id, "open")
 
     assert [note.id for note in notebook.read(ReadQuery())[0]] == ["n1", "n2"]
-
-
-def test_refuses_to_delete_a_topic(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
-    dropped = notebook.add_topic("Dropped", "t1", "What was dropped.")
-
-    with pytest.raises(ValueError, match="Unknown note `t2`"):
-        notebook.delete([dropped.id])
-
-    assert Notebook(notebook.path, "Acme").find_topic(dropped.id) is not None
 
 
 def test_refuses_to_stand_a_topic_under_a_trashed_one(tmp_path: Path) -> None:

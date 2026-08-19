@@ -311,8 +311,7 @@ class Notebook:
         logger.info("move_finished note_ids=%r topic_id=%s", note_ids, topic_id)
         return note_ids
 
-    # A discarded note goes, with every connection that touches it. The conversation it came from still stands, and a
-    # rewind writes it again.
+    # The conversation a note came from still stands, and a rewind writes the note again.
     def delete(self, note_ids: list[str]) -> list[str]:
         if not note_ids or len(note_ids) != len(set(note_ids)):
             raise ValueError("Provide one or more unique note IDs.")
@@ -328,13 +327,13 @@ class Notebook:
         logger.info("delete_finished note_ids=%r", note_ids)
         return note_ids
 
-    # A trashed topic waits under its status with everything below it, so the user can have it back.
+    # A trashed topic waits under its status for the user to restore it.
     def trash(self, topic_ids: list[str]) -> list[str]:
         if not topic_ids or len(topic_ids) != len(set(topic_ids)):
             raise ValueError("Provide one or more unique topic IDs.")
-        graph = self.graph.model_copy(deep=True)
         if OVERVIEW_TOPIC_ID in topic_ids:
             raise ValueError(f"The overview topic `{OVERVIEW_TOPIC_ID}` cannot be trashed.")
+        graph = self.graph.model_copy(deep=True)
         for topic_id in topic_ids:
             self._find_topic(graph, topic_id).status = "trashed"
         self._save(graph)

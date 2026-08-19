@@ -217,27 +217,25 @@ class Interviewer(Agent):
 
     @tool(
         "Delete notes for good, with every connection that touches them. To discard a topic, trash it instead.",
-        started_label="Discarding notes",
-        finished_label="Discarded notes",
-        symbol="🗑️",
+        started_label="Deleting notes",
+        finished_label="Deleted notes",
+        symbol="✂️",
     )
     def delete_notes(self, note_ids: list[NoteId]) -> str:
         return f"Deleted notes: {', '.join(self.notebook.delete(note_ids))}."
 
     @tool(
-        (
-            "Trash topics, with everything under them. The notes stay, and `update_topic` with the status `open` "
-            "brings a topic and its subtree back, so trash a topic the user drops instead of deleting its notes."
-        ),
-        started_label="Discarding topics",
-        finished_label="Discarded topics",
+        "Trash topics, with everything under them. The notes stay, and `update_topic` with the status `open` "
+        "brings it all back.",
+        started_label="Trashing topics",
+        finished_label="Trashed topics",
         symbol="🗑️",
     )
     def trash_topics(self, topic_ids: list[TopicId]) -> str:
-        trashed = self.notebook.trash(topic_ids)
+        self.notebook.trash(topic_ids)
         if self.active_topic_id in self.notebook.trashed_topic_ids:
             self.active_topic_id = self.initial_topic.id
-        return f"Trashed topics: {', '.join(trashed)}."
+        return f"Trashed topics: {', '.join(topic_ids)}."
 
     @tool(
         (
