@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast, override
 
 from openai.types.responses import ResponseInputParam
 
-from jri.core.ai import prompts
+from jri.core.ai import Agent, Stream, Tool, ToolOutput, prompts, tool
 from jri.core.notes import Connection, NodeId, Notebook, NoteId, ReadQuery, TopicId
 from jri.core.settings import Settings
 from jri.core.workspace import Workspace
@@ -10,7 +10,6 @@ from jri.lib import prompt
 from jri.lib.context import estimate_tokens, measure_item, measure_request
 from jri.lib.models_dot_dev import get_limit
 
-from .base import Agent, Stream, Tool, ToolOutput, tool
 from .explorer import Explorer
 
 if TYPE_CHECKING:

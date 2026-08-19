@@ -4,12 +4,11 @@ from threading import Event
 from pydantic import BaseModel
 
 from jri.core import ai
+from jri.core.ai import Agent, tool
 from jri.core.paths import FUNCTIONAL_SPECS_ROOT
 from jri.core.settings import Settings
 from jri.core.specs import File, Specs
 from jri.lib import git, prompt
-
-from .base import Agent, tool
 
 
 class Input(BaseModel):
