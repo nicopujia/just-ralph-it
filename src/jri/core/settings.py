@@ -89,7 +89,7 @@ class LLM(BaseModel):
             "For that, you need the Codex CLI (https://learn.chatgpt.com/docs/codex/cli) installed and logged in."
         ),
     )
-    api_key: str | None = Field(default="VERCEL_AI_GATEWAY_API_KEY", description=API_KEY_DESCRIPTION)
+    api_key: str | None = Field(default="AI_GATEWAY_API_KEY", description=API_KEY_DESCRIPTION)
 
     model_config = ConfigDict(extra="forbid")
 

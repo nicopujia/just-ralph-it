@@ -22,7 +22,7 @@ llm:
   provider: https://ai-gateway.vercel.sh/v1
 
   # Name of the environment variable (NOT the key itself!)
-  api_key: VERCEL_AI_GATEWAY_API_KEY
+  api_key: AI_GATEWAY_API_KEY
 
 # [Optional] Get a key at https://brave.com/search/api/ to add web search support.
 # brave_search:
