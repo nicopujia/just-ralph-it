@@ -61,7 +61,7 @@ QUIT = "Quit"
 QUIT_COMMAND = ":q"
 QUIT_CONFIRMATION = "Press ^q again to stop this and quit"
 
-RALPHING = "Ralphing... [dim](this will take a long time... you may close this window)[/dim]"
+RALPHING = "Ralphing... [dim](this will take a long time; you may close this window)[/dim]"
 RALPHING_THINKING_HINT = "Press ^t to watch the models think."
 RALPH_BUTTON = "Just Ralph It"
 RALPH_KEY = "^x j"
