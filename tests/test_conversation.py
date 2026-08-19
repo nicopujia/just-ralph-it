@@ -1555,7 +1555,7 @@ def test_refuses_a_rewind_whose_replay_fails_inside_a_tool_that_took_the_call() 
                 call("switch", "switch_topic", topic="Delivery", summary="How it ships."),
                 call("capture", "capture_notes", texts=["Deploy from main."]),
                 call("ready", "offer_ralphing"),
-                call("trash", "trash", node_ids=["t2"]),
+                call("trash", "trash_topics", topic_ids=["t2"]),
             ),
             streamed_reply("Delivery trashed."),
             streamed_reply("Noted."),
@@ -1563,7 +1563,7 @@ def test_refuses_a_rewind_whose_replay_fails_inside_a_tool_that_took_the_call() 
     )
     list(conversation.chat("Deploy from main."))
     list(conversation.chat("One more thing."))
-    rewrite_recorded_call(conversation, "trash", node_ids=["t1"])
+    rewrite_recorded_call(conversation, "trash_topics", topic_ids=["t1"])
 
     restarted = build_conversation(
         FakeClient([response(call("more", "capture_notes", texts=["Roll back on failure."])), streamed_reply("Noted.")])

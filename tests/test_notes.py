@@ -192,11 +192,11 @@ def test_rejects_an_invalid_connection_batch_without_changing_anything(tmp_path:
     assert Notebook(notebook.path, "Acme").graph == before
 
 
-def test_never_reuses_the_id_of_a_trashed_note(tmp_path: Path) -> None:
+def test_never_reuses_the_id_of_a_deleted_note(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     notebook.add(["First", "Second", "Third"], "t1")
 
-    notebook.trash(["n3"])
+    notebook.delete(["n3"])
 
     assert notebook.add(["Fourth"], "t1")[0].id == "n4"
     assert Notebook(notebook.path, "Acme").add(["Fifth"], "t1")[0].id == "n5"
@@ -214,7 +214,7 @@ def test_keeps_the_next_note_id_when_restoring_an_earlier_graph(tmp_path: Path) 
     assert notebook.add(["Third"], "t1")[0].id == "n3"
 
 
-def test_removes_the_connections_of_a_trashed_note(tmp_path: Path) -> None:
+def test_removes_the_connections_of_a_deleted_note(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     notebook.add(["First", "Second", "Third"], "t1")
     notebook.connect([
@@ -223,7 +223,7 @@ def test_removes_the_connections_of_a_trashed_note(tmp_path: Path) -> None:
         Connection(source_id="n1", target_id="n3", label="supports"),
     ])
 
-    notebook.trash(["n2"])
+    notebook.delete(["n2"])
     graph = Notebook(notebook.path, "Acme").graph
 
     assert {note.id for note in graph.notes} == {"n1", "n3"}
@@ -570,9 +570,12 @@ def test_keeps_the_last_saved_graph_in_memory_when_writing_fails(tmp_path: Path)
         (lambda notebook: notebook.move(["n1"], "t9"), "Unknown topic `t9`"),
         (lambda notebook: notebook.edit("n1", " "), "Note text cannot be blank"),
         (lambda notebook: notebook.edit("n9", "Third"), "Unknown note `n9`"),
-        (lambda notebook: notebook.trash([]), "unique topic or note IDs"),
-        (lambda notebook: notebook.trash(["n1", "n1"]), "unique topic or note IDs"),
-        (lambda notebook: notebook.trash(["n1", "n9"]), "Unknown note `n9`"),
+        (lambda notebook: notebook.delete([]), "unique note IDs"),
+        (lambda notebook: notebook.delete(["n1", "n1"]), "unique note IDs"),
+        (lambda notebook: notebook.delete(["n1", "n9"]), "Unknown note `n9`"),
+        (lambda notebook: notebook.delete(["t1"]), "Unknown note `t1`"),
+        (lambda notebook: notebook.trash([]), "unique topic IDs"),
+        (lambda notebook: notebook.trash(["t1", "t1"]), "unique topic IDs"),
         (lambda notebook: notebook.connect([]), "Provide one or more connections"),
         (lambda notebook: notebook.connect([CONNECTION, CONNECTION]), "must be unique"),
         (lambda notebook: notebook.connect([BLANK_LABEL_CONNECTION]), "Connection labels cannot be blank"),
@@ -595,9 +598,12 @@ def test_keeps_the_last_saved_graph_in_memory_when_writing_fails(tmp_path: Path)
         "move-to-an-unknown-topic",
         "edit-to-blank-text",
         "edit-an-unknown-note",
+        "delete-nothing",
+        "delete-a-repeated-note",
+        "delete-an-unknown-note-mid-batch",
+        "delete-a-topic",
         "trash-nothing",
-        "trash-a-repeated-note",
-        "trash-an-unknown-note-mid-batch",
+        "trash-a-repeated-topic",
         "connect-nothing",
         "connect-a-repeated-connection",
         "connect-with-a-blank-label",
@@ -693,7 +699,7 @@ def test_ignores_an_empty_selector_list(tmp_path: Path) -> None:
     assert [note.id for note in notebook.read(ReadQuery(topic_ids=[]))[0]] == ["n1"]
 
 
-def test_hides_a_trashed_note_requested_by_id(tmp_path: Path) -> None:
+def test_hides_a_note_under_a_trashed_topic_requested_by_id(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     topic = notebook.add_topic("Discarded idea", "t1", "What discarded idea covers.")
     notebook.add(["Do not show this by default."], topic.id)
@@ -793,18 +799,22 @@ def test_refuses_to_stand_the_overview_topic_under_another(tmp_path: Path) -> No
     assert Notebook(notebook.path, "Acme").initial_topic.parent_id is None
 
 
-def test_discards_topics_and_notes_in_one_request(tmp_path: Path) -> None:
+def test_keeps_the_notes_of_a_trashed_topic_so_a_restore_gives_them_back(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     dropped = notebook.add_topic("Dropped", "t1", "What was dropped.")
-    notebook.add(["Overview", "Second"], "t1")
+    notebook.add(["Overview"], "t1")
+    notebook.add(["Keep this until it is restored."], dropped.id)
     notebook.connect([Connection(source_id="n1", target_id="n2", label="requires")])
 
-    assert notebook.trash(["n2", dropped.id]) == ["n2", dropped.id]
+    assert notebook.trash([dropped.id]) == [dropped.id]
 
     graph = Notebook(notebook.path, "Acme").graph
-    assert [note.id for note in graph.notes] == ["n1"]
-    assert graph.connections == []
-    assert [(topic.id, topic.status) for topic in graph.topics] == [("t1", "open"), ("t2", "trashed")]
+    assert [note.id for note in graph.notes] == ["n1", "n2"]
+    assert [(item.source_id, item.target_id) for item in graph.connections] == [("n1", "n2")]
+
+    notebook.update_topic(dropped.id, "open")
+
+    assert [note.id for note in notebook.read(ReadQuery())[0]] == ["n1", "n2"]
 
 
 def test_refuses_to_stand_a_topic_under_a_trashed_one(tmp_path: Path) -> None:

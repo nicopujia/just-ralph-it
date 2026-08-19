@@ -171,7 +171,7 @@ def test_rejects_switching_to_a_note(tmp_path: Path) -> None:
 def test_rejects_switching_to_a_trashed_topic(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
     interviewer.switch_topic("Delivery", summary="How it ships.")
-    interviewer.trash(["t2"])
+    interviewer.trash_topics(["t2"])
 
     with pytest.raises(ValueError, match="is trashed"):
         interviewer.switch_topic("t2")
@@ -181,7 +181,7 @@ def test_falls_back_to_the_overview_when_the_active_topic_is_trashed(tmp_path: P
     interviewer = build_interviewer(tmp_path)
     interviewer.switch_topic("Delivery", summary="How it ships.")
 
-    assert interviewer.trash(["t2"]) == "Trashed: t2."
+    assert interviewer.trash_topics(["t2"]) == "Trashed topics: t2."
     assert interviewer.active_topic_id == "t1"
 
 
@@ -190,7 +190,7 @@ def test_stays_on_the_active_topic_when_another_one_is_trashed(tmp_path: Path) -
     interviewer.switch_topic("Delivery", summary="How it ships.")
     interviewer.switch_topic("Pricing", summary="How it is priced.")
 
-    assert interviewer.trash(["t2"]) == "Trashed: t2."
+    assert interviewer.trash_topics(["t2"]) == "Trashed topics: t2."
     assert interviewer.active_topic_id == "t3"
 
 
@@ -206,7 +206,7 @@ def test_rejects_trashing_the_overview_topic(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
 
     with pytest.raises(ValueError, match="cannot be trashed"):
-        interviewer.trash(["t1"])
+        interviewer.trash_topics(["t1"])
 
     assert interviewer.notebook.graph.topics[0].status == "open"
 
@@ -272,11 +272,11 @@ def test_edits_the_text_of_a_single_note(tmp_path: Path) -> None:
     assert interviewer.notebook.graph.notes[0].text == "Ships daily."
 
 
-def test_trashes_every_requested_note(tmp_path: Path) -> None:
+def test_deletes_every_requested_note(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
     interviewer.capture_notes(["First.", "Second.", "Third."])
 
-    assert interviewer.trash(["n1", "n3"]) == "Trashed: n1, n3."
+    assert interviewer.delete_notes(["n1", "n3"]) == "Deleted notes: n1, n3."
     assert [note.id for note in interviewer.notebook.graph.notes] == ["n2"]
 
 

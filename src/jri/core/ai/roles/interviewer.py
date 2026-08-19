@@ -5,7 +5,7 @@ from openai.types.responses import ResponseInputParam
 from jri.core.ai import prompts
 from jri.core.ai.agent import Agent
 from jri.core.ai.tool import Stream, Tool, ToolOutput, tool
-from jri.core.notes import Connection, NodeId, Notebook, NoteId, ReadQuery, TopicId
+from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
 from jri.core.settings import Settings
 from jri.core.workspace import Workspace
 from jri.lib import prompt
@@ -216,19 +216,26 @@ class Interviewer(Agent):
         return f"Moved notes: {', '.join(self.notebook.move(note_ids, topic_id))}."
 
     @tool(
-        (
-            "Discard topics and notes. A trashed topic keeps everything under it, and setting its status back to "
-            "`open` brings the whole subtree back. Discarded notes go, with every connection that touches them."
-        ),
-        started_label="Discarding",
-        finished_label="Discarded",
+        "Delete notes for good, with every connection that touches them. To discard a topic, trash it instead.",
+        started_label="Deleting notes",
+        finished_label="Deleted notes",
+        symbol="✂️",
+    )
+    def delete_notes(self, note_ids: list[NoteId]) -> str:
+        return f"Deleted notes: {', '.join(self.notebook.delete(note_ids))}."
+
+    @tool(
+        "Trash topics, with everything under them. The notes stay, and `update_topic` with the status `open` "
+        "brings it all back.",
+        started_label="Trashing topics",
+        finished_label="Trashed topics",
         symbol="🗑️",
     )
-    def trash(self, node_ids: list[NodeId]) -> str:
-        trashed = self.notebook.trash(node_ids)
+    def trash_topics(self, topic_ids: list[TopicId]) -> str:
+        self.notebook.trash(topic_ids)
         if self.active_topic_id in self.notebook.trashed_topic_ids:
             self.active_topic_id = self.initial_topic.id
-        return f"Trashed: {', '.join(trashed)}."
+        return f"Trashed topics: {', '.join(topic_ids)}."
 
     @tool(
         (

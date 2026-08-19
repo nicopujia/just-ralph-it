@@ -12,7 +12,6 @@ from .exceptions import PersistenceError
 
 type TopicId = Annotated[str, Field(pattern=r"^t\d+$")]
 type NoteId = Annotated[str, Field(pattern=r"^n\d+$")]
-type NodeId = Annotated[str, Field(pattern=r"^[nt]\d+$")]
 
 OVERVIEW_TOPIC_ID = "t1"
 # The root, a topic, and a subtopic. Every ancestor of the active topic is pinned on each request, so one more level
@@ -312,18 +311,11 @@ class Notebook:
         logger.info("move_finished note_ids=%r topic_id=%s", note_ids, topic_id)
         return note_ids
 
-    # A trashed topic waits to be restored. A discarded note goes, with every connection that touches it, because the
-    # conversation it came from still stands and a rewind rebuilds it.
-    def trash(self, node_ids: list[str]) -> list[str]:
-        if not node_ids or len(node_ids) != len(set(node_ids)):
-            raise ValueError("Provide one or more unique topic or note IDs.")
+    # The conversation a note came from still stands, and a rewind writes the note again.
+    def delete(self, note_ids: list[str]) -> list[str]:
+        if not note_ids or len(note_ids) != len(set(note_ids)):
+            raise ValueError("Provide one or more unique note IDs.")
         graph = self.graph.model_copy(deep=True)
-        topic_ids = [node_id for node_id in node_ids if node_id.startswith("t")]
-        note_ids = [node_id for node_id in node_ids if node_id.startswith("n")]
-        if OVERVIEW_TOPIC_ID in topic_ids:
-            raise ValueError(f"The overview topic `{OVERVIEW_TOPIC_ID}` cannot be trashed.")
-        for topic_id in topic_ids:
-            self._find_topic(graph, topic_id).status = "trashed"
         for note_id in note_ids:
             self._find_note(graph, note_id)
         discarded = set(note_ids)
@@ -332,8 +324,21 @@ class Notebook:
             item for item in graph.connections if item.source_id not in discarded and item.target_id not in discarded
         ]
         self._save(graph)
-        logger.info("trash_finished topic_ids=%r note_ids=%r", topic_ids, note_ids)
-        return node_ids
+        logger.info("delete_finished note_ids=%r", note_ids)
+        return note_ids
+
+    # A trashed topic waits under its status for the user to restore it.
+    def trash(self, topic_ids: list[str]) -> list[str]:
+        if not topic_ids or len(topic_ids) != len(set(topic_ids)):
+            raise ValueError("Provide one or more unique topic IDs.")
+        if OVERVIEW_TOPIC_ID in topic_ids:
+            raise ValueError(f"The overview topic `{OVERVIEW_TOPIC_ID}` cannot be trashed.")
+        graph = self.graph.model_copy(deep=True)
+        for topic_id in topic_ids:
+            self._find_topic(graph, topic_id).status = "trashed"
+        self._save(graph)
+        logger.info("trash_finished topic_ids=%r", topic_ids)
+        return topic_ids
 
     def connect(self, connections: list[Connection]) -> int:
         if not connections:
