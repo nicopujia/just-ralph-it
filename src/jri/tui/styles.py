@@ -1,6 +1,7 @@
 # Keep alphabetical order. Put a blank line between initial letters.
 
 INPUT_BOX_ID = "input-box"
+INTERVIEWER_BLOCKED_CLASSES = "interviewer-blocked"
 INTERVIEWER_ERROR_CLASSES = "interviewer-error"
 INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
 INTERVIEWER_REASONING_CLASSES = "interviewer-reasoning"
@@ -164,6 +165,19 @@ Header {{
 }}
 
 .{INTERVIEWER_ERROR_CLASSES} MarkdownBlock:last-child {{
+    margin-bottom: 0;
+}}
+
+/* A stop the user must clear is not a reply, so it takes a border of its own. Red shows a failure, and the run
+   already has a color. Blue keeps its contrast on a light terminal and on a dark terminal. A light palette
+   draws bright cyan too pale to see. */
+.{INTERVIEWER_BLOCKED_CLASSES} {{
+    margin-bottom: 1;
+    padding: 1;
+    border-left: heavy ansi_blue;
+}}
+
+.{INTERVIEWER_BLOCKED_CLASSES} MarkdownBlock:last-child {{
     margin-bottom: 0;
 }}
 

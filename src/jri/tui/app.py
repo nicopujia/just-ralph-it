@@ -809,6 +809,6 @@ def _describe_ending(ending: TurnEnding | None, detail: str) -> tuple[str, str]:
             return copy.TURN_UNAVAILABLE.format(error=detail), styles.INTERVIEWER_ERROR_CLASSES
         case "exhausted":
             return copy.TURN_EXHAUSTED, styles.INTERVIEWER_ERROR_CLASSES
-        # A repository state that the user must fix is not a crash.
+        # A repository state that the user must fix is not a crash. It is not a reply either.
         case "blocked":
-            return copy.TURN_BLOCKED.format(error=detail), styles.INTERVIEWER_MESSAGE_CLASSES
+            return copy.TURN_BLOCKED.format(error=detail), styles.INTERVIEWER_BLOCKED_CLASSES
