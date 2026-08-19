@@ -7,7 +7,7 @@ from yaml import safe_load
 from jri.core.ai import Interviewer, ToolCallStarted, ToolOutput
 from jri.core.notes import Connection, Notebook
 from tests.conftest import CreateRepository
-from tests.doubles.models import serve_catalog
+from tests.doubles.models_dot_dev import serve_catalog
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, response, streamed_reply
 from tests.doubles.settings import build_settings
 

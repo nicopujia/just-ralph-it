@@ -7,7 +7,8 @@ from jri.core.notes import Connection, NodeId, Notebook, NoteId, ReadQuery, Topi
 from jri.core.settings import Settings
 from jri.core.workspace import Workspace
 from jri.lib import prompt
-from jri.lib.models import estimate_tokens, get_context_limit, measure_item, measure_request
+from jri.lib.context import estimate_tokens, measure_item, measure_request
+from jri.lib.models_dot_dev import get_limit
 
 from .base import Agent, Stream, Tool, ToolOutput, tool
 from .explorer import Explorer
@@ -53,7 +54,7 @@ class Interviewer(Agent):
                 turns.append([])
             turns[-1].append(raw_item)
         tools = [item.definition for item in self.get_tools()]
-        budget = get_context_limit(self.profile.model, self.FALLBACK_CONTEXT_LIMIT) * self.CONTEXT_THRESHOLD
+        budget = get_limit(self.profile.model, self.FALLBACK_CONTEXT_LIMIT) * self.CONTEXT_THRESHOLD
         # Weigh each turn once, and take the weight of a dropped turn off the total. Weighing the whole context
         # again for each dropped turn would make this grow with the square of the interview length.
         weights = [sum(measure_item(item) for item in turn) for turn in turns]

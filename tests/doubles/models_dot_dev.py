@@ -3,7 +3,7 @@ from typing import Any
 import httpx
 import pytest
 
-from jri.lib.models import ENDPOINT, read_context_limit
+from jri.lib.models_dot_dev import ENDPOINT, read_limit
 
 CONTEXT_LIMIT = 400_000
 CATALOG: dict[str, Any] = {"test": {"limit": {"context": CONTEXT_LIMIT}}}
@@ -29,4 +29,4 @@ def serve_outcome(monkeypatch: pytest.MonkeyPatch, *outcomes: httpx.Response | h
         return outcome
 
     monkeypatch.setattr(httpx, "get", get)
-    read_context_limit.cache_clear()
+    read_limit.cache_clear()
