@@ -19,7 +19,7 @@ from jri.core.ai import (
 )
 from jri.core.exceptions import RepositoryStateError, SpecsError
 from jri.core.notes import Notebook
-from jri.core.specs import ACCEPTANCE_TRAILER
+from jri.core.repository import ACCEPTANCE_TRAILER
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import (
     FakeClient,

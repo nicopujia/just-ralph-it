@@ -16,7 +16,8 @@ import pytest
 from jri.core.ai import Ending, TurnEvent, TurnFinished, architect, functional_analyst
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError, SpecsError
-from jri.core.specs import ACCEPTANCE_TRAILER, File, Specs
+from jri.core.repository import ACCEPTANCE_TRAILER
+from jri.core.specs import File, Specs
 from jri.core.workspace import Workspace
 from jri.lib import git
 from tests.conftest import CreateLink, CreateRepository, RunGit
@@ -2042,6 +2043,19 @@ def test_refuses_architecture_specifications_edited_outside_jri(
     run_git(tmp_path, "commit", "-qm", "docs: edit the architecture")
 
     assert read_ending(conversation.ralph(), "differ from the ones JRI accepted") == "blocked"
+
+
+# A forced start over replaces the project idea, but Git still holds the specifications of the idea it replaced
+# and the commit that accepted them. A run that meets either of them stops, and the project is never Ralphable.
+def test_prepares_a_baseline_after_a_forced_start_over(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+
+    install_workspace(tmp_path, force=True)
+
+    baseline = Specs(tmp_path).prepare()
+    assert baseline.specifications == {}
+    assert baseline.accepted == git.Repository(tmp_path).read_head()
 
 
 @pytest.mark.parametrize("deletes", [False, True], ids=["written", "deleted"])

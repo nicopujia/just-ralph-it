@@ -4,6 +4,8 @@ from typing import override
 from jri.lib import git
 
 CO_AUTHOR = "ralphpujia <ralph@pujia.ar>"
+# This trailer identifies the commit that accepted a generation. Git can then find that commit.
+ACCEPTANCE_TRAILER = "JRI-Specifications: accepted"
 
 
 class Repository(git.Repository):

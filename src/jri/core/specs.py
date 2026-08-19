@@ -14,11 +14,9 @@ from jri.lib.lock import Lock
 
 from . import paths
 from .exceptions import PersistenceError, RepositoryStateError, SpecsError
-from .repository import Repository
+from .repository import ACCEPTANCE_TRAILER, Repository
 from .workspace import Workspace
 
-# This trailer identifies the commit that accepted a generation. Git can then find that commit.
-ACCEPTANCE_TRAILER = "JRI-Specifications: accepted"
 # Specification names use this allowed ASCII set. Each name is both a file name and a Git pathspec.
 # Windows rejects control characters and `<>:"/\|?*`, and removes trailing spaces and dots.
 # Git reads `*?[]\` in a pathspec as patterns. JRI-owned English roots do not need non-ASCII names.

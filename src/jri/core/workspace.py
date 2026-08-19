@@ -13,7 +13,7 @@ from jri.lib.lock import Lock
 from . import paths
 from .exceptions import PersistenceError
 from .notes import Notebook
-from .repository import Repository
+from .repository import ACCEPTANCE_TRAILER, Repository
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -185,7 +185,7 @@ class Workspace:
             self,
             created=created,
             repository_created=repository_created,
-            commit=self._commit(repository) if written else None,
+            commit=self._commit(repository, reset=reset is not None) if written else None,
         )
 
     # Commit what the installation wrote. The project then holds its settings, notes, and ignore rules from its
@@ -193,22 +193,28 @@ class Workspace:
     # Name the paths. The commit holds no user work, staged or not, and it changes none.
     # Git refuses a partial commit during a merge or a cherry-pick, and a commit off a branch stays reachable only
     # from a detached HEAD. Leave the files in the worktree in both states. The user commits them after that work.
-    def _commit(self, repository: Repository) -> str | None:
+    def _commit(self, repository: Repository, *, reset: bool) -> str | None:
         if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
             logger.info("installation_uncommitted")
             return None
         # A workspace can sit under the repository root. Git reads a pathspec from that root.
         prefix = self.root.resolve().relative_to(repository.path)
         installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
+        # A reset removes the specifications of the project it replaces from the disk. Git still holds them and the
+        # commit that accepted them, so commit the removal and accept an empty tree. Without both, the first run stops.
+        removed = repository.read_staged_paths(((prefix / paths.SPECS_DIR).as_posix(),)) if reset else ()
+        committed = (*installed, *removed)
+        trailers = (ACCEPTANCE_TRAILER,) if reset else ()
         try:
             # Stage intent only, because Git commits a named path only after the index knows it.
             # Force it, because a project can ignore `.jri`. JRI keeps its workspace in Git anyway.
+            # A removed path is already tracked, so it needs no staging.
             repository.stage(installed, intent_to_add=True, force=True)
             # A second installation of an unchanged workspace has nothing to commit.
             # Git reports that state as a failure.
-            if not repository.read_status(installed):
+            if not repository.read_status(committed):
                 return None
-            commit = repository.commit("jri: initialize project", paths=installed)
+            commit = repository.commit("jri: initialize project", trailers=trailers, paths=committed)
         # A project hook can refuse this commit, and Git can fail for a reason outside JRI.
         # The workspace is written and ready, so report the commit that did not happen instead of ending on it.
         except git.Error:
