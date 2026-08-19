@@ -93,7 +93,10 @@ ready.write_text(str(os.getpid()) + "\\n")
 time.sleep(delay)
 descriptor = os.open(root / paths.LOCK_FILE, os.O_RDWR)
 os.lseek(descriptor, LOCKED_BYTES, os.SEEK_SET)
-os.write(descriptor, str(os.getpid()).encode())
+written = os.write(descriptor, str(os.getpid()).encode())
+# End the file at this pid, as `Lock` does. A shorter pid over a longer one leaves the digits of the window before
+# it, and the reader then reads a number that names no process.
+os.ftruncate(descriptor, LOCKED_BYTES + written)
 os.close(descriptor)
 claim.release()
 time.sleep({HELD_FOR})
