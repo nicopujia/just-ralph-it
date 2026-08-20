@@ -1235,6 +1235,15 @@ def test_marks_a_cancelled_turn_without_a_reply_as_stopped() -> None:
     assert (turns[-1].message, turns[-1].items, turns[-1].ending) == ("Stop this one.", [], "stopped")
 
 
+def test_leaves_a_turn_nobody_stopped_unmarked() -> None:
+    conversation = build_conversation(FakeClient([[]]))
+
+    list(conversation.chat("Answer this one.", Event()))
+
+    turns = build_conversation(FakeClient([])).restore()
+    assert (turns[-1].message, turns[-1].items, turns[-1].ending) == ("Answer this one.", [], "empty")
+
+
 def test_leaves_a_cancelled_turn_with_a_reply_unmarked() -> None:
     cancelled = Event()
     conversation = build_conversation(FakeClient([partial_reply("Partial reply")]))
