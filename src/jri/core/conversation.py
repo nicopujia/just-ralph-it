@@ -32,6 +32,7 @@ from .exceptions import (
     ProviderUnavailableError,
     ReplayError,
     RepositoryStateError,
+    RunStopped,
     UsageLimitError,
 )
 from .generation import Generation
@@ -140,16 +141,12 @@ class Conversation:
     def retried_work(self) -> Work:
         return self.session.transcript[-1].work
 
-    # This states whether the conversation must settle a generation that it started.
-    # A generation turn and an unfolded journal are the required facts.
-    # The journal distinguishes a live run from one without a watcher.
+    # This states whether the conversation must settle a run. The unfolded journal is the only fact it needs.
+    # A run that a window did not start writes that journal and nothing else, so the transcript cannot report it.
+    # The window that finds the journal attaches to the run, whichever process asked for it.
     @property
     def pending_generation(self) -> bool:
-        return (
-            bool(self.session.transcript)
-            and self.session.transcript[-1].work == "generation"
-            and Generation(self.workspace).exists
-        )
+        return Generation(self.workspace).exists
 
     def chat(self, message: str, cancelled: Event | None = None) -> Generator[TurnEvent]:
         self.logger.info("chat_started")
@@ -352,14 +349,15 @@ class Conversation:
         # Events can arrive live or all at once after forty minutes.
         generation = Generation(self.workspace)
         if not generation.exists:
-            generation.start()
+            generation.spawn()
         # A leaving window stops watching only. `RunDetached` is not a failure, so `_report_turn` does not end the turn.
         # The window that resumes the run ends the turn.
         result = yield from generation.follow(cancelled, detached)
-        # A user-stopped run has no conclusion to report.
+        # A stopped run has no conclusion to report.
         # It consumed no offer, and the model receives no empty run report.
+        # Report the stop, thus the turn ends on it whoever asked for it.
         if result is None:
-            return
+            raise RunStopped
 
         # A history item is permanent. It states what happened, not what to do next.
         # The prompt owns actions that persist.
@@ -393,10 +391,15 @@ class Conversation:
         open_rows: list[tuple[ToolCallStarted, Item | None]] = []
         open_text: Item | None = None
         failure: Exception | None = None
+        # The run reports the stop it heard. A stop asked for outside this window never sets the event of this window.
+        stopped = False
         try:
             for event in events:
                 open_text = _record_event(turn, open_text, open_rows, event)
                 yield event
+        # A stop is not a failure. It keeps the checkpoint and ends the turn on the stop.
+        except RunStopped:
+            stopped = True
         except Exception as error:
             # Keep what the user already saw. Roll back changes made behind it.
             self._roll_back(checkpoint)
@@ -405,7 +408,8 @@ class Conversation:
         finally:
             events.close()
 
-        stopped = cancelled is not None and cancelled.is_set()
+        # A turn that sends no run hears a stop through the event of this window alone.
+        stopped = stopped or (cancelled is not None and cancelled.is_set())
         replied = any(item.type == "assistant" for item in turn.items[start:])
         if isinstance(failure, UsageLimitError):
             ending: Ending = "exhausted"

@@ -3,7 +3,7 @@ import signal
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,23 +15,26 @@ CHILD_SUFFIX = ".child"
 # must outlive the slowest test by a large margin. `hold` ends its holder when the test ends.
 HELD_FOR = 300
 HOLDER = f"""
-import multiprocessing, sys, time
+import multiprocessing, os, sys, time
 from pathlib import Path
 from jri.lib.lock import Lock
 
 def rest():
     time.sleep({HELD_FOR})
 
-with Lock(Path(sys.argv[1])):
-    if len(sys.argv) > 3:
-        # `fork` is asked for by name, so a release that stops making
-        # it the default cannot quietly retire what this holder is for.
-        child = multiprocessing.get_context("fork").Process(target=rest)
-        child.start()
-        Path(sys.argv[3]).write_text(str(child.pid))
-    Path(sys.argv[2]).touch()
-    time.sleep({HELD_FOR})
+path, ready, record, child = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+assert Lock(path).take(str(os.getpid()) if record == "own" else record)
+if child:
+    # `fork` is asked for by name, so a release that stops making
+    # it the default cannot quietly retire what this holder is for.
+    started = multiprocessing.get_context("fork").Process(target=rest)
+    started.start()
+    Path(child).write_text(str(started.pid))
+ready.touch()
+time.sleep({HELD_FOR})
 """
+# This asks a holder for the record a runner writes: its own pid. Only the holder knows that number.
+OWN_PID = "own"
 POLL = 0.01
 TAKER = """
 import sys
@@ -46,12 +49,21 @@ with Lock(Path(sys.argv[1])):
 TIMEOUT = 5
 
 
+# This is a process that holds a lock for the whole test. It writes the record the caller asks for, and nothing
+# when the caller asks for none. `session` gives it a session of its own, thus its process group holds only what it
+# starts, and `forking` gives it one such process.
 @contextmanager
-def hold(path: Path, *, forking: bool = False) -> "Iterator[subprocess.Popen[bytes]]":
+def hold(
+    path: Path, *, record: str = "", forking: bool = False, session: bool = False
+) -> "Iterator[subprocess.Popen[bytes]]":
     ready = path.with_name(f"{path.name}.held")
     child = path.with_name(f"{path.name}{CHILD_SUFFIX}")
-    command = [sys.executable, "-c", HOLDER, str(path), str(ready)]
-    holder = subprocess.Popen([*command, str(child)] if forking else command)
+    # A holder before this one in the same test left these markers. They belong to the harness and not to the code
+    # under test.
+    ready.unlink(missing_ok=True)
+    child.unlink(missing_ok=True)
+    command = [sys.executable, "-c", HOLDER, str(path), str(ready), record, str(child) if forking else ""]
+    holder = subprocess.Popen(command, start_new_session=session)
     try:
         deadline = time.monotonic() + TIMEOUT
         while not ready.exists():
@@ -63,7 +75,9 @@ def hold(path: Path, *, forking: bool = False) -> "Iterator[subprocess.Popen[byt
         holder.wait()
         if child.exists():
             # No other process reaps a process that the holder forked. The test that made it must stop it.
-            os.kill(read_fork_child(path), signal.SIGTERM)
+            # A test that ended this process already leaves nothing here to stop.
+            with suppress(OSError):
+                os.kill(read_fork_child(path), signal.SIGTERM)
 
 
 def read_fork_child(path: Path) -> int:
@@ -86,3 +100,14 @@ def take(path: Path) -> bool:
     except subprocess.TimeoutExpired:
         return False
     return taker.returncode == 0
+
+
+# The end of a process is not one step: the operating system ends it, and its parent then reaps it. A reader that
+# looks one time can meet a process on its way out. Wait for the end itself.
+def watch_a_process_go(pid: int) -> bool:
+    deadline = time.monotonic() + TIMEOUT
+    while runs(pid):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(POLL)
+    return True

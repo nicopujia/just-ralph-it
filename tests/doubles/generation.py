@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 # A thread stands in for the runner process. This double replaces the spawn and nothing around it. Thus
-# `Generation.start` runs whole: the refusal that a held lock earns, the discard of what a folded run left, the wait
+# `Generation.spawn` runs whole: the refusal that a held lock earns, the discard of what a folded run left, the wait
 # for the journal, and the read of a runner that died before it wrote one.
 # `Generation.execute` is the full life of a runner. A thread that runs it takes the same lock, writes the same
 # journal, and hears a stop through the same file. An operating system lock on a file refuses a second taker in the

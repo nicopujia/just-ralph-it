@@ -211,7 +211,7 @@ def test_closes_the_rows_a_killed_run_left_open_from_the_inside_out() -> None:
     list(conversation.chat("Build a reporting CLI."))
     # A killed runner writes no ending, and leaves open every row of the work it was in the middle of.
     records = (
-        Header(version="0", pid=1, started="now"),
+        Header(version="0", pid=1, started=datetime.now(UTC)),
         RowOpened(
             kind="row_opened",
             call_id="explorer",
@@ -598,6 +598,23 @@ def test_stops_a_generation_the_user_asked_to_stop(monkeypatch: pytest.MonkeyPat
     assert conversation.session.transcript[-1].items[-1].outcome == "stopped"
 
 
+def test_stops_a_generation_another_process_asked_to_stop(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_stopped)
+
+    events = conversation.ralph()
+    next(events)
+    # `jri stop` writes this file from a process of its own. This window asked for no stop at all.
+    (conversation.workspace.root / paths.CANCEL_FILE).touch()
+
+    assert list(events) == [
+        ToolCallFinished(STARTED_ROW.call_id, STARTED_ROW.label, "stopped"),
+        TurnFinished("stopped"),
+    ]
+    assert (conversation.session.transcript[-1].ending, conversation.session.transcript[-1].detail) == ("stopped", "")
+
+
 def test_keeps_the_offer_a_stopped_generation_never_spent(monkeypatch: pytest.MonkeyPatch) -> None:
     cancelled = Event()
     conversation = build_conversation(
@@ -769,6 +786,27 @@ def test_ends_a_run_the_process_before_it_did_not_stay_for(monkeypatch: pytest.M
     assert [event.call_id for event in folded if isinstance(event, ToolCallStarted)] == [
         event.call_id for event in folded if isinstance(event, ToolCallFinished)
     ]
+    assert [event for event in folded if isinstance(event, TurnFinished)] == [TurnFinished("replied")]
+    assert [(item.type, item.text) for item in restarted.session.transcript[-1].items] == [
+        ("assistant", "Understood."),
+        ("tool", FINISHED_ROW.label),
+        ("assistant", "The specifications are in."),
+    ]
+
+
+def test_takes_up_a_run_that_started_with_no_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    # `jri start` runs beside the conversation and never opens the session. The transcript thus holds no run,
+    # and the journal is the only record of one.
+    Generation.execute(build_settings(FakeClient([])))
+
+    restarted = build_conversation(FakeClient([streamed_reply("The specifications are in.")]))
+    restarted.restore()
+
+    assert restarted.pending_generation
+    folded = list(restarted.ralph())
     assert [event for event in folded if isinstance(event, TurnFinished)] == [TurnFinished("replied")]
     assert [(item.type, item.text) for item in restarted.session.transcript[-1].items] == [
         ("assistant", "Understood."),
@@ -1195,6 +1233,15 @@ def test_marks_a_cancelled_turn_without_a_reply_as_stopped() -> None:
 
     turns = build_conversation(FakeClient([])).restore()
     assert (turns[-1].message, turns[-1].items, turns[-1].ending) == ("Stop this one.", [], "stopped")
+
+
+def test_leaves_a_turn_nobody_stopped_unmarked() -> None:
+    conversation = build_conversation(FakeClient([[]]))
+
+    list(conversation.chat("Answer this one.", Event()))
+
+    turns = build_conversation(FakeClient([])).restore()
+    assert (turns[-1].message, turns[-1].items, turns[-1].ending) == ("Answer this one.", [], "empty")
 
 
 def test_leaves_a_cancelled_turn_with_a_reply_unmarked() -> None:

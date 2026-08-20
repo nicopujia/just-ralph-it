@@ -16,6 +16,7 @@ import pytest
 from jri.core.ai import Ending, TurnEvent, TurnFinished, architect, functional_analyst
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError, SpecsError
+from jri.core.generation import Generation
 from jri.core.repository import ACCEPTANCE_TRAILER
 from jri.core.specs import File, Specs
 from jri.core.workspace import Workspace
@@ -24,23 +25,28 @@ from tests.conftest import CreateLink, CreateRepository, RunGit
 from tests.doubles.acceptance import (
     ACCEPTANCE,
     HEAD_QUESTION,
+    HOLD_THE_WINDOW,
     KILL_THE_GIT,
     MARK_THE_WINDOW,
     POLL,
+    RECORD_THE_GIT,
     TIMEOUT,
     USER_COMMIT,
     WINDOW_MARKER,
     bound_the_acceptance_writes,
     hold_a_commit_of_the_user_s,
+    hold_a_run_amid_accepting,
     install_a_killing_git,
     kill_amid_moving_the_branch,
     kill_amid_staging,
     kill_amid_writing_the_commit,
+    open_a_filter_window,
     open_a_window,
     read_git_locks,
+    read_the_git_in_the_window,
 )
 from tests.doubles.generation import run_in_thread
-from tests.doubles.lock import hold
+from tests.doubles.lock import hold, take, watch_a_process_go
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
@@ -56,6 +62,25 @@ new file mode 100644
 +# Behavior
 """
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
+# The same acceptance over both roots, in the order `git apply` writes them. Git writes the files of a patch one
+# at a time, thus a window over the second one stands with the first written and the second not.
+PAIRED_ACCEPTANCE_PATCH = b"""\
+diff --git a/.jri/specs/architecture/design.md b/.jri/specs/architecture/design.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/architecture/design.md
+@@ -0,0 +1 @@
++# Design
+diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/behavior.md
+@@ -0,0 +1 @@
++# Behavior
+"""
+# The second specification of that patch. A filter of the project over this path puts the window in the write of
+# it, where `git apply` has made the file and put none of its bytes in yet.
+WINDOWED_SPECIFICATION = ".jri/specs/functional/behavior.md"
 # This draft applies, but it puts no file below the specification tree.
 # A run that reads only Git's ending reports specifications that the patch never named.
 FOREIGN_DRAFT = """\
@@ -737,6 +762,51 @@ def test_undoes_the_acceptance_a_killed_write_left_empty(
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
     assert not run_git(tmp_path, "status", "--short")
+
+
+# A halt ends the run where the run refuses to be stopped, and leaves what a machine that died there leaves: a
+# run and a Git that are both gone, a record of the acceptance, and locks that the operating system freed. The
+# specifications of the patch are half of them written and none of them committed. The run after this one is the
+# recovery, and it takes those leftovers back out.
+@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
+def test_undoes_the_acceptance_a_halted_run_left_half_written(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+
+    with (
+        open_a_filter_window(
+            tmp_path, RECORD_THE_GIT + MARK_THE_WINDOW + HOLD_THE_WINDOW, side="smudge", path=WINDOWED_SPECIFICATION
+        ),
+        hold_a_run_amid_accepting(tmp_path, PAIRED_ACCEPTANCE_PATCH) as runner,
+    ):
+        applying = read_the_git_in_the_window(tmp_path)
+
+        assert Generation(Workspace(tmp_path)).halt()
+
+        # A killed process answers with the signal that ended it, and a process that ended by itself answers zero.
+        # Read both here, because the block ends the group that a halt of the run alone would leave behind.
+        assert runner.wait(TIMEOUT)
+        assert watch_a_process_go(applying), "the Git the run started is still running"
+
+    # The operating system freed both locks, thus a run after this one can take them and settle what it finds.
+    assert take(tmp_path / ".jri/generation/lock")
+    assert take(tmp_path / ".jri/generation/acceptance.lock")
+    assert (tmp_path / ".jri/generation/acceptance.json").exists()
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_bytes() == b"# Design\n"
+    assert not (tmp_path / WINDOWED_SPECIFICATION).read_bytes()
+    assert read_git_locks(tmp_path) == ()
+
+    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert read_specifications(tmp_path) == {
+        "architecture/design.md": "# Design\n",
+        "functional/behavior.md": "# Behavior\n",
+    }
+    assert not run_git(tmp_path, "status", "--short")
+    assert not (tmp_path / ".jri/generation/acceptance.json").exists()
 
 
 def test_undoes_the_acceptance_a_killed_rewrite_left_unwritten(

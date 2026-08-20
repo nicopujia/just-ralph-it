@@ -284,31 +284,25 @@ class Hold:
         self.claim = Lock(workspace.root / paths.CLAIM_FILE)
         self.holder: int | None = None
 
+    # This states which process holds the project now, and nothing when no process holds it.
+    # The record alone is not the answer: only the operating system says whether a holder is alive, and the record
+    # stays after its window has left. Take the lock to find that out, and release a lock that this call takes.
+    # A project without a lock file has no window, and finding that out must not make one.
+    def find_holder(self) -> int | None:
+        if not self.lock.path.exists():
+            return None
+        # Take the lock with no record of this process. A reader answers what stands here, and it must leave the
+        # record for the window that takes the project next.
+        if self._take(""):
+            self.release()
+            return None
+        return self.holder
+
     # This states whether this process holds the project. When it does not, it records the holding JRI PID.
     # The lock proves that the holder is running because the operating system releases it at exit.
     # The lock record identifies the process and is read under its claim.
     def take(self) -> bool:
-        if not self._claim():
-            raise PersistenceError(
-                f"JRI could not find out whether this project is already open: `{self.claim.path}` stayed locked. "
-                "Close any other JRI window, then try again."
-            )
-        try:
-            taken = self.lock.take(str(os.getpid()))
-            record = "" if taken else self.lock.holder
-        finally:
-            self.claim.release()
-        if taken:
-            self.holder = None
-            return True
-        if not record.isdigit() or int(record) > MAX_PID:
-            raise PersistenceError(
-                f"Something holds `{self.lock.path}` without saying what it is, so JRI will not end it. "
-                "Close any other JRI window, then try again."
-            )
-        self.holder = int(record)
-        logger.info("hold_refused holder=%d", self.holder)
-        return False
+        return self._take(str(os.getpid()))
 
     # Kill the other window instead of asking it to close. A nonresponsive window cannot process the request.
     # A free lock, not a sent signal, proves that the operating system ended the process.
@@ -347,3 +341,28 @@ class Hold:
                 return False
             time.sleep(self.POLL)
         return True
+
+    # Take the lock under the claim, and read the record of the holder that refused it.
+    # A caller that only reads passes no record of its own.
+    def _take(self, holder: str) -> bool:
+        if not self._claim():
+            raise PersistenceError(
+                f"JRI could not find out whether this project is already open: `{self.claim.path}` stayed locked. "
+                "Close any other JRI window, then try again."
+            )
+        try:
+            taken = self.lock.take(holder)
+            record = "" if taken else self.lock.holder
+        finally:
+            self.claim.release()
+        if taken:
+            self.holder = None
+            return True
+        if not record.isdigit() or int(record) > MAX_PID:
+            raise PersistenceError(
+                f"Something holds `{self.lock.path}` without saying what it is, so JRI will not end it. "
+                "Close any other JRI window, then try again."
+            )
+        self.holder = int(record)
+        logger.info("hold_refused holder=%d", self.holder)
+        return False

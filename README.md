@@ -66,6 +66,18 @@ jri chat
 
 # Visualize the notes graph:
 jri view
+
+# Start a run and wait until it ends:
+jri start
+
+# Ask the run to stop at its next check:
+jri stop
+
+# Kill the run at once:
+jri halt
+
+# Report what the run is doing (add --json for a machine-readable report):
+jri status
 ```
 
 > [!TIP]

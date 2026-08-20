@@ -38,3 +38,11 @@ class RunDetached(BaseException):
     # This is not an `Error` or an `Exception`. A closing window does not end a turn.
     # Treating it as a failure would report a live run as stopped.
     ...
+
+
+# The run concluded that it stopped. A stop can begin in the window that watches the run, or in another process
+# that asked for it. Only the run records that it did stop.
+class RunStopped(BaseException):
+    # This is not an `Error` or an `Exception`. A stop that the user asked for is not a failure.
+    # Treating it as one would roll the turn back and report a crash.
+    ...
