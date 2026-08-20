@@ -31,7 +31,7 @@ from .exceptions import (
     UsageLimitError,
 )
 from .settings import Settings
-from .workspace import MAX_PID, Hold, Workspace
+from .workspace import MAX_PID, MIN_PID, Hold, Workspace
 
 # Start the runner as `jri start` without a console script. `pip install --user` can omit that script from `PATH`.
 RUNNER_COMMAND = ("-m", "jri", "start")
@@ -472,7 +472,7 @@ class Generation:
     # Return nothing for a record that JRI did not write.
     def _read_pid(self) -> int | None:
         record = self.lock.holder
-        return int(record) if record.isdigit() and int(record) <= MAX_PID else None
+        return int(record) if record.isdigit() and MIN_PID <= int(record) <= MAX_PID else None
 
     # Yield every complete record that stands in the journal now, the header included.
     # Ignore a line that JRI cannot read. A killed append leaves a partial last line, and a report says what it can.
@@ -576,6 +576,12 @@ def _describe(event: "specs_generation.Progress") -> Thought | RowOpened | RowCl
 # A runner started by hand shares the group of its terminal, and that group holds processes that are not JRI.
 # A process that already ended needs no signal, and the lock check after this call decides the answer.
 def _kill(pid: int) -> None:
+    # Refuse a number that names no runner. `killpg(1)` asks the kernel to end every process the user owns, and 0
+    # asks it to end the group of the caller, so a bad record here ends the login session rather than one run.
+    # The readers above reject such a record already; this stands because the cost of one slipping through is the
+    # whole machine, and no caller ever needs this to signal init.
+    if pid < MIN_PID:
+        raise PersistenceError(f"JRI will not end process {pid}: that is not a generation runner.")
     if sys.platform != "win32":
         with suppress(OSError):
             if os.getpgid(pid) == pid:

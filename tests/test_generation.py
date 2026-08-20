@@ -123,6 +123,11 @@ STOPS_AFTER = 0.5
 # This is one more than the largest number a run can read as a process. A record of it names no process, thus a
 # halt has nothing to end.
 TOO_LARGE_PID = 2147483648
+# These are the two numbers below the first real process. Neither names a runner, and a signal sent to either one
+# leaves the run it was aimed at alone and ends the session around it instead: 0 means the group of the caller,
+# and 1 means every process the user owns. A runner inside a container writes 1 into the lock file it shares with
+# the host, so a halt run on the host reads one of these from a record JRI really wrote.
+SESSION_WIDE_PIDS = (0, 1)
 WRITTEN_WITHIN = 30.0
 
 
@@ -886,6 +891,36 @@ def test_refuses_to_end_a_run_that_does_not_name_a_process(tmp_path: Path, recor
     generation.workspace.open_generation_dir()
 
     with hold(generation.lock.path, record=record), pytest.raises(PersistenceError, match="without saying what it is"):
+        generation.halt()
+
+
+# A halt reads the lock file to learn which process to end. A record of 0 or 1 asks the kernel for the group of the
+# caller or for every process the user owns, so honouring it ends the whole login session. Turn such a record down
+# while it is still a record.
+@pytest.mark.parametrize("pid", SESSION_WIDE_PIDS, ids=["own group", "init"])
+def test_refuses_to_end_a_run_that_names_a_session_wide_target(tmp_path: Path, pid: int) -> None:
+    generation = build_generation(tmp_path)
+    generation.workspace.open_generation_dir()
+
+    with (
+        hold(generation.lock.path, record=str(pid)),
+        pytest.raises(PersistenceError, match="without saying what it is"),
+    ):
+        generation.halt()
+
+
+# The reader above is what keeps such a record away from the signal today. This stands behind it: a reader that
+# ever lets one of these through still ends no process but its own run, so the session survives the mistake.
+@pytest.mark.parametrize("pid", SESSION_WIDE_PIDS, ids=["own group", "init"])
+def test_sends_no_signal_for_a_session_wide_target(tmp_path: Path, pid: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    generation = build_generation(tmp_path)
+    generation.workspace.open_generation_dir()
+    monkeypatch.setattr(Generation, "_read_pid", lambda _: pid)
+
+    with (
+        hold(generation.lock.path, record=str(GONE_PID)),
+        pytest.raises(PersistenceError, match="that is not a generation runner"),
+    ):
         generation.halt()
 
 

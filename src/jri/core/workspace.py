@@ -20,6 +20,13 @@ if TYPE_CHECKING:
 
 # A PID is a 32-bit number on both platforms. A larger value identifies no process and is not a JRI record.
 MAX_PID = 2**31 - 1
+# A runner is a process JRI started, so it is never init and never the number that stands for no process at all.
+# The two numbers below init matter because of what they mean to a signal rather than what they name: `kill` reads
+# 0 as "the group of the caller" and `killpg(1)` as "every process this user owns". A record holding either one
+# turns a halt aimed at one run into a halt aimed at the whole login session. A runner in a container records the
+# PID it wears inside its own namespace, which is 1, so a halt run on the host reads that 1 from the shared lock
+# file. Refuse the record instead of signalling on it.
+MIN_PID = 2
 
 logger = logging.getLogger(__name__)
 
@@ -358,7 +365,7 @@ class Hold:
         if taken:
             self.holder = None
             return True
-        if not record.isdigit() or int(record) > MAX_PID:
+        if not record.isdigit() or not MIN_PID <= int(record) <= MAX_PID:
             raise PersistenceError(
                 f"Something holds `{self.lock.path}` without saying what it is, so JRI will not end it. "
                 "Close any other JRI window, then try again."
