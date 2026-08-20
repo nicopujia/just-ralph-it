@@ -716,6 +716,17 @@ def test_forgets_the_stop_a_folded_run_left_before_it_runs(tmp_path: Path, monke
     assert not generation.cancel_file.exists()
 
 
+# A run without a window has no journal left to read by the time its caller could read one. The conclusion it
+# answers with is the only thing that says how it went.
+def test_answers_with_the_conclusion_the_run_wrote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    build_generation(tmp_path)
+    monkeypatch.setattr("jri.core.generation.specs_generation.generate", generate_refused)
+
+    conclusion = Generation.execute(build_settings(FakeClient([])))
+
+    assert conclusion.ending == "refused"
+
+
 def test_forgets_what_a_folded_run_left_before_it_starts_the_next(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

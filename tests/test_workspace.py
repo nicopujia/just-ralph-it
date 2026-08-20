@@ -11,6 +11,7 @@ from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Installation, Workspace
 from jri.lib import files, git
+from jri.lib.lock import Lock
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import ROOT_QUESTION, WINDOW_MARKER, install_a_killing_git
 from tests.doubles.lock import hold, take
@@ -753,6 +754,20 @@ def test_names_no_window_when_the_one_that_held_the_project_left(tmp_path: Path)
 
     # A read takes the lock to find that out, and a read that keeps it would leave the project to no window.
     assert take(tmp_path / paths.LOCK_FILE)
+
+
+# The record names the window that takes the project next. A read that stamped itself over it would make the
+# next window read a process that never held anything.
+def test_keeps_the_record_of_the_window_that_held_the_project(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    lock_file = tmp_path / paths.LOCK_FILE
+    with hold_workspace(tmp_path) as window:
+        end_a_window(tmp_path, window)
+    recorded = Lock(lock_file).holder
+
+    assert Workspace(tmp_path).open_hold().find_holder() is None
+
+    assert Lock(lock_file).holder == recorded
 
 
 def test_writes_no_lock_when_no_window_ever_held_the_project(tmp_path: Path) -> None:

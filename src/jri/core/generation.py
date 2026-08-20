@@ -39,6 +39,9 @@ RUNNER_COMMAND = ("-m", "jri", "start")
 # so the runner needs a way to say which window started it.
 # A run started by hand beside a window would report to a conversation that did not ask for it.
 HOLDER_VARIABLE = "JRI_HOLDER"
+# These endings say the run could not do the work it was asked for. A run without a window has only its process
+# status to say so, and a supervisor reads that status.
+FAILED_ENDINGS = frozenset({"exhausted", "refused", "unavailable", "blocked", "oversized", "failed"})
 
 logger = logging.getLogger(__name__)
 
@@ -164,8 +167,10 @@ class Generation:
 
     # This method defines the runner lifetime. The lock states that it is alive, the journal states what it did,
     # and the cancel file is its only input.
+    # Answer with the conclusion the run wrote. A run without a window reports through its caller, and the
+    # journal is gone by the time that caller could read it.
     @classmethod
-    def execute(cls, settings: Settings) -> None:
+    def execute(cls, settings: Settings) -> Conclusion:
         generation = cls(Workspace.find())
         # Refuse before anything writes a file, so a refused start leaves the project as it found it.
         # A window that holds the project spawns its own runner, and that runner names its window in the environment.
@@ -192,7 +197,7 @@ class Generation:
         )
         try:
             watcher.start()
-            _write_journal(generation.journal_file, cls.record(settings, cancelled))
+            return _write_journal(generation.journal_file, cls.record(settings, cancelled))
         finally:
             stopping.set()
             generation.lock.release()
@@ -634,7 +639,7 @@ def _write_thought(journal: IO[bytes], batch: str) -> str:
 # A journal without a conclusion has a dead process.
 # Pull events one at a time because `for` discards a generator return.
 # Truncate the journal under this process lock. No other run is writing, and a folded journal is never read again.
-def _write_journal(path: Path, events: Generator["specs_generation.Progress", None, Conclusion]) -> None:
+def _write_journal(path: Path, events: Generator["specs_generation.Progress", None, Conclusion]) -> Conclusion:
     logger.info("generation_started pid=%d", os.getpid())
     with path.open("wb") as journal:
         _append(journal, Header(version=__version__, pid=os.getpid(), started=datetime.now(UTC).isoformat()), sync=True)
@@ -662,6 +667,7 @@ def _write_journal(path: Path, events: Generator["specs_generation.Progress", No
         _write_thought(journal, batch)
         _append(journal, conclusion, sync=True)
     logger.info("generation_finished ending=%s", conclusion.ending)
+    return conclusion
 
 
 # Send a stop to the run through a file, not a signal. The runner has its own process group on every platform.

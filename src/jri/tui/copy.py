@@ -99,6 +99,8 @@ All commands, including `jri view`, use these settings.
 """
 SHORTCUTS = "Shortcuts"
 SHOW_THINKING_BLOCKS = "Show thinking blocks"
+START_ENDED = "The run ended with `{ending}`."
+START_ENDED_DETAIL = "The run ended with `{ending}`: {detail}"
 STATUS_DRAFT = "Specifications are drafted and saved. The next run starts again from them."
 STATUS_ENDED = "The last run ended with `{ending}`. The next `jri chat` window puts that result in the conversation."
 STATUS_HELD = "The window running process {holder} holds this project."
