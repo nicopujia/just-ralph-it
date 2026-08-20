@@ -42,7 +42,7 @@ NARROW_CATALOG: dict[str, Any] = {"test": {"limit": {"context": 2_000, "input": 
 # What JRI leaves where a body stood. It says the project holds the file in full, and how to read it back, so
 # the model can never read it as a shorter file than the one it wrote.
 WRITTEN_FILE_RECORD = (
-    "[JRI took this body out of the message to make room. The project holds the file as you wrote it, in full. "
+    "[This body was taken out of the message to make room. The project holds the file as you wrote it, in full. "
     "Call `read_functional_specs` with `{path}` to read it back.]"
 )
 

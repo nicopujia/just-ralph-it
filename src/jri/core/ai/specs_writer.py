@@ -35,7 +35,7 @@ class SpecsWriter(Agent):
     # This stands where a written body stood. It says where the file is and how to read it, because the model
     # reads its own call back and must never read this as the file it wrote.
     WRITTEN_FILE_RECORD: ClassVar[str] = (
-        "[JRI took this body out of the message to make room. The project holds the file as you wrote it, "
+        "[This body was taken out of the message to make room. The project holds the file as you wrote it, "
         "in full. Call `{tool}` with `{path}` to read it back.]"
     )
 
