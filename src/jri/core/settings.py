@@ -1,6 +1,7 @@
 import difflib
 import os
 import textwrap
+from pathlib import Path
 from typing import Annotated, Any, Literal, LiteralString, Self, cast
 
 import yaml
@@ -27,7 +28,9 @@ INTRO = (
     "When asked for an API key, you have to specify the name of the corresponding environment variable, "
     "and then JRI reads the variables defined at your shell and at the .env file at the root of this project, "
     "if any.\n"
-    "That is because this settings file is meant to be committed."
+    "That is because this settings file is meant to be committed.\n\n"
+    "To start all your future projects with the settings that you like, write them in "
+    f"{paths.GLOBAL_SETTINGS_FILE}, a file with the same shape as this one."
 )
 
 
@@ -143,12 +146,25 @@ class Settings(BaseModel):
 
     @classmethod
     def load(cls) -> Self:
-        settings = yaml.safe_load(Workspace.find().settings_file.read_text(encoding="utf-8"))
-        return cls.model_validate({} if settings is None else settings)
+        values = yaml.safe_load(Workspace.find().settings_file.read_text(encoding="utf-8"))
+        settings = cls.model_validate({} if values is None else values)
+        settings.validate_api_key_variables()
+        return settings
 
     @classmethod
-    def render(cls, *, comments: bool = True) -> str:
-        body = _render_settings(cls, None, 0, set(), {}, comments=comments)
+    def load_global(cls) -> Self | None:
+        settings_file = Path(paths.GLOBAL_SETTINGS_FILE).expanduser()
+        if not settings_file.exists():
+            return None
+        values = yaml.safe_load(settings_file.read_text(encoding="utf-8"))
+        if isinstance(values, dict):
+            values = _merge(cls.model_validate({}).model_dump(), values)
+        # A blank file names no setting. The model rejects a file that is not a mapping.
+        return cls.model_validate({} if values is None else values)
+
+    @classmethod
+    def render(cls, values: "Settings | None" = None, *, comments: bool = True) -> str:
+        body = _render_settings(cls, values, 0, set(), {}, comments=comments)
         if not comments:
             return "\n".join([*body, ""])
         return "\n".join([*_wrap_comment(INTRO, ""), "", *body, ""])
@@ -179,7 +195,13 @@ class Settings(BaseModel):
                 ("llm", "api_key"),
                 "must name the environment variable holding the API key, unless llm.provider is openai-subscription",
             )
+        return self
+
+    # Only a command that loads the settings of a project reads these variables. `jri init` writes a settings file
+    # before the project has an .env file, thus it validates the settings and stops there.
+    def validate_api_key_variables(self) -> None:
         # The subscription has its own login. JRI does not read a key variable for it.
+        subscription = self.llm.provider == "openai-subscription"
         for section, variable in (
             ("llm", None if subscription else self.llm.api_key),
             ("brave_search", self.brave_search.api_key),
@@ -188,7 +210,6 @@ class Settings(BaseModel):
                 raise _reject_setting(
                     (section, "api_key"), f"names {variable}, but that environment variable is not set"
                 )
-        return self
 
 
 def _wrap_comment(description: str, indent: str) -> list[str]:
@@ -250,6 +271,16 @@ def _render_settings(
     # A blank line separates a comment from the setting above it. Settings with no comment stay together.
     lines = [line for comment, entry in entries for line in (["", *comment, *entry] if comment else entry)]
     return lines[1:] if lines and not lines[0] else lines
+
+
+# The global settings can name some settings of a section only. Each setting that they do not name keeps its
+# default value.
+def _merge(defaults: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+    merged = {**defaults}
+    for key, value in values.items():
+        default = merged.get(key)
+        merged[key] = _merge(default, value) if isinstance(default, dict) and isinstance(value, dict) else value
+    return merged
 
 
 def _reject_setting(path: tuple[str, ...], message: str) -> ValidationError:

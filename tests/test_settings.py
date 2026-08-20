@@ -14,12 +14,23 @@ from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
 SETTING_PATTERN = re.compile(r"(# )?[a-z_]+:( .*)?")
 
 
-def write_settings(tmp_path: Path, values: dict[str, Any]) -> None:
-    write_settings_text(tmp_path, yaml.safe_dump(values))
+# `Settings.load_global` reads the settings of whoever runs the suite. Give each test a home of its own, so that
+# no machine can put its own settings in a result here.
+@pytest.fixture(autouse=True)
+def isolate_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    directory = tmp_path / "home"
+    directory.mkdir()
+    monkeypatch.setenv("HOME", str(directory))
+    monkeypatch.setenv("USERPROFILE", str(directory))
+    return directory
 
 
-def write_settings_text(tmp_path: Path, text: str) -> None:
-    settings_file = tmp_path / paths.SETTINGS_FILE
+def write_settings(directory: Path, values: dict[str, Any]) -> None:
+    write_settings_text(directory, yaml.safe_dump(values))
+
+
+def write_settings_text(directory: Path, text: str) -> None:
+    settings_file = directory / paths.SETTINGS_FILE
     settings_file.parent.mkdir(exist_ok=True)
     settings_file.write_text(text, encoding="utf-8")
 
@@ -326,3 +337,102 @@ def test_takes_every_setting_from_the_settings_file(tmp_path: Path, monkeypatch:
     assert settings.agents.interviewer.model == "file-model"
     assert settings.agents.interviewer.reasoning_effort == "low"
     assert settings.logging.level == "INFO"
+
+
+def test_starts_a_project_with_the_global_settings(tmp_path: Path, isolate_home: Path) -> None:
+    write_settings(isolate_home, {"agents": {"interviewer": {"model": "global/model"}}, "logging": {"level": "DEBUG"}})
+
+    write_settings_text(tmp_path, Settings.render(Settings.load_global()))
+
+    settings = Settings.load()
+    assert settings.agents.interviewer.model == "global/model"
+    assert settings.logging.level == "DEBUG"
+
+
+def test_keeps_the_defaults_the_global_settings_leave_out(tmp_path: Path, isolate_home: Path) -> None:
+    # A section of the global settings can hold one setting. The rest of that section keeps its default value.
+    write_settings(isolate_home, {"agents": {"interviewer": {"temperature": 0.5}}})
+
+    write_settings_text(tmp_path, Settings.render(Settings.load_global()))
+
+    settings = Settings.load()
+    assert settings.agents.interviewer.temperature == pytest.approx(0.5)
+    assert settings.agents.interviewer.model == Settings().agents.interviewer.model
+    assert settings.agents.interviewer.reasoning_effort == Settings().agents.interviewer.reasoning_effort
+    assert settings.agents.explorer.model == Settings().agents.explorer.model
+
+
+@pytest.mark.parametrize("text", [None, "  \n\n"], ids=["absent", "blank"])
+def test_starts_a_project_with_the_defaults_when_the_global_settings_name_none(
+    tmp_path: Path, isolate_home: Path, text: str | None
+) -> None:
+    if text is not None:
+        write_settings_text(isolate_home, text)
+
+    write_settings_text(tmp_path, Settings.render(Settings.load_global()))
+
+    assert Settings.load().model_dump() == Settings().model_dump()
+
+
+def test_documents_a_project_that_the_global_settings_started(isolate_home: Path) -> None:
+    write_settings(isolate_home, {"logging": {"level": "DEBUG"}})
+
+    lines = Settings.render(Settings.load_global()).splitlines()
+
+    # The file that a global setting fills is as complete and as documented as the file that the defaults fill.
+    assert read_comments(lines) == read_comments(Settings.render().splitlines())
+    # A global setting sits at the margin of its own section, as a setting that the defaults fill does.
+    assert "  level: DEBUG" in lines
+
+
+def test_starts_a_project_with_an_api_key_variable_that_no_environment_sets(isolate_home: Path) -> None:
+    # `jri init` reads no .env file, thus it accepts the name of a variable that only a later `jri chat` reads.
+    write_settings(isolate_home, {"brave_search": {"api_key": "MISSING_SEARCH_API_KEY"}})
+
+    assert "api_key: MISSING_SEARCH_API_KEY" in Settings.render(Settings.load_global())
+
+
+def test_reports_a_setting_the_global_settings_do_not_know(isolate_home: Path) -> None:
+    write_settings(isolate_home, {"agents": {"desiner": {"model": "global/model"}}})
+
+    with pytest.raises(ValidationError, match=r"agents\.desiner"):
+        Settings.load_global()
+
+
+def test_reports_global_settings_that_are_not_yaml(isolate_home: Path) -> None:
+    write_settings_text(isolate_home, "llm: [unclosed\n")
+
+    with pytest.raises(yaml.YAMLError, match="while parsing a flow sequence"):
+        Settings.load_global()
+
+
+def test_reports_global_settings_that_are_not_a_mapping(isolate_home: Path) -> None:
+    write_settings_text(isolate_home, "- llm\n- logging\n")
+
+    with pytest.raises(ValidationError, match="Input should be a valid dictionary or instance of Settings"):
+        Settings.load_global()
+
+
+def test_reports_a_global_section_that_is_not_a_mapping(isolate_home: Path) -> None:
+    write_settings_text(isolate_home, "agents: interviewer\n")
+
+    with pytest.raises(ValidationError, match="Input should be a valid dictionary or instance of AgentProfiles"):
+        Settings.load_global()
+
+
+def test_starts_a_project_with_the_global_settings_and_no_comments(tmp_path: Path, isolate_home: Path) -> None:
+    write_settings(isolate_home, {"logging": {"level": "DEBUG"}})
+
+    text = Settings.render(Settings.load_global(), comments=False)
+    write_settings_text(tmp_path, text)
+
+    assert Settings.load().logging.level == "DEBUG"
+    assert "#" not in text
+
+
+def test_reports_global_settings_that_name_no_api_key_variable(isolate_home: Path) -> None:
+    # This setting needs no environment variable to be wrong. A project that starts with it cannot chat.
+    write_settings(isolate_home, {"llm": {"api_key": None}})
+
+    with pytest.raises(ValidationError, match="must name the environment variable holding the API key"):
+        Settings.load_global()
