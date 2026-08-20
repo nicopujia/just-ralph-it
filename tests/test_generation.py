@@ -27,6 +27,7 @@ from jri.core.exceptions import (
 )
 from jri.core.generation import Conclusion, Generation
 from jri.core.workspace import Workspace
+from jri.lib.lock import Lock
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.generation import ConcludingLock
 from tests.doubles.lock import OWN_PID, hold, read_fork_child, watch_a_process_go
@@ -949,10 +950,13 @@ def test_reports_a_run_that_took_its_lock_before_it_wrote_a_journal(tmp_path: Pa
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
 
-    with hold(generation.lock.path, record=OWN_PID) as runner:
+    # Read the runner from the lock, and not from the process that started it. A Windows launcher runs the
+    # interpreter in a process of its own, and the interpreter is the runner that takes the lock.
+    with hold(generation.lock.path, record=OWN_PID):
         status = generation.read_status()
+        recorded = Lock(generation.lock.path).holder
 
-    assert status.pid == runner.pid
+    assert status.pid == int(recorded)
     assert status.started is None
     assert not status.recorded
 
