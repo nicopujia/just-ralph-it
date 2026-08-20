@@ -25,6 +25,24 @@ from jri.core.specs import Specs
 specs = Specs(Path(sys.argv[1]))
 specs.accept(sys.stdin.buffer.read(), specs.prepare())
 """
+# A run of JRI's own, cut back to the two things a halt reads: it opens the generation directory and takes the
+# generation lock under its own pid, as `Generation.execute` does, and then carries out a real acceptance. The
+# process leads a session of its own, thus the Git of that acceptance is in the group that a halt ends.
+RUNNING_ACCEPTANCE = """
+import os
+import sys
+from pathlib import Path
+from jri.core.generation import Generation
+from jri.core.specs import Specs
+from jri.core.workspace import Workspace
+
+root = Path(sys.argv[1])
+generation = Generation(Workspace(root))
+generation.workspace.open_generation_dir()
+assert generation.lock.take(str(os.getpid()))
+specs = Specs(root)
+specs.accept(sys.stdin.buffer.read(), specs.prepare())
+"""
 # The same acceptance under a bound that the kernel puts on each file the process writes from that point. A full
 # disk, a quota and a CI file limit are all this bound. `git apply` dies in its own `write(2)`, where no Python
 # instruction boundary reaches. The undo that follows meets the same bound. The run writes no bytecode, thus only
@@ -79,6 +97,11 @@ HOLD_THE_WINDOW = f"sleep {HELD_FOR}\n"
 # that the kill is about, but it stands for a moment whether the window opened or not. Only the marker tells
 # a kill inside the window from a kill that raced it.
 MARK_THE_WINDOW = f"touch .git/{WINDOW_MARKER}\n"
+# The Git that runs the hook writes down its own process. A test reads it back to tell whether a kill of the
+# group reached the child of the run, and not the run alone. The name ends in no `.lock`, thus a count of lock
+# files does not count it.
+GIT_IN_THE_WINDOW = "git-in-the-window"
+RECORD_THE_GIT = f"echo $PPID > .git/{GIT_IN_THE_WINDOW}\n"
 # Each lock that stands while the window is open, written where a test reads it back after the run. A window that
 # opened where its lock was free leaves the same empty `.git` as a window that opened inside that lock and then
 # had it released. Only what the window saw tells these two apart. The name ends in no `.lock`, thus a count of
@@ -230,6 +253,38 @@ def kill_amid_writing_the_commit(root: Path, patch: bytes) -> None:
         _kill_inside_a_window(root, patch, WINDOW_MARKER)
 
 
+# A run of JRI's own, alive in a process group of its own, standing in the window that the caller opened around
+# it. The window marks itself, because the record and the acceptance lock stand whether that window opened or not.
+@contextmanager
+def hold_a_run_amid_accepting(root: Path, patch: bytes) -> "Iterator[subprocess.Popen[bytes]]":
+    runner = subprocess.Popen(
+        [sys.executable, "-c", RUNNING_ACCEPTANCE, str(root)], stdin=subprocess.PIPE, start_new_session=True
+    )
+    assert runner.stdin is not None
+    runner.stdin.write(patch)
+    runner.stdin.close()
+    deadline = time.monotonic() + TIMEOUT
+    # The record comes first. The window is the second thing to wait for, and not a lock that an earlier read of
+    # Git holds.
+    for awaited in (Workspace(root).acceptance_file, root / ".git" / WINDOW_MARKER):
+        while not awaited.exists():
+            assert runner.poll() is None, f"the run ended before it reached {awaited.name}"
+            assert time.monotonic() < deadline, f"the run never reached {awaited.name}"
+            time.sleep(POLL)
+    try:
+        yield runner
+    finally:
+        # A test that ended this group already leaves nothing here to end.
+        with suppress(OSError):
+            os.killpg(os.getpgid(runner.pid), signal.SIGKILL)
+        runner.wait()
+
+
+# The Git that the window is open in. A test reads this to watch that process go.
+def read_the_git_in_the_window(root: Path) -> int:
+    return int((root / ".git" / GIT_IN_THE_WINDOW).read_text(encoding="utf-8"))
+
+
 # A Git of the user, alive and holding the index lock for as long as the block lasts. It holds the lock for its
 # own write of the index. A run that takes the lock away costs it that write.
 @contextmanager
@@ -272,12 +327,12 @@ def open_a_window(root: Path, window: str, action: str) -> "Iterator[None]":
 
 
 @contextmanager
-def open_a_filter_window(root: Path, action: str, *, side: str) -> "Iterator[None]":
+def open_a_filter_window(root: Path, action: str, *, side: str, path: str = FILTERED_PATH) -> "Iterator[None]":
     driver = root / ".git" / WINDOW_FILTER
     driver.write_text(f"#!/bin/sh\n{action}cat\n", encoding="utf-8")
     driver.chmod(0o700)
     attributes = root / ".gitattributes"
-    attributes.write_text(f"{FILTERED_PATH} filter={WINDOW_FILTER}\n", encoding="utf-8")
+    attributes.write_text(f"{path} filter={WINDOW_FILTER}\n", encoding="utf-8")
     _configure(root, f"filter.{WINDOW_FILTER}.{side}", str(driver))
     try:
         yield
