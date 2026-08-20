@@ -27,6 +27,7 @@ Body in plain English, for a person who did not do the work:
 2. **What** changed, in terms of what a user does with it.
 3. **Why** it was needed — the problem before it.
 4. **How it was tested** — what stage 1 ran, what the manual tests did, what came out.
+5. **Why it is this many lines** — `git diff --shortstat <base>..HEAD`, split into source and tests, and what earns each part. Say what the additions buy and what they replaced, and name any part that a different choice would have made smaller. A reviewer who must take the size on trust cannot review it.
 
 Say it as you would to a colleague. Keep the compressed vocabulary for the commits and the code.
 
