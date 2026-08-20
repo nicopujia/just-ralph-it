@@ -5,12 +5,13 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import time
 from argparse import ArgumentParser
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
@@ -102,17 +103,24 @@ def check_change(root: Path, base: str, *, budget: int) -> None:
         key=lambda mutant: (str(mutant.path), mutant.line),
     )
     print(f"{base}...HEAD changes {len(changed)} file(s) under {SOURCE_DIR}/, which take {len(mutants)} mutant(s).")
-    with TemporaryDirectory() as directory:
-        count = max(min(os.cpu_count() or 1, len(mutants)), 1)
-        with ThreadPoolExecutor(max_workers=count) as pool:
-            workers = Workers(pool, _open_workspaces(root, Path(directory), count))
-            measurements = _measure_targets(uv, root, workers, sorted(set(targets.values())))
-            unreached, runnable = _sort_by_reach(root, targets, mutants, _find_unrun_lines(targets, measurements))
-            # A mutant on a line no test runs needs no test run to answer it, so it costs nothing and spends
-            # none of the budget. The budget counts the mutants that the tests must answer.
-            over = len(runnable) - budget
-            runnable = runnable[:budget]
-            survivors = _run_mutants(uv, root, workers, targets, measurements, runnable)
+    over, unreached, runnable, survivors = 0, [], [], []
+    # A copy of the source and an unmutated run of a module cost the same whether or not a mutant follows them,
+    # so a change that takes no mutant opens neither.
+    if mutants:
+        with TemporaryDirectory() as directory:
+            modules = sorted(set(targets.values()))
+            # The measured round runs one module for each worker too, so count the modules beside the mutants.
+            count = max(min(os.cpu_count() or 1, max(len(mutants), len(modules))), 1)
+            with ThreadPoolExecutor(max_workers=count) as pool:
+                workers = Workers(pool, _open_workspaces(root, Path(directory), count))
+                measurements = _measure_targets(uv, root, workers, modules)
+                unrun = _find_unrun_lines(targets, measurements)
+                unreached, runnable = _sort_by_reach(root, targets, mutants, unrun)
+                # A mutant on a line no test runs needs no test run to answer it, so it costs nothing and spends
+                # none of the budget. The budget counts the mutants that the tests must answer.
+                over = len(runnable) - budget
+                runnable = runnable[:budget]
+                survivors = _run_mutants(uv, root, workers, targets, measurements, runnable)
     if over > 0:
         print(f"{over} mutant(s) over the budget of {budget} did not run. `--max` raises it.")
     if unmeasured:
@@ -290,24 +298,40 @@ def _run_mutant(uv: str, root: Path, workers: Workers, targets: dict[Path, Path]
         original = mutated.read_text(encoding="utf-8")
         mutated.write_text(mutant.text, encoding="utf-8")
         try:
-            result = subprocess.run(
-                [uv, *PYTEST_COMMAND, str(target)],
-                cwd=root,
-                env=_environment(workspace),
-                capture_output=True,
-                encoding="utf-8",
-                check=False,
-                timeout=limit,
-            )
-        # A mutant that never returns is one the tests hang on, which is a failure they found.
-        except subprocess.TimeoutExpired:
-            return PYTEST_FAILED
+            answer, output = _ask_the_tests(uv, root, workspace, target, limit)
         # Return the copy whatever the answer was, because the next mutant of this worker reads the same file.
         finally:
             mutated.write_text(original, encoding="utf-8")
-    if result.returncode not in {PYTEST_PASSED, PYTEST_FAILED, PYTEST_INTERRUPTED}:
-        raise RuntimeError(f"{target.relative_to(root)} did not run:\n{result.stdout}{result.stderr}")
-    return result.returncode
+    if answer not in {PYTEST_PASSED, PYTEST_FAILED, PYTEST_INTERRUPTED}:
+        raise RuntimeError(f"{target.relative_to(root)} did not run:\n{output}")
+    return answer
+
+
+# `uv` starts pytest as a child of its own, and a kill that names only `uv` leaves that child running. It would
+# hold the copy the worker is about to give back, read the next mutant another worker writes into that copy, and
+# outlive the gate itself. Every such run then adds load, which carries the next run nearer this same limit, and
+# a run that reaches the limit is read as a kill. Give each run a session of its own, and end that whole session.
+# The number signalled here is the child this call just started, so it names that session and nothing wider.
+def _ask_the_tests(uv: str, root: Path, workspace: Path, target: Path, limit: float) -> tuple[int, str]:
+    with subprocess.Popen(
+        [uv, *PYTEST_COMMAND, str(target)],
+        cwd=root,
+        env=_environment(workspace),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        start_new_session=True,
+    ) as pytest:
+        try:
+            stdout, stderr = pytest.communicate(timeout=limit)
+        # A mutant that never returns is one the tests hang on, which is a failure they found.
+        except subprocess.TimeoutExpired:
+            # The session is gone already if the run ended between the limit and this line.
+            with suppress(ProcessLookupError):
+                os.killpg(pytest.pid, signal.SIGKILL)
+            pytest.wait()
+            return PYTEST_FAILED, ""
+        return pytest.returncode, f"{stdout}{stderr}"
 
 
 # A copy in the queue is a copy that holds the source as the developer wrote it.
