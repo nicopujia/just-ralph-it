@@ -904,24 +904,22 @@ def test_refuses_to_end_a_run_that_names_a_session_wide_target(tmp_path: Path, p
 
     with (
         hold(generation.lock.path, record=str(pid)),
-        pytest.raises(PersistenceError, match="without saying what it is"),
+        pytest.raises(PersistenceError, match="Stop that container instead"),
     ):
         generation.halt()
 
 
-# The reader above is what keeps such a record away from the signal today. This stands behind it: a reader that
-# ever lets one of these through still ends no process but its own run, so the session survives the mistake.
+# A run that no signal from here can aim at is still a run. A report that called it gone would send a supervisor
+# to start a second one beside it.
 @pytest.mark.parametrize("pid", SESSION_WIDE_PIDS, ids=["own group", "init"])
-def test_sends_no_signal_for_a_session_wide_target(tmp_path: Path, pid: int, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reports_a_run_that_no_signal_can_aim_at(tmp_path: Path, pid: int) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
-    monkeypatch.setattr(Generation, "_read_pid", lambda _: pid)
 
-    with (
-        hold(generation.lock.path, record=str(GONE_PID)),
-        pytest.raises(PersistenceError, match="that is not a generation runner"),
-    ):
-        generation.halt()
+    with hold(generation.lock.path, record=str(pid)):
+        status = generation.read_status()
+
+    assert status.pid == pid
 
 
 def test_reports_a_run_that_would_not_let_its_lock_go(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

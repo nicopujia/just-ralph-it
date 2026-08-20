@@ -153,8 +153,8 @@ def _start() -> None:
     logs.configure(settings)
     settings.llm.validate_authentication()
     # A run says nothing for as long as it works. Say that it began, so a reader knows the wait is the run.
-    print(copy.START_BEGAN, flush=True)
-    conclusion = Generation.execute(settings)
+    # The run says when that is, because a refusal must not follow a line that says it started.
+    conclusion = Generation.execute(settings, lambda: print(copy.START_BEGAN, flush=True))
     print(
         copy.START_ENDED_DETAIL.format(ending=conclusion.ending, detail=conclusion.detail)
         if conclusion.detail

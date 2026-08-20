@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import closing, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -31,7 +31,7 @@ from .exceptions import (
     UsageLimitError,
 )
 from .settings import Settings
-from .workspace import MAX_PID, MIN_PID, Hold, Workspace
+from .workspace import MAX_PID, Hold, Workspace
 
 # Start the runner as `jri start` without a console script. `pip install --user` can omit that script from `PATH`.
 RUNNER_COMMAND = ("-m", "jri", "start")
@@ -39,6 +39,10 @@ RUNNER_COMMAND = ("-m", "jri", "start")
 # so the runner needs a way to say which window started it.
 # A run started by hand beside a window would report to a conversation that did not ask for it.
 HOLDER_VARIABLE = "JRI_HOLDER"
+# A signal to 0 or to 1 reaches more than one run: `kill` reads 0 as the group of the caller, and `killpg(1)` as
+# every process the user owns. A runner in a container records the process it wears in its own namespace, which is
+# 1, in the lock file it shares with the host. Report such a run, and refuse to signal it.
+MIN_SIGNALLED_PID = 2
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +171,7 @@ class Generation:
     # Answer with the conclusion the run wrote. A run without a window reports through its caller, and the
     # journal is gone by the time that caller could read it.
     @classmethod
-    def execute(cls, settings: Settings) -> Conclusion:
+    def execute(cls, settings: Settings, began: "Callable[[], None] | None" = None) -> Conclusion:
         generation = cls(Workspace.find())
         # Refuse before anything writes a file, so a refused start leaves the project as it found it.
         # A window that holds the project spawns its own runner, and that runner names its window in the environment.
@@ -187,6 +191,10 @@ class Generation:
         # left behind. A stale cancel file would stop this run at once.
         # Do not call `discard`, which waits for the lock that this process holds.
         generation._remove_records()
+        # The run holds its caller from here to its ending. Tell that caller it began, after every refusal it
+        # could meet and never before one.
+        if began is not None:
+            began()
         stopping = threading.Event()
         cancelled = threading.Event()
         watcher = threading.Thread(
@@ -318,6 +326,12 @@ class Generation:
             raise PersistenceError(
                 f"Something holds `{self.lock.path}` without saying what it is, so JRI will not end it. "
                 "Find the process that holds it and end it yourself, then try again."
+            )
+        # A run this process cannot aim at is still a run. Name why it stands, rather than signal past it.
+        if pid < MIN_SIGNALLED_PID:
+            raise PersistenceError(
+                f"The generation records process {pid}, which names no single process to end. A run inside a "
+                "container records the process it wears in its own namespace. Stop that container instead."
             )
         _kill(pid)
         deadline = time.monotonic() + self.FREED_WITHIN
@@ -472,7 +486,7 @@ class Generation:
     # Return nothing for a record that JRI did not write.
     def _read_pid(self) -> int | None:
         record = self.lock.holder
-        return int(record) if record.isdigit() and MIN_PID <= int(record) <= MAX_PID else None
+        return int(record) if record.isdigit() and int(record) <= MAX_PID else None
 
     # Yield every complete record that stands in the journal now, the header included.
     # Ignore a line that JRI cannot read. A killed append leaves a partial last line, and a report says what it can.
@@ -576,12 +590,6 @@ def _describe(event: "specs_generation.Progress") -> Thought | RowOpened | RowCl
 # A runner started by hand shares the group of its terminal, and that group holds processes that are not JRI.
 # A process that already ended needs no signal, and the lock check after this call decides the answer.
 def _kill(pid: int) -> None:
-    # Refuse a number that names no runner. `killpg(1)` asks the kernel to end every process the user owns, and 0
-    # asks it to end the group of the caller, so a bad record here ends the login session rather than one run.
-    # The readers above reject such a record already; this stands because the cost of one slipping through is the
-    # whole machine, and no caller ever needs this to signal init.
-    if pid < MIN_PID:
-        raise PersistenceError(f"JRI will not end process {pid}: that is not a generation runner.")
     if sys.platform != "win32":
         with suppress(OSError):
             if os.getpgid(pid) == pid:
