@@ -114,6 +114,12 @@ class Conclusion(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # This states whether the run could do the work it was asked for. A stopped run did what it was told to do,
+    # and a run that found something to clarify did its work and asks a question about it.
+    @property
+    def failure(self) -> bool:
+        return self.ending in FAILED_ENDINGS
+
 
 class Record(RootModel[Thought | RowOpened | RowClosed | Conclusion]): ...
 

@@ -25,7 +25,7 @@ from jri.core.exceptions import (
     RunDetached,
     UsageLimitError,
 )
-from jri.core.generation import Generation
+from jri.core.generation import Conclusion, Generation
 from jri.core.workspace import Workspace
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.generation import ConcludingLock
@@ -714,6 +714,20 @@ def test_forgets_the_stop_a_folded_run_left_before_it_runs(tmp_path: Path, monke
 
     assert read_journal(generation)[-1]["ending"] == "committed"
     assert not generation.cancel_file.exists()
+
+
+# A run without a window says how it went through the status of its process. Each ending it could do nothing
+# about is a failed process.
+@pytest.mark.parametrize("ending", ["exhausted", "refused", "unavailable", "blocked", "oversized", "failed"])
+def test_states_that_the_run_could_not_do_the_work(ending: str) -> None:
+    assert Conclusion(kind="conclusion", ending=ending).failure
+
+
+# A stopped run did what it was told to do, and a run that found something to clarify did its work and asks a
+# question about it. Neither is a failed process.
+@pytest.mark.parametrize("ending", ["committed", "unchanged", "ambiguities", "stopped"])
+def test_states_that_the_run_did_the_work(ending: str) -> None:
+    assert not Conclusion(kind="conclusion", ending=ending).failure
 
 
 # A run without a window has no journal left to read by the time its caller could read one. The conclusion it

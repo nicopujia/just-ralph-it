@@ -12,7 +12,7 @@ from jri import __version__
 from jri.core import logs, visualization
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
-from jri.core.generation import FAILED_ENDINGS, Generation
+from jri.core.generation import Generation
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Reset, Workspace
 from jri.lib import browser, files, git, terminal
@@ -160,7 +160,7 @@ def _start() -> None:
         else copy.START_ENDED.format(ending=ending)
     )
     # A supervisor reads the process status. An ending the run could do nothing about is a failed process.
-    if ending in FAILED_ENDINGS:
+    if conclusion.failure:
         raise SystemExit(1)
 
 

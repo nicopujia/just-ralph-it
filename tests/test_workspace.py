@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from pathlib import Path
@@ -734,6 +735,18 @@ def test_names_the_window_that_has_the_project_and_not_the_one_before_it(tmp_pat
         # Naming the live window is what a read that waited for the claim gives.
         assert hold.holder == window.pid
         assert hold.holder != killed.pid
+
+
+# Two windows over one project is the state a user must be able to read about afterwards. Write down the window
+# that kept it.
+def test_writes_down_the_window_that_refused_the_project(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    install_workspace(tmp_path)
+
+    with hold_workspace(tmp_path) as window, caplog.at_level(logging.INFO, logger="jri"):
+        assert not Workspace(tmp_path).open_hold().take()
+
+    record = next(record for record in caplog.records if record.message.startswith("hold_refused"))
+    assert record.message == f"hold_refused holder={window.pid}"
 
 
 def test_names_the_window_that_holds_the_project_now(tmp_path: Path) -> None:
