@@ -6,10 +6,15 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from argparse import ArgumentParser
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
+from queue import SimpleQueue
 from tempfile import TemporaryDirectory
 from typing import NamedTuple
 
@@ -26,8 +31,9 @@ import check
 # gate: a line that no test reaches has no assertion to be missing, and to call it a fault would make a
 # branch that only one operating system takes into a permanent failure.
 DEFAULT_BASE_REVISION = "main"
-# One mutant runs one test module, which takes a few seconds. This budget keeps a pull request under a few
-# minutes. The report names the mutants it left out, because silence would read as a clean run.
+# One mutant runs one test module. The workers run a core's worth of them at a time, so this budget is a few
+# rounds and keeps a pull request under a few minutes. The report names the mutants it left out, because
+# silence would read as a clean run.
 DEFAULT_BUDGET = 30
 SOURCE_DIR = "src"
 PACKAGE = "jri"
@@ -42,6 +48,14 @@ PYTEST_FAILED = 1
 # mutant is dead. Every other answer, such as no test at all or a wrong option, says the gate is broken. A
 # dead mutant there would read as a clean run.
 PYTEST_INTERRUPTED = 2
+# A mutant can spin instead of answering: a negated `while` runs a loop the code left. Wait this multiple of
+# the slowest unmutated run, and no longer. `-x` stops the tests at the first failure, so only a survivor runs
+# its module to the end, and this leaves room for one under the load the other workers add. A run that reaches
+# the limit hangs, which is a fault the tests found, so the mutant dies.
+TIMEOUT_FACTOR = 5
+# The slowest module of a small change takes a few seconds. Hold this floor under the limit, so that the noise
+# of one quick run does not end the next one early and report a mutant that no test killed as dead.
+TIMEOUT_FLOOR = 60
 COVERAGE_DATA_FILE = ".coverage"
 COVERAGE_REPORT_FILE = "coverage.json"
 FILE_HEADER = "+++ b/"
@@ -87,36 +101,20 @@ def check_change(root: Path, base: str, *, budget: int) -> None:
         (mutant for path, lines in changed.items() if path in targets for mutant in _find_mutants(path, lines)),
         key=lambda mutant: (str(mutant.path), mutant.line),
     )
-    survivors: list[str] = []
-    unreached: list[str] = []
     print(f"{base}...HEAD changes {len(changed)} file(s) under {SOURCE_DIR}/, which take {len(mutants)} mutant(s).")
     with TemporaryDirectory() as directory:
-        # The tests import this copy, because PYTHONPATH comes before the path the virtual environment holds.
-        # The gate thus never opens the file the developer has. A crash, a failure or a Ctrl-C leaves the
-        # working tree as it was, because nothing in the run can write to it.
-        workspace = Path(directory) / SOURCE_DIR
-        shutil.copytree(root / SOURCE_DIR, workspace, ignore=shutil.ignore_patterns("__pycache__"))
-        # Python names a cached module after the second its source changed. Two mutants of one file, of one
-        # size, in one second would run the first mutant twice. Let the run keep no cache. Keep the coverage
-        # data beside the copy too, so the run writes nothing at all into the repository.
-        environment = os.environ | {
-            "PYTHONPATH": str(workspace),
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "COVERAGE_FILE": str(Path(directory) / COVERAGE_DATA_FILE),
-        }
-        unrun = _find_unrun_lines(uv, root, workspace, environment, targets)
-        for mutant in mutants[:budget]:
-            report = f"{mutant.path.relative_to(root)}:{mutant.line}: {_quote(mutant.before)} -> {_quote(mutant.after)}"
-            if mutant.line in unrun[mutant.path]:
-                print(f"{'UNREACHED':<9} {report}")
-                unreached.append(f"{report}\n    {targets[mutant.path].relative_to(root)} never ran the line")
-            elif _run_mutant(uv, root, workspace, environment, mutant, targets[mutant.path]) == PYTEST_PASSED:
-                print(f"{'SURVIVED':<9} {report}")
-                survivors.append(f"{report}\n    {targets[mutant.path].relative_to(root)} ran the line and passed")
-            else:
-                print(f"{'killed':<9} {report}")
-    if len(mutants) > budget:
-        print(f"{len(mutants) - budget} mutant(s) over the budget of {budget} did not run. `--max` raises it.")
+        count = max(min(os.cpu_count() or 1, len(mutants)), 1)
+        with ThreadPoolExecutor(max_workers=count) as pool:
+            workers = Workers(pool, _open_workspaces(root, Path(directory), count))
+            measurements = _measure_targets(uv, root, workers, sorted(set(targets.values())))
+            unreached, runnable = _sort_by_reach(root, targets, mutants, _find_unrun_lines(targets, measurements))
+            # A mutant on a line no test runs needs no test run to answer it, so it costs nothing and spends
+            # none of the budget. The budget counts the mutants that the tests must answer.
+            over = len(runnable) - budget
+            runnable = runnable[:budget]
+            survivors = _run_mutants(uv, root, workers, targets, measurements, runnable)
+    if over > 0:
+        print(f"{over} mutant(s) over the budget of {budget} did not run. `--max` raises it.")
     if unmeasured:
         print(f"No mutant ran on these files, because no test module covers them: {', '.join(unmeasured)}.")
     if unreached:
@@ -134,13 +132,19 @@ def check_change(root: Path, base: str, *, budget: int) -> None:
     if not mutants:
         print("No line this change added holds a value the gate knows how to write wrong.")
         return
-    killed = len(mutants[:budget]) - len(unreached)
     # A run that measured nothing is not a run that found nothing. Say which one it was, or a reader takes an
     # unmeasured change for a guarded one.
-    if not killed:
+    if not runnable:
         print("No mutant ran, so this change is unmeasured. The tests reach none of the lines it wrote.")
         return
-    print(f"Every mutant died: the tests answer each of the {killed} wrong lines the gate ran.")
+    print(f"Every mutant died: the tests answer each of the {len(runnable)} wrong lines the gate ran.")
+
+
+class Measurement(NamedTuple):
+    # Coverage names each source file it read, and gives each one the lines the tests ran, missed and excluded.
+    files: dict[Path, dict[str, list[int]]]
+    # How long the module took unmutated. A mutant of it gets no longer than a multiple of this.
+    seconds: float
 
 
 class Mutant(NamedTuple):
@@ -149,6 +153,13 @@ class Mutant(NamedTuple):
     before: str
     after: str
     text: str
+
+
+class Workers(NamedTuple):
+    pool: ThreadPoolExecutor
+    # One copy of the source for each worker. A worker takes a copy while it runs a module and gives it back
+    # after, so the mutant one worker writes is never the file another worker reads.
+    free: SimpleQueue[Path]
 
 
 # `check.py` gives one test module to one source module, and refuses a change that leaves one without a test
@@ -163,62 +174,165 @@ def _assign_targets(root: Path, changed: dict[Path, frozenset[int]]) -> dict[Pat
     }
 
 
-# Run each test module once against the copy as it stands, before any mutant. A module that fails for its own
+# The tests import a copy, because PYTHONPATH comes before the path the virtual environment holds. The gate thus
+# never opens the file the developer has. A crash, a failure or a Ctrl-C leaves the working tree as it was,
+# because nothing in the run can write to it.
+# Each worker holds a copy of its own, so that the mutant one worker writes is not the file another worker reads.
+# A test waits for a subprocess, a Git command, or a file much longer than it calculates, so a worker for each
+# core reads that wait as free time and fills it, as the suite already does under `-n auto`. Keep to that number:
+# more workers only add load, which makes a test that waits for a deadline miss it and report a mutant that no
+# test killed as dead.
+def _open_workspaces(root: Path, directory: Path, workers: int) -> SimpleQueue[Path]:
+    free = SimpleQueue[Path]()
+    for number in range(workers):
+        # Coverage names each file it read by the path with no link left in it. macOS gives out a temporary
+        # directory under `/var`, which is a link to `/private/var`, so take the resolved path here. The names
+        # the report gives back then match the names this run asks it for.
+        workspace = directory.resolve() / str(number) / SOURCE_DIR
+        shutil.copytree(root / SOURCE_DIR, workspace, ignore=shutil.ignore_patterns("__pycache__"))
+        free.put(workspace)
+    return free
+
+
+def _sort_by_reach(
+    root: Path, targets: dict[Path, Path], mutants: list[Mutant], unrun: dict[Path, frozenset[int]]
+) -> tuple[list[str], list[Mutant]]:
+    unreached: list[str] = []
+    runnable: list[Mutant] = []
+    for mutant in mutants:
+        if mutant.line not in unrun[mutant.path]:
+            runnable.append(mutant)
+            continue
+        report = _describe(root, mutant)
+        print(f"{'UNREACHED':<9} {report}")
+        unreached.append(f"{report}\n    {targets[mutant.path].relative_to(root)} never ran the line")
+    return unreached, runnable
+
+
+def _run_mutants(
+    uv: str,
+    root: Path,
+    workers: Workers,
+    targets: dict[Path, Path],
+    measurements: dict[Path, Measurement],
+    runnable: list[Mutant],
+) -> list[str]:
+    survivors: list[str] = []
+    limit = max(TIMEOUT_FLOOR, TIMEOUT_FACTOR * max((run.seconds for run in measurements.values()), default=0))
+    # `map` gives the answers back in the order it took the mutants, so the report reads in that order while
+    # every worker runs.
+    answers = workers.pool.map(partial(_run_mutant, uv, root, workers, targets, limit), runnable)
+    for mutant, answer in zip(runnable, answers, strict=True):
+        report = _describe(root, mutant)
+        if answer == PYTEST_PASSED:
+            print(f"{'SURVIVED':<9} {report}")
+            survivors.append(f"{report}\n    {targets[mutant.path].relative_to(root)} ran the line and passed")
+        else:
+            print(f"{'killed':<9} {report}")
+    return survivors
+
+
+# Run each test module once against a copy as it stands, before any mutant. A module that fails for its own
 # reason fails again under every mutant, and the gate would read each failure as a kill and report a clean run.
-# The same run says which lines the tests reach. A mutant on a line no test runs cannot be a hole in an
-# assertion, because there is no assertion to be missing.
-def _find_unrun_lines(
-    uv: str, root: Path, workspace: Path, environment: dict[str, str], targets: dict[Path, Path]
-) -> dict[Path, frozenset[int]]:
-    measured = workspace.parent / COVERAGE_REPORT_FILE
-    unrun: dict[Path, frozenset[int]] = {}
-    for target in sorted(set(targets.values())):
+# The same run says which lines the tests reach and how long the module takes.
+def _measure_targets(uv: str, root: Path, workers: Workers, modules: list[Path]) -> dict[Path, Measurement]:
+    answers = workers.pool.map(partial(_measure_target, uv, root, workers), modules)
+    return dict(zip(modules, answers, strict=True))
+
+
+def _measure_target(uv: str, root: Path, workers: Workers, target: Path) -> Measurement:
+    with _borrow(workers) as workspace:
+        report = workspace.parent / COVERAGE_REPORT_FILE
+        started = time.monotonic()
         result = subprocess.run(
-            [uv, *PYTEST_COMMAND, str(target), f"--cov={workspace / PACKAGE}", f"--cov-report=json:{measured}"],
+            [uv, *PYTEST_COMMAND, str(target), f"--cov={workspace / PACKAGE}", f"--cov-report=json:{report}"],
             cwd=root,
-            env=environment,
+            env=_environment(workspace),
             capture_output=True,
             encoding="utf-8",
             check=False,
         )
+        seconds = time.monotonic() - started
         if result.returncode != PYTEST_PASSED:
             raise RuntimeError(
                 f"{target.relative_to(root)} does not pass unmutated, so no mutant of it can be measured:\n"
                 f"{result.stdout}{result.stderr}"
             )
-        files = json.loads(measured.read_text(encoding="utf-8"))["files"]
-        for path in (source for source, module in targets.items() if module == target):
-            lines = files.get(str(workspace / path.relative_to(root / SOURCE_DIR)), {})
-            ran = frozenset(lines.get("executed_lines", ()))
-            # Coverage counts a statement at the line it starts on. Give each statement the lines up to the
-            # next one, so that a mutant inside a statement that spans lines belongs to that statement.
-            starts = sorted(ran | set(lines.get("missing_lines", ())) | set(lines.get("excluded_lines", ())))
-            ends = [*starts[1:], len(path.read_text(encoding="utf-8").splitlines()) + 1]
-            unrun[path] = frozenset(
-                number
-                for start, end in zip(starts, ends, strict=True)
-                if start not in ran
-                for number in range(start, end)
-            )
+        # Name each file by the path the developer has, and not by the path of the copy that measured it, so
+        # that a reader of the answer does not need to know which worker took the module.
+        files = json.loads(report.read_text(encoding="utf-8"))["files"]
+        return Measurement(
+            {root / SOURCE_DIR / Path(name).relative_to(workspace): lines for name, lines in files.items()}, seconds
+        )
+
+
+# A mutant on a line no test runs cannot be a hole in an assertion, because there is no assertion to be missing.
+def _find_unrun_lines(targets: dict[Path, Path], measurements: dict[Path, Measurement]) -> dict[Path, frozenset[int]]:
+    unrun: dict[Path, frozenset[int]] = {}
+    for path, target in targets.items():
+        lines = measurements[target].files.get(path, {})
+        ran = frozenset(lines.get("executed_lines", ()))
+        # Coverage counts a statement at the line it starts on. Give each statement the lines up to the next
+        # one, so that a mutant inside a statement that spans lines belongs to that statement. A file the
+        # report does not name at all starts at its first line, which no test ran, so every line is unrun.
+        starts = sorted(ran | set(lines.get("missing_lines", ())) | set(lines.get("excluded_lines", ()))) or [1]
+        ends = [*starts[1:], len(path.read_text(encoding="utf-8").splitlines()) + 1]
+        unrun[path] = frozenset(
+            number for start, end in zip(starts, ends, strict=True) if start not in ran for number in range(start, end)
+        )
     return unrun
 
 
-def _run_mutant(uv: str, root: Path, workspace: Path, environment: dict[str, str], mutant: Mutant, target: Path) -> int:
-    mutated = workspace / mutant.path.relative_to(root / SOURCE_DIR)
-    original = mutated.read_text(encoding="utf-8")
-    mutated.write_text(mutant.text, encoding="utf-8")
-    result = subprocess.run(
-        [uv, *PYTEST_COMMAND, str(target)],
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        encoding="utf-8",
-        check=False,
-    )
-    mutated.write_text(original, encoding="utf-8")
+def _run_mutant(uv: str, root: Path, workers: Workers, targets: dict[Path, Path], limit: float, mutant: Mutant) -> int:
+    target = targets[mutant.path]
+    with _borrow(workers) as workspace:
+        mutated = workspace / mutant.path.relative_to(root / SOURCE_DIR)
+        original = mutated.read_text(encoding="utf-8")
+        mutated.write_text(mutant.text, encoding="utf-8")
+        try:
+            result = subprocess.run(
+                [uv, *PYTEST_COMMAND, str(target)],
+                cwd=root,
+                env=_environment(workspace),
+                capture_output=True,
+                encoding="utf-8",
+                check=False,
+                timeout=limit,
+            )
+        # A mutant that never returns is one the tests hang on, which is a failure they found.
+        except subprocess.TimeoutExpired:
+            return PYTEST_FAILED
+        # Return the copy whatever the answer was, because the next mutant of this worker reads the same file.
+        finally:
+            mutated.write_text(original, encoding="utf-8")
     if result.returncode not in {PYTEST_PASSED, PYTEST_FAILED, PYTEST_INTERRUPTED}:
         raise RuntimeError(f"{target.relative_to(root)} did not run:\n{result.stdout}{result.stderr}")
     return result.returncode
+
+
+# A copy in the queue is a copy that holds the source as the developer wrote it.
+@contextmanager
+def _borrow(workers: Workers) -> Iterator[Path]:
+    workspace = workers.free.get()
+    try:
+        yield workspace
+    finally:
+        workers.free.put(workspace)
+
+
+# Python names a cached module after the second its source changed. Two mutants of one file, of one size, in one
+# second would run the first mutant twice. Let the run keep no cache. Keep the coverage data beside the copy
+# too, so the run writes nothing at all into the repository and no two workers write one file.
+def _environment(workspace: Path) -> dict[str, str]:
+    return os.environ | {
+        "PYTHONPATH": str(workspace),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "COVERAGE_FILE": str(workspace.parent / COVERAGE_DATA_FILE),
+    }
+
+
+def _describe(root: Path, mutant: Mutant) -> str:
+    return f"{mutant.path.relative_to(root)}:{mutant.line}: {_quote(mutant.before)} -> {_quote(mutant.after)}"
 
 
 def _read_changed_lines(git: str, root: Path, base: str) -> dict[Path, frozenset[int]]:
