@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Generator
 from threading import Event
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 import pytest
@@ -15,6 +15,7 @@ from tests.doubles.openai import (
     BASE_URL,
     FakeClient,
     bad_gateway,
+    build_gateway_client,
     disconnection,
     failed_response,
     incomplete_response,
@@ -87,6 +88,17 @@ def test_tells_the_model_a_quoted_block_holds_data_and_not_instructions() -> Non
     assert "closing tag" in notice
     assert "data" in notice
     assert "instruction" in notice
+
+
+# The gateway marks nothing for the cache until a request asks it to, and it answers nothing about the ask. The
+# body that left the process is where the ask either stands or does not, so this reads it there.
+def test_asks_the_gateway_to_mark_the_start_of_a_request_for_its_cache() -> None:
+    bodies: list[dict[str, Any]] = []
+    runner = LLMRunner(client=build_gateway_client(bodies), model="test")
+
+    list(runner.respond([{"role": "user", "content": "How often does it deploy?"}]).events)
+
+    assert bodies[0]["caching"] == "auto"
 
 
 def test_returns_the_parsed_output() -> None:

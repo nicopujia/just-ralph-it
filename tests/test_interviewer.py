@@ -7,6 +7,7 @@ from yaml import safe_load
 
 from jri.core.ai import Interviewer, ToolCallStarted, ToolOutput
 from jri.core.notes import Connection, Notebook
+from jri.lib.context import estimate_tokens, measure_item, measure_request
 from tests.conftest import CreateRepository
 from tests.doubles.models_dot_dev import serve_catalog
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, response, streamed_reply
@@ -22,18 +23,36 @@ CONTEXT_LIMIT = 60_000
 BATCH_TURNS = 5
 LONG_MESSAGE = "This turn must weigh enough to count against the limit. " * 20
 HEAVY_NOTE = "This note weighs on every request that carries the excerpt. " * 420
+# A long interview, well over the floor of ten turns, so a drop has room to take turns and still leave some.
+LONG_INTERVIEW = 30
+# The turns a drop must leave standing. One more than the floor, so the drop stops on the target and not on the floor.
+KEPT_TURNS = 11
+# The floor of recent turns, and the shares of the limit that a drop starts at and runs down to.
+FLOOR_TURNS = 10
+THRESHOLD_SHARE = 0.4
+TARGET_SHARE = 0.25
 
 
 def build_interviewer(path: Path, client: FakeClient | None = None) -> Interviewer:
     return Interviewer(build_settings(client or FakeClient([])), Notebook(path / "notebook.yaml", "Acme"))
 
 
-def add_turns(interviewer: Interviewer, count: int, first: int = 0) -> None:
+def add_turns(interviewer: Interviewer, count: int, first: int = 0, filler: str = LONG_MESSAGE) -> None:
     for index in range(first, first + count):
         interviewer.history.extend([
-            {"role": "user", "content": f"Question {index} {LONG_MESSAGE}"},
-            {"role": "assistant", "content": f"Answer {index} {LONG_MESSAGE}"},
+            {"role": "user", "content": f"Question {index} {filler}"},
+            {"role": "assistant", "content": f"Answer {index} {filler}"},
         ])
+
+
+# What the interviewer weighs a context at. A request carries the context and the tool definitions, and nothing else.
+def measure_context(interviewer: Interviewer, context: ResponseInputParam) -> int:
+    return estimate_tokens(measure_request(context, [item.definition for item in interviewer.get_tools()]))
+
+
+# Publish the limit that puts the given estimate exactly on the given share of it.
+def serve_limit(monkeypatch: pytest.MonkeyPatch, estimate: int, share: float) -> None:
+    serve_catalog(monkeypatch, {"test": {"limit": {"context": round(estimate / share)}}})
 
 
 def read_questions(context: ResponseInputParam) -> list[int]:
@@ -153,6 +172,42 @@ def test_holds_the_turns_a_rewind_leaves_in_the_history(monkeypatch: pytest.Monk
     interviewer.history = interviewer.history[:11]
 
     assert interviewer.get_context()[:-1] == interviewer.history
+
+
+# The system prompt is the largest fixed item of a request. This limit puts the mark halfway through it, so a
+# weight that counts the prompt stands over the mark, and a weight that leaves the prompt out stands under it.
+def test_counts_the_system_prompt_against_the_context_limit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+    add_turns(interviewer, LONG_INTERVIEW, filler="")
+    half_prompt = estimate_tokens(measure_item(interviewer.history[0])) // 2
+    serve_limit(monkeypatch, measure_context(interviewer, interviewer.get_context()) - half_prompt, THRESHOLD_SHARE)
+
+    assert read_questions(interviewer.get_context()) == list(range(LONG_INTERVIEW - FLOOR_TURNS, LONG_INTERVIEW))
+
+
+# The threshold says when a request is too heavy, and a request of exactly that weight is not yet too heavy.
+def test_keeps_every_turn_when_the_request_weighs_the_threshold(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    interviewer = build_interviewer(tmp_path)
+    add_turns(interviewer, LONG_INTERVIEW, filler="")
+    serve_limit(monkeypatch, measure_context(interviewer, interviewer.get_context()), THRESHOLD_SHARE)
+
+    assert read_questions(interviewer.get_context()) == list(range(LONG_INTERVIEW))
+
+
+# The target says how far a drop must bring a request down, and a request of exactly that weight is down far enough.
+def test_stops_dropping_turns_when_the_request_weighs_the_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    interviewer = build_interviewer(tmp_path)
+    add_turns(interviewer, LONG_INTERVIEW)
+    context = interviewer.get_context()
+    # The context a drop must leave: the prompt, the last turns, and the excerpt that stands behind them.
+    kept = [context[0], *context[-2 * KEPT_TURNS - 1 :]]
+    serve_limit(monkeypatch, measure_context(interviewer, kept), TARGET_SHARE)
+
+    assert read_questions(interviewer.get_context()) == list(range(LONG_INTERVIEW - KEPT_TURNS, LONG_INTERVIEW))
 
 
 @pytest.mark.parametrize(

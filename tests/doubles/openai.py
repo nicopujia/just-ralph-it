@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any, Self, cast
 
 import httpx
-from openai import APIConnectionError, BadRequestError, InternalServerError, OpenAIError, RateLimitError
+from openai import APIConnectionError, BadRequestError, InternalServerError, OpenAI, OpenAIError, RateLimitError
 from openai.types.responses import ResponseError
 
 type Round = Iterable[SimpleNamespace]
@@ -137,6 +137,18 @@ def call(call_id: str, name: str, **arguments: object) -> dict[str, Any]:
 
 def reply(text: str) -> dict[str, Any]:
     return {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": text}]}
+
+
+# The gateway in front of the model reads fields of its own off the request. It answers nothing about them, so a
+# double stands at the transport and keeps the body that left the process. The stream it answers with is empty,
+# because what this double serves is the send and not the answer.
+def build_gateway_client(bodies: list[dict[str, Any]]) -> OpenAI:
+    def handle(request: httpx.Request) -> httpx.Response:
+        bodies.append(cast("dict[str, Any]", json.loads(request.content)))
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
+
+    transport = httpx.MockTransport(handle)
+    return OpenAI(base_url=BASE_URL, api_key="test-key", http_client=httpx.Client(transport=transport))
 
 
 class FakeClient:

@@ -91,6 +91,49 @@ def test_never_replays_a_functional_write_call(tmp_path: Path, create_repository
     assert not (tmp_path / ".jri" / "specs" / BEHAVIOR.path).exists()
 
 
+# This definition is the whole account the model gets of the write tool. Without the rule that a call is final for
+# the files it names, a pass leaves a file half written for a later call that never comes.
+def test_offers_the_model_a_tool_that_writes_functional_specifications(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    analyst = build_analyst(FakeClient([]), tmp_path)
+
+    write_specs = next(item for item in analyst.tools if item.name == "write_functional_specs")
+
+    assert write_specs.definition == {
+        "type": "function",
+        "name": "write_functional_specs",
+        "description": (
+            "Write functional specification files, each with its complete final content and a one-line summary. "
+            "Call this as many times as the set needs, and keep each call small enough to write well. "
+            "A call is final for the files it names: no later step fills a file in, and a file left out of every "
+            "call keeps the content it already has."
+        ),
+        "parameters": {
+            "$defs": {
+                "File": {
+                    "additionalProperties": False,
+                    "properties": {
+                        "path": {"title": "Path", "type": "string"},
+                        "content": {"title": "Content", "type": "string"},
+                        "summary": {"title": "Summary", "type": "string"},
+                    },
+                    "required": ["path", "content", "summary"],
+                    "title": "File",
+                    "type": "object",
+                }
+            },
+            "additionalProperties": False,
+            "properties": {"files": {"items": {"$ref": "#/$defs/File"}, "title": "Files", "type": "array"}},
+            "required": ["files"],
+            "title": "Write_Functional_SpecsArguments",
+            "type": "object",
+        },
+        "strict": True,
+    }
+
+
 # Each set of rules speaks about input. A first pass has no notebook diff, no specification index, and no round to
 # answer, so every set would describe what the pass never receives.
 def test_keeps_the_diff_index_and_feedback_rules_out_of_a_first_pass(

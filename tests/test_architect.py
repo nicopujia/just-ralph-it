@@ -97,6 +97,49 @@ def test_never_replays_an_architecture_write_call(tmp_path: Path, create_reposit
     assert not (tmp_path / SPECS_DIR / DESIGN.path).exists()
 
 
+# This definition is the whole account the model gets of the write tool. Without the rule that a call is final for
+# the files it names, a pass leaves a file half written for a later call that never comes.
+def test_offers_the_model_a_tool_that_writes_architecture_specifications(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    designer = build_architect(FakeClient([]), tmp_path)
+
+    write_specs = next(item for item in designer.tools if item.name == "write_architecture_specs")
+
+    assert write_specs.definition == {
+        "type": "function",
+        "name": "write_architecture_specs",
+        "description": (
+            "Write architecture specification files, each with its complete final content and a one-line summary. "
+            "Call this as many times as the design needs, and keep each call small enough to write well. "
+            "A call is final for the files it names: no later step fills a file in, and a file left out of every "
+            "call keeps the content it already has."
+        ),
+        "parameters": {
+            "$defs": {
+                "File": {
+                    "additionalProperties": False,
+                    "properties": {
+                        "path": {"title": "Path", "type": "string"},
+                        "content": {"title": "Content", "type": "string"},
+                        "summary": {"title": "Summary", "type": "string"},
+                    },
+                    "required": ["path", "content", "summary"],
+                    "title": "File",
+                    "type": "object",
+                }
+            },
+            "additionalProperties": False,
+            "properties": {"files": {"items": {"$ref": "#/$defs/File"}, "title": "Files", "type": "array"}},
+            "required": ["files"],
+            "title": "Write_Architecture_SpecsArguments",
+            "type": "object",
+        },
+        "strict": True,
+    }
+
+
 # A design pass can take several minutes.
 # Model reasoning belongs to the open design round.
 # It does not belong to the returned architecture.
