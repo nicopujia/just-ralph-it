@@ -897,16 +897,24 @@ def test_refuses_to_end_a_run_that_does_not_name_a_process(tmp_path: Path, recor
 # A halt reads the lock file to learn which process to end. A record of 0 or 1 asks the kernel for the group of the
 # caller or for every process the user owns, so honouring it ends the whole login session. Turn such a record down
 # while it is still a record.
+# Stand a double in for the signal. A gate that writes this refusal wrongly would otherwise really ask the kernel
+# to end every process the runner owns, and take the run of the suite down with it.
 @pytest.mark.parametrize("pid", SESSION_WIDE_PIDS, ids=["own group", "init"])
-def test_refuses_to_end_a_run_that_names_a_session_wide_target(tmp_path: Path, pid: int) -> None:
+def test_refuses_to_end_a_run_that_names_a_session_wide_target(
+    tmp_path: Path, pid: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
+    signalled: list[int] = []
+    monkeypatch.setattr("jri.core.generation._kill", signalled.append)
 
     with (
         hold(generation.lock.path, record=str(pid)),
         pytest.raises(PersistenceError, match="Stop that container instead"),
     ):
         generation.halt()
+
+    assert not signalled
 
 
 # A run that no signal from here can aim at is still a run. A report that called it gone would send a supervisor
