@@ -4,11 +4,12 @@ from typing import Any
 
 import pytest
 import yaml
+from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from jri.core import paths
 from jri.core.settings import AgentProfile, Settings
-from jri.lib.providers import codex
+from jri.lib.providers import codex, gateway
 from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
 
 SETTING_PATTERN = re.compile(r"(# )?[a-z_]+:( .*)?")
@@ -279,6 +280,27 @@ def test_blames_the_api_key_a_subscriptionless_provider_needs(tmp_path: Path) ->
         Settings.load()
 
     assert error.value.errors()[0]["loc"] == ("llm", "api_key")
+
+
+# The gateway takes request fields that no other endpoint knows. Only a client of its own may add them.
+def test_reaches_the_gateway_through_the_gateway_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROVIDER_API_KEY", "provider-key")
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://ai-gateway.vercel.sh/v1", "api_key": "PROVIDER_API_KEY"}
+    write_settings(tmp_path, values)
+
+    assert isinstance(Settings.load().llm.client, gateway.Client)
+
+
+def test_reaches_another_provider_through_the_provider_library_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PROVIDER_API_KEY", "provider-key")
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
+    write_settings(tmp_path, values)
+
+    assert type(Settings.load().llm.client) is OpenAI
 
 
 def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path) -> None:

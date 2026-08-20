@@ -9,7 +9,7 @@ from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
-from jri.lib.providers import codex
+from jri.lib.providers import codex, gateway
 
 from . import paths
 from .workspace import Workspace
@@ -85,7 +85,7 @@ class AgentProfiles(BaseModel):
 
 class LLM(BaseModel):
     provider: str = Field(
-        default="https://ai-gateway.vercel.sh/v1",
+        default=gateway.BASE_URL,
         description=(
             "Here you can set the base URL of any OpenAI-compatible provider.\n"
             "Or, for a ChatGPT subscription, write `openai-subscription`. "
@@ -100,7 +100,12 @@ class LLM(BaseModel):
     def client(self) -> OpenAI:
         if self.provider == "openai-subscription":
             return codex.Client(APPLICATION_NAME)
-        return OpenAI(base_url=self.provider, api_key=read_api_key(cast("str", self.api_key)))
+        api_key = read_api_key(cast("str", self.api_key))
+        # Only the gateway reads the fields its client adds. Give every other address a client that sends the
+        # request as the provider library writes it.
+        if self.provider == gateway.BASE_URL:
+            return gateway.Client(base_url=self.provider, api_key=api_key)
+        return OpenAI(base_url=self.provider, api_key=api_key)
 
     def validate_authentication(self) -> None:
         if self.provider == "openai-subscription":

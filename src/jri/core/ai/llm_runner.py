@@ -35,10 +35,6 @@ EXHAUSTION_CODES = frozenset({"insufficient_quota", "usage_limit_reached", "bill
 STATUS_PHRASES = {int(status): status.phrase for status in HTTPStatus}
 """What a status is called; a provider may use one nobody named."""
 
-# Some providers cache the start of a request by themselves, but Anthropic caches nothing until the request marks
-# what to keep. This field makes the gateway put those marks in.
-PROMPT_CACHING = {"caching": "auto"}
-
 Result = TypeVar("Result", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
@@ -141,7 +137,6 @@ class LLMRunner:
                     reasoning=self.reasoning,
                     temperature=self.sampling,
                     stream=True,
-                    extra_body=PROMPT_CACHING,
                 ) as stream:
                     for event in self._decode(stream, outputs_by_index):
                         streamed = True
@@ -173,7 +168,6 @@ class LLMRunner:
             text_format=output_type,
             reasoning=self.reasoning,
             temperature=self.sampling,
-            extra_body=PROMPT_CACHING,
         ) as stream:
             streamed_text = ""
             for event in stream:

@@ -1,14 +1,10 @@
 import logging
 from functools import cache
-from typing import Literal, cast, overload
+from typing import cast, overload
 
 import httpx
 
-__all__ = ["get_input_room", "get_limit", "read_limit"]
-
-# The limits a catalog entry publishes: the whole window, the part of it a request can fill, and the largest
-# answer a model can write.
-type Limit = Literal["context", "input", "output"]
+__all__ = ["get_input_room", "get_limit", "read_limits"]
 
 ENDPOINT = "https://models.dev/models.json"
 
@@ -19,48 +15,54 @@ logger = logging.getLogger(__name__)
 # model can write into it, which leaves the rest of the window to the request. An entry whose answer fills the
 # whole window leaves the request nothing, and it says as little about the model as an entry JRI cannot read.
 def get_input_room(model: str, fallback: int) -> int:
-    room = get_limit(model, limit="input")
+    limits = _get_limits(model)
+    room = limits.get("input")
     if room is None:
-        context = get_limit(model)
-        room = None if context is None else context - get_limit(model, 0, "output")
+        window = limits.get("context")
+        room = None if window is None else window - limits.get("output", 0)
     return fallback if room is None or room <= 0 else room
 
 
 @overload
-def get_limit(model: str, fallback: int, limit: Limit = "context") -> int: ...
+def get_limit(model: str, fallback: int) -> int: ...
 
 
 @overload
-def get_limit(model: str, fallback: None = None, limit: Limit = "context") -> int | None: ...
+def get_limit(model: str, fallback: None = None) -> int | None: ...
 
 
-def get_limit(model: str, fallback: int | None = None, limit: Limit = "context") -> int | None:
-    try:
-        published = read_limit(model, limit)
-    except (RuntimeError, TypeError):
-        logger.exception("catalog_read_failed model=%r", model)
-        published = None
+def get_limit(model: str, fallback: int | None = None) -> int | None:
+    published = _get_limits(model).get("context")
     return fallback if published is None else published
 
 
-# Cache only the catalog value. The caller owns the fallback. `cache` does not store exceptions. JRI retries a
-# failed catalog read on the next call.
+# Cache every limit of a model together, and not one limit at a time: a caller reads several of them for one
+# answer, and a catalog it reads one at a time is a catalog it fetches once for each. The caller owns the
+# fallback. `cache` does not store exceptions. JRI retries a failed catalog read on the next call.
 @cache
-def read_limit(model: str, limit: Limit) -> int | None:
+def read_limits(model: str) -> dict[str, int]:
     catalog = _fetch_catalog()
     entry = catalog.get(model)
     if entry is None:
         suffix = model.rsplit("/", 1)[-1]
         matches = [value for key, value in catalog.items() if key.rsplit("/", 1)[-1] == suffix]
         if len(matches) != 1:
-            return None
+            return {}
         entry = matches[0]
     match entry:
         case {"limit": {**limits}}:
-            published = limits.get(limit)
-            return published if isinstance(published, int) else None
+            published = cast("dict[str, object]", limits)
+            return {name: value for name, value in published.items() if isinstance(value, int)}
         case _:
-            return None
+            return {}
+
+
+def _get_limits(model: str) -> dict[str, int]:
+    try:
+        return read_limits(model)
+    except (RuntimeError, TypeError):
+        logger.exception("catalog_read_failed model=%r", model)
+        return {}
 
 
 def _fetch_catalog() -> dict[str, object]:

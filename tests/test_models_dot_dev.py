@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 import pytest
 
@@ -62,6 +64,15 @@ def test_falls_back_to_a_room_when_the_catalog_states_no_window(monkeypatch: pyt
     serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {}})
 
     assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
+
+
+# One room comes from several published limits. The catalog answers for the whole model at once, so the answer
+# stands even when the endpoint stops answering after the first read.
+def test_reads_the_catalog_once_for_the_room_it_answers_with(monkeypatch: pytest.MonkeyPatch) -> None:
+    catalog = {"openai/gpt-5.6-sol": {"limit": {"context": WINDOW, "output": OUTPUT_LIMIT}}}
+    serve_outcome(monkeypatch, build_response(catalog), httpx.ConnectError("connection refused"))
+
+    assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == INPUT_ROOM
 
 
 def test_reads_the_context_limit_of_a_catalogued_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -136,6 +147,17 @@ def test_falls_back_when_the_catalog_response_is_unusable(
     serve_outcome(monkeypatch, outcome)
 
     assert get_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
+
+
+# A catalog JRI cannot read leaves every model on its fallback, and the run says nothing about it. The log
+# carries the reason, so a reader can tell a fallback from a published limit.
+def test_logs_a_catalog_read_that_failed(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    serve_outcome(monkeypatch, httpx.ConnectError("connection refused"))
+
+    with caplog.at_level(logging.ERROR, logger="jri"):
+        get_input_room("openai/gpt-5.6-sol", FALLBACK)
+
+    assert [record.getMessage() for record in caplog.records] == ["catalog_read_failed model='openai/gpt-5.6-sol'"]
 
 
 def test_reads_the_catalog_again_after_a_read_that_failed(monkeypatch: pytest.MonkeyPatch) -> None:

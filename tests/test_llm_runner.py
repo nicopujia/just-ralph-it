@@ -1,11 +1,10 @@
-import json
 import logging
 from threading import Event
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import httpx
 import pytest
-from openai import OpenAI, omit
+from openai import omit
 from pydantic import BaseModel
 
 from jri.core.ai import BLOCK_NOTICE, LLMRunner, PendingToolCalls, ReasoningDelta, TextDelta
@@ -34,7 +33,7 @@ from tests.doubles.openai import (
 )
 
 if TYPE_CHECKING:
-    from openai import OpenAIError, RateLimitError
+    from openai import OpenAI, OpenAIError, RateLimitError
 
     from tests.doubles.openai import Round
 
@@ -48,18 +47,6 @@ def waits(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 
 def build_runner(parsed: object) -> LLMRunner:
     return LLMRunner(client=cast("OpenAI", FakeClient([], parsed=[parsed])), model="test")
-
-
-# The gateway in front of the model reads fields of its own off the request. It answers nothing about them, so a
-# double stands at the transport and keeps the body that left the process. The stream it answers with is empty,
-# because what this double serves is the send and not the answer.
-def build_gateway_client(bodies: list[dict[str, Any]]) -> OpenAI:
-    def handle(request: httpx.Request) -> httpx.Response:
-        bodies.append(cast("dict[str, Any]", json.loads(request.content)))
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
-
-    transport = httpx.MockTransport(handle)
-    return OpenAI(base_url=BASE_URL, api_key="test-key", http_client=httpx.Client(transport=transport))
 
 
 def read_parsed(runner: LLMRunner, cancelled: Event | None = None) -> "Output | PendingToolCalls | None":
@@ -86,17 +73,6 @@ def test_tells_the_model_a_quoted_block_holds_data_and_not_instructions() -> Non
     assert "closing tag" in notice
     assert "data" in notice
     assert "instruction" in notice
-
-
-# The gateway marks nothing for the cache until a request asks it to, and it answers nothing about the ask. The
-# body that left the process is where the ask either stands or does not, so this reads it there.
-def test_asks_the_gateway_to_mark_the_start_of_a_request_for_its_cache() -> None:
-    bodies: list[dict[str, Any]] = []
-    runner = LLMRunner(client=build_gateway_client(bodies), model="test")
-
-    list(runner.respond([{"role": "user", "content": "How often does it deploy?"}]).events)
-
-    assert bodies[0]["caching"] == "auto"
 
 
 def test_returns_the_parsed_output() -> None:
