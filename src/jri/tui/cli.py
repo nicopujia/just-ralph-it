@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 from datetime import datetime
+from typing import NoReturn
 
 import yaml
 from dotenv import load_dotenv
@@ -86,7 +87,9 @@ def main() -> None:
 
 def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
     workspace = Workspace.find()
-    settings = Settings.render(comments=comments)
+    # Only an installation that writes a settings file starts the project from the global settings.
+    writes_settings = force or not workspace.settings_file.exists()
+    settings = Settings.render(_load_global_settings() if writes_settings else None, comments=comments)
     if force:
         # Ask the question inside the reset. First report an active window or run that prevents deletion.
         # Keep the project held while the user reads. The answer then applies to the project state at deletion.
@@ -220,13 +223,24 @@ def _load_settings() -> Settings:
     try:
         return Settings.load()
     except (ValidationError, yaml.YAMLError) as error:
-        error_lines = (
-            [_describe_issue(issue) for issue in error.errors()]
-            if isinstance(error, ValidationError)
-            else [f"- {error}"]
-        )
-        print(copy.SETTINGS_ERROR.format(errors="\n".join(error_lines)))
-        raise SystemExit(1) from error
+        _report_settings_error(error)
+
+
+# A global settings file that JRI cannot read stops the installation. A default that disappears silently is worse
+# than an installation that stops.
+def _load_global_settings() -> Settings | None:
+    try:
+        return Settings.load_global()
+    except (ValidationError, yaml.YAMLError) as error:
+        _report_settings_error(error)
+
+
+def _report_settings_error(error: ValidationError | yaml.YAMLError) -> NoReturn:
+    error_lines = (
+        [_describe_issue(issue) for issue in error.errors()] if isinstance(error, ValidationError) else [f"- {error}"]
+    )
+    print(copy.SETTINGS_ERROR.format(errors="\n".join(error_lines)))
+    raise SystemExit(1) from error
 
 
 def _describe_time(moment: datetime) -> str:

@@ -1,6 +1,8 @@
 WORKSPACE_DIR = ".jri"
 
 SETTINGS_FILE = f"{WORKSPACE_DIR}/settings.yaml"
+# The user writes this file by hand. `jri init` copies its settings into each new project.
+GLOBAL_SETTINGS_FILE = f"~/{SETTINGS_FILE}"
 GITIGNORE_FILE = f"{WORKSPACE_DIR}/.gitignore"
 NOTEBOOK_FILE = f"{WORKSPACE_DIR}/notebook.yaml"
 SESSION_FILE = f"{WORKSPACE_DIR}/session.json"
