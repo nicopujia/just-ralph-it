@@ -153,11 +153,10 @@ def _start() -> None:
     logs.configure(settings)
     settings.llm.validate_authentication()
     conclusion = Generation.execute(settings)
-    ending = conclusion.ending
     print(
-        copy.START_ENDED_DETAIL.format(ending=ending, detail=conclusion.detail)
+        copy.START_ENDED_DETAIL.format(ending=conclusion.ending, detail=conclusion.detail)
         if conclusion.detail
-        else copy.START_ENDED.format(ending=ending)
+        else copy.START_ENDED.format(ending=conclusion.ending)
     )
     # A supervisor reads the process status. An ending the run could do nothing about is a failed process.
     if conclusion.failure:

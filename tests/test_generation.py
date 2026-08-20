@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -157,6 +158,22 @@ def read_answer(events: Generator[object, None, object]) -> object:
         return ending.value
 
 
+# This is the full life of a runner, in a thread of this process. It takes the same lock, writes the same journal,
+# and hears a stop through the same file. The body runs while that run is under way, and the run ends with it.
+@contextmanager
+def start_a_run(generation: Generation) -> "Iterator[None]":
+    generation.workspace.open_generation_dir()
+    runner = threading.Thread(target=Generation.execute, args=(build_settings(FakeClient([])),), daemon=True)
+    runner.start()
+    while not generation.exists:
+        time.sleep(POLL)
+    try:
+        yield
+    finally:
+        runner.join(timeout=CONCLUDES_WITHIN)
+    assert not runner.is_alive()
+
+
 def write_row(started: object, *, call_id: str = "commit", label: str = "Saving") -> str:
     return json.dumps({
         "kind": "row_opened",
@@ -284,19 +301,13 @@ def test_reads_back_what_a_run_answered(
     cancelled = threading.Event()
     generation = build_generation(tmp_path)
     monkeypatch.setattr("jri.core.generation.specs_generation.generate", workflow)
-    generation.workspace.open_generation_dir()
-    runner = threading.Thread(target=Generation.execute, args=(build_settings(FakeClient([])),), daemon=True)
-    runner.start()
-    while not generation.exists:
-        time.sleep(POLL)
-    # The run is under way now. A stop asked for before it started is a stop the run removes, not a stop it hears.
-    cancelled.set()
 
-    answer = read_answer(generation.follow(cancelled))
+    with start_a_run(generation):
+        # The run is under way now. A stop asked for before it started is a stop the run removes, not one it hears.
+        cancelled.set()
+        answer = read_answer(generation.follow(cancelled))
 
     assert answer == expected
-    runner.join(timeout=CONCLUDES_WITHIN)
-    assert not runner.is_alive()
 
 
 # A runner writes its ending and only then frees its lock. The follower that meets that free lock still has the
@@ -831,16 +842,10 @@ def test_asks_no_run_to_stop_when_none_is_going(tmp_path: Path) -> None:
 def test_asks_the_run_that_is_going_to_stop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation = build_generation(tmp_path)
     monkeypatch.setattr("jri.core.generation.specs_generation.generate", generate_silently)
-    generation.workspace.open_generation_dir()
-    runner = threading.Thread(target=Generation.execute, args=(build_settings(FakeClient([])),), daemon=True)
-    runner.start()
-    while not generation.exists:
-        time.sleep(POLL)
 
-    assert generation.stop()
+    with start_a_run(generation):
+        assert generation.stop()
 
-    runner.join(timeout=CONCLUDES_WITHIN)
-    assert not runner.is_alive()
     assert read_journal(generation)[-1]["ending"] == "stopped"
 
 
@@ -890,22 +895,14 @@ def test_keeps_everything_the_run_it_ended_left(tmp_path: Path) -> None:
     assert worktree.exists()
 
 
-def test_refuses_to_end_a_run_that_does_not_name_itself(tmp_path: Path) -> None:
+# A record that JRI did not write names no process, whether it says nothing at all or says a number no process
+# on this machine can wear.
+@pytest.mark.parametrize("record", ["", str(TOO_LARGE_PID)], ids=["silent", "too large"])
+def test_refuses_to_end_a_run_that_does_not_name_a_process(tmp_path: Path, record: str) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
 
-    with hold(generation.lock.path), pytest.raises(PersistenceError, match="without saying what it is"):
-        generation.halt()
-
-
-def test_refuses_to_end_a_run_that_names_a_number_too_large_for_a_process(tmp_path: Path) -> None:
-    generation = build_generation(tmp_path)
-    generation.workspace.open_generation_dir()
-
-    with (
-        hold(generation.lock.path, record=str(TOO_LARGE_PID)),
-        pytest.raises(PersistenceError, match="without saying what it is"),
-    ):
+    with hold(generation.lock.path, record=record), pytest.raises(PersistenceError, match="without saying what it is"):
         generation.halt()
 
 
@@ -924,14 +921,13 @@ def test_reports_a_run_that_would_not_let_its_lock_go(tmp_path: Path, monkeypatc
 def test_reports_the_run_that_is_going_and_the_step_it_reached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation = build_generation(tmp_path)
     monkeypatch.setattr("jri.core.generation.specs_generation.generate", generate_stopped)
-    generation.workspace.open_generation_dir()
-    runner = threading.Thread(target=Generation.execute, args=(build_settings(FakeClient([])),), daemon=True)
-    runner.start()
-    # The header lands first, and the row of the step the run is in after that.
-    while not generation.exists or STARTED_ROW.label.encode() not in generation.journal_file.read_bytes():
-        time.sleep(POLL)
 
-    status = generation.read_status()
+    with start_a_run(generation):
+        # The header lands first, and the row of the step the run is in after that.
+        while STARTED_ROW.label.encode() not in generation.journal_file.read_bytes():
+            time.sleep(POLL)
+        status = generation.read_status()
+        generation.cancel_file.touch()
 
     assert status.pid == os.getpid()
     assert status.step == STARTED_ROW.label
@@ -939,9 +935,6 @@ def test_reports_the_run_that_is_going_and_the_step_it_reached(tmp_path: Path, m
     assert not status.stopping
     assert status.started is not None
     assert 0 <= (datetime.now(UTC) - status.started).total_seconds() < WRITTEN_WITHIN
-    generation.cancel_file.touch()
-    runner.join(timeout=CONCLUDES_WITHIN)
-    assert not runner.is_alive()
 
 
 # A runner takes its lock before it writes its first journal line. A report of that moment says a run is alive and

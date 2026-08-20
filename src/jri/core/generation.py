@@ -39,9 +39,6 @@ RUNNER_COMMAND = ("-m", "jri", "start")
 # so the runner needs a way to say which window started it.
 # A run started by hand beside a window would report to a conversation that did not ask for it.
 HOLDER_VARIABLE = "JRI_HOLDER"
-# These endings say the run could not do the work it was asked for. A run without a window has only its process
-# status to say so, and a supervisor reads that status.
-FAILED_ENDINGS = frozenset({"exhausted", "refused", "unavailable", "blocked", "oversized", "failed"})
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +115,7 @@ class Conclusion(BaseModel):
     # and a run that found something to clarify did its work and asks a question about it.
     @property
     def failure(self) -> bool:
-        return self.ending in FAILED_ENDINGS
+        return self.ending in {"exhausted", "refused", "unavailable", "blocked", "oversized", "failed"}
 
 
 class Record(RootModel[Thought | RowOpened | RowClosed | Conclusion]): ...
@@ -126,23 +123,17 @@ class Record(RootModel[Thought | RowOpened | RowClosed | Conclusion]): ...
 
 # This states what stands in the project now: the window that holds it, the run that is alive, and the record that
 # no window folded yet. A reading fills every field, so no field has a default that a report could hide behind.
+# `recorded` is a journal that stands here, `ending` is the ending of a run that no window folded yet, and `draft`
+# is saved work that a start continues and a halt can lose.
 class Status(BaseModel):
-    # This is the process of the window that holds the project.
     holder: int | None
-    # This is the live runner. A project with no live run has none.
     pid: int | None
-    # This is the time the live run opened its journal.
     started: AwareDatetime | None
-    # This is the label of the row that is still open, and the time that row opened.
     step: str
     step_started: AwareDatetime | None
-    # A stop was asked for, and the run has not ended yet.
     stopping: bool
-    # A journal stands in the project.
     recorded: bool
-    # This is the ending of a run that no window folded yet.
     ending: str
-    # This is saved work that a start continues and a halt can lose.
     draft: bool
 
     model_config = ConfigDict(extra="forbid")
@@ -357,9 +348,6 @@ class Generation:
                     opened.pop(record.call_id, None)
                 case Conclusion():
                     conclusion = record
-                # A thought says nothing about the run state.
-                case Thought():
-                    continue
         step = next(reversed(opened.values()), None)
         return Status(
             holder=Hold(self.workspace).find_holder(),
@@ -498,8 +486,7 @@ class Generation:
             logger.exception("generation_journal_unreadable path=%r", self.journal_file)
             return
         for number, line in enumerate(lines):
-            # The last record ends with a newline, so the split leaves an empty line after it. That line is not a
-            # record that JRI could not read.
+            # A journal ends with a newline, so the split leaves an empty last line. That line is no record at all.
             if not line:
                 continue
             try:
