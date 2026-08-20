@@ -135,13 +135,6 @@ TURN_ERROR = (
 TURN_EXHAUSTED = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
 TURN_INTERRUPTED = "_JRI closed before this finished._"
 TURN_NO_RESPONSE = "_No response received._"
-# The notebook is not at fault, another attempt ends the same way, and the report is what makes JRI carry a notebook
-# of this size.
-TURN_OVERSIZED = (
-    "{error}\n\n"
-    "This is a limit of JRI today and not a fault in your notebook, so another attempt ends the same way. Report it "
-    f"at {issues.URL}, or write to {issues.EMAIL}, to let us know this happened."
-)
 TURN_REFUSED = (
     "{error}\n\n"
     "The provider refused the request rather than failing at it, so asking for it again changes nothing on its own. "

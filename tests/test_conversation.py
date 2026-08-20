@@ -47,7 +47,6 @@ from tests.doubles.specs_generation import (
     THOUGHT,
     generate_blocked,
     generate_failing,
-    generate_oversized,
     generate_stopped,
     generate_succeeding,
     generate_thinking,
@@ -179,18 +178,6 @@ def test_ends_a_turn_the_provider_failed_by_whose_failure_it_was(
     events = list(conversation.chat("Deploy from main."))
 
     assert [event.ending for event in events if isinstance(event, TurnFinished)] == [ending]
-
-
-# A notebook that no model call can carry is its own ending. A turn that reported it as a failure would tell the
-# user to try again, and every attempt would end here.
-def test_ends_a_turn_whose_run_asked_for_more_than_the_model_reads(monkeypatch: pytest.MonkeyPatch) -> None:
-    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
-    list(conversation.chat("Build a reporting CLI."))
-    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_oversized)
-
-    events = list(conversation.ralph())
-
-    assert events[-1] == TurnFinished("oversized", "The notebook is too large to write specifications from.")
 
 
 def test_closes_the_row_a_blocked_run_left_open(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -706,7 +693,7 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     ambiguity = "Choose whether output is JSON or plain text."
     client = FakeClient(
         [streamed_reply("Understood."), streamed_reply("Should the output be JSON or plain text?")],
-        parsed=[functional_analyst.Specifications(files=[], deleted_paths=[], unresolved=[ambiguity])],
+        parsed=[functional_analyst.Specifications(deleted_paths=[], unresolved=[ambiguity])],
     )
     conversation = build_conversation(client)
     list(conversation.chat("Build a reporting CLI."))

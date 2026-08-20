@@ -1,37 +1,51 @@
 import logging
 from functools import cache
-from typing import cast, overload
+from typing import Literal, cast, overload
 
 import httpx
 
-__all__ = ["get_limit", "read_limit"]
+__all__ = ["get_input_room", "get_limit", "read_limit"]
+
+# The three limits a catalog entry can publish: the whole window, the part of it a request can fill, and the
+# largest answer a model can write.
+type Limit = Literal["context", "input", "output"]
 
 ENDPOINT = "https://models.dev/models.json"
 
 logger = logging.getLogger(__name__)
 
 
-@overload
-def get_limit(model: str, fallback: int) -> int: ...
+# This is the room a request has. A catalog entry states it, or states the window and the largest answer that a
+# model can write into it, which leaves the rest of the window to the request.
+def get_input_room(model: str, fallback: int) -> int:
+    published = get_limit(model, limit="input")
+    if published is not None:
+        return published
+    context = get_limit(model)
+    return fallback if context is None else context - get_limit(model, 0, "output")
 
 
 @overload
-def get_limit(model: str, fallback: None = None) -> int | None: ...
+def get_limit(model: str, fallback: int, limit: Limit = "context") -> int: ...
 
 
-def get_limit(model: str, fallback: int | None = None) -> int | None:
+@overload
+def get_limit(model: str, fallback: None = None, limit: Limit = "context") -> int | None: ...
+
+
+def get_limit(model: str, fallback: int | None = None, limit: Limit = "context") -> int | None:
     try:
-        limit = read_limit(model)
+        published = read_limit(model, limit)
     except (RuntimeError, TypeError):
         logger.exception("catalog_read_failed model=%r", model)
-        limit = None
-    return fallback if limit is None else limit
+        published = None
+    return fallback if published is None else published
 
 
 # Cache only the catalog value. The caller owns the fallback. `cache` does not store exceptions. JRI retries a
 # failed catalog read on the next call.
 @cache
-def read_limit(model: str) -> int | None:
+def read_limit(model: str, limit: Limit = "context") -> int | None:
     catalog = _fetch_catalog()
     entry = catalog.get(model)
     if entry is None:
@@ -41,8 +55,9 @@ def read_limit(model: str) -> int | None:
             return None
         entry = matches[0]
     match entry:
-        case {"limit": {"context": int() as limit}}:
-            return limit
+        case {"limit": {**limits}}:
+            published = limits.get(limit)
+            return published if isinstance(published, int) else None
         case _:
             return None
 

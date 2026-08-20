@@ -2,10 +2,13 @@ import httpx
 import pytest
 
 from jri.core.settings import AgentProfiles
-from jri.lib.models_dot_dev import get_limit
+from jri.lib.models_dot_dev import get_input_room, get_limit
 from tests.doubles.models_dot_dev import build_response, serve_catalog, serve_outcome
 
 CONTEXT_LIMIT = 273_000
+INPUT_ROOM = 272_000
+OUTPUT_LIMIT = 128_000
+WINDOW = 400_000
 CATALOG = {"openai/gpt-5.6-sol": {"limit": {"context": CONTEXT_LIMIT}}}
 FALLBACK = 9_000
 
@@ -15,6 +18,26 @@ FALLBACK = 9_000
 @pytest.mark.contract
 def test_reads_the_context_limit_the_catalog_really_publishes() -> None:
     assert get_limit(AgentProfiles().interviewer.model) is not None
+
+
+# A catalog states the room a request has, or states the window and the largest answer, which leaves the rest of
+# the window to the request.
+def test_reads_the_input_room_a_catalogue_publishes(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {"limit": {"context": WINDOW, "input": INPUT_ROOM}}})
+
+    assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == INPUT_ROOM
+
+
+def test_leaves_the_room_the_window_holds_beside_the_largest_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {"limit": {"context": WINDOW, "output": OUTPUT_LIMIT}}})
+
+    assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == INPUT_ROOM
+
+
+def test_falls_back_to_a_room_when_the_catalog_states_no_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {}})
+
+    assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
 
 
 def test_reads_the_context_limit_of_a_catalogued_model(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -22,7 +22,6 @@ from . import paths
 from .ai import Outcome, ReasoningDelta, ToolCallFinished, ToolCallStarted, specs_generation
 from .exceptions import (
     Error,
-    NotebookTooLargeError,
     PersistenceError,
     ProviderRefusalError,
     ProviderUnavailableError,
@@ -98,16 +97,7 @@ class RowClosed(BaseModel):
 class Conclusion(BaseModel):
     kind: Literal["conclusion"]
     ending: Literal[
-        "committed",
-        "unchanged",
-        "ambiguities",
-        "stopped",
-        "exhausted",
-        "refused",
-        "unavailable",
-        "blocked",
-        "oversized",
-        "failed",
+        "committed", "unchanged", "ambiguities", "stopped", "exhausted", "refused", "unavailable", "blocked", "failed"
     ]
     commit: str = ""
     ambiguities: tuple[str, ...] = ()
@@ -119,7 +109,7 @@ class Conclusion(BaseModel):
     # and a run that found something to clarify did its work and asks a question about it.
     @property
     def failure(self) -> bool:
-        return self.ending in {"exhausted", "refused", "unavailable", "blocked", "oversized", "failed"}
+        return self.ending in {"exhausted", "refused", "unavailable", "blocked", "failed"}
 
 
 class Record(RootModel[Thought | RowOpened | RowClosed | Conclusion]): ...
@@ -251,9 +241,6 @@ class Generation:
         except RepositoryStateError as error:
             logger.info("generation_blocked reason=%s", error)
             return Conclusion(kind="conclusion", ending="blocked", detail=str(error))
-        except NotebookTooLargeError as error:
-            logger.info("generation_oversized reason=%s", error)
-            return Conclusion(kind="conclusion", ending="oversized", detail=str(error))
         except Exception as error:
             logger.exception("generation_failed")
             return Conclusion(kind="conclusion", ending="failed", detail=str(error))
@@ -536,8 +523,6 @@ def _answer(conclusion: Conclusion) -> "specs_generation.SpecsResult | None":
             raise ProviderUnavailableError(conclusion.detail)
         case "blocked":
             raise RepositoryStateError(conclusion.detail)
-        case "oversized":
-            raise NotebookTooLargeError(conclusion.detail)
         case "failed":
             raise Error(conclusion.detail)
 

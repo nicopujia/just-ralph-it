@@ -51,30 +51,27 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 existing=functional_context.current_specs_index is not None,
                 feedback=bool(functional_context.architect_feedback),
             )
-            # A request that is too large makes no model call, so measure it before the row that reports one opens.
-            analyst.check_size(functional_context)
-            # Each row identifies one model call by cycle. Its feedback count equals the list sent to the analyst.
-            # This keeps the UI count accurate.
+            # This row stands for one model call, named by cycle. Its feedback count equals the list sent to the
+            # analyst, which keeps the UI count accurate. The pass writes its files in calls of its own, and each
+            # of those opens and closes a row under this one.
             yield ai.ToolCallStarted(
                 f"functional-{cycle}", _describe_writing(cycle, len(functional_context.architect_feedback or ())), "✍️"
             )
             functional_result = yield from analyst.write(functional_context, cancelled)
             if functional_result is None:
                 return None
-            # A pass with questions and no file has nothing to save. Ask them, and leave the project as it stands.
+            # A pass with questions and no work has nothing to save. Ask them, and leave the project as it stands.
             # A pass with neither is a pass that did nothing. `Specs.write` refuses it below.
-            if functional_result.unresolved and not (functional_result.files or functional_result.deleted_paths):
+            if functional_result.unresolved and not (analyst.written_paths or functional_result.deleted_paths):
                 logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.unresolved))
                 yield ai.ToolCallFinished(f"functional-{cycle}", "Found project details to clarify", "done")
                 return Ambiguities(list(functional_result.unresolved))
             yield ai.ToolCallFinished(f"functional-{cycle}", _describe_written(cycle), "done")
 
-            specs.write(
-                staging,
-                {file.path: Specs.format(file) for file in functional_result.files},
-                functional_result.deleted_paths,
-                paths.FUNCTIONAL_SPECS_ROOT,
-            )
+            # The files reached the worktree as the pass wrote them, so only the removals remain here. A pass that
+            # neither wrote nor removed a file changed nothing, and this write is where JRI refuses that pass.
+            if functional_result.deleted_paths or not analyst.written_paths:
+                Specs.write(staging, {}, functional_result.deleted_paths, paths.FUNCTIONAL_SPECS_ROOT)
             functional = specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)
             if not functional:
                 raise SpecsError("Functional specifications cannot be empty.")
@@ -132,6 +129,9 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                     f"Found {len(architecture_result.issues)} issues in the functional specifications",
                     "done",
                 )
+                # A pass that turns back still wrote what it settled. Save that work here, so the next cycle
+                # designs on top of it and a run that stops after this one leaves it drafted.
+                specs.save_draft(staging, baseline)
                 functional_context = functional_context.model_copy(
                     update={
                         "current_specs_index": specs.index(functional),
@@ -140,12 +140,8 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 )
                 continue
 
-            specs.write(
-                staging,
-                {file.path: Specs.format(file) for file in architecture_result.files},
-                architecture_result.deleted_paths,
-                paths.ARCHITECTURE_SPECS_ROOT,
-            )
+            if architecture_result.deleted_paths or not designer.written_paths:
+                Specs.write(staging, {}, architecture_result.deleted_paths, paths.ARCHITECTURE_SPECS_ROOT)
             if not specs.read(staging, paths.ARCHITECTURE_SPECS_DIR):
                 raise SpecsError("Architecture specifications cannot be empty.")
             patch = specs.save_draft(staging, baseline)
