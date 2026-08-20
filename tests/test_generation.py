@@ -887,7 +887,10 @@ def test_refuses_to_end_a_run_that_names_a_number_too_large_for_a_process(tmp_pa
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
 
-    with hold(generation.lock.path, record=str(TOO_LARGE_PID)), pytest.raises(PersistenceError, match="what it is"):
+    with (
+        hold(generation.lock.path, record=str(TOO_LARGE_PID)),
+        pytest.raises(PersistenceError, match="without saying what it is"),
+    ):
         generation.halt()
 
 
