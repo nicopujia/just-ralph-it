@@ -116,25 +116,25 @@ class Record(RootModel[Thought | RowOpened | RowClosed | Conclusion]): ...
 
 
 # This states what stands in the project now: the window that holds it, the run that is alive, and the record that
-# no window folded yet. Every field has a default, so a project with no run reports cleanly.
+# no window folded yet. A reading fills every field, so no field has a default that a report could hide behind.
 class Status(BaseModel):
     # This is the process of the window that holds the project.
-    holder: int | None = None
+    holder: int | None
     # This is the live runner. A project with no live run has none.
-    pid: int | None = None
+    pid: int | None
     # This is the time the live run opened its journal.
-    started: AwareDatetime | None = None
+    started: AwareDatetime | None
     # This is the label of the row that is still open, and the time that row opened.
-    step: str = ""
-    step_started: AwareDatetime | None = None
+    step: str
+    step_started: AwareDatetime | None
     # A stop was asked for, and the run has not ended yet.
-    stopping: bool = False
+    stopping: bool
     # A journal stands in the project.
-    recorded: bool = False
+    recorded: bool
     # This is the ending of a run that no window folded yet.
-    ending: str = ""
+    ending: str
     # This is saved work that a start continues and a halt can lose.
-    draft: bool = False
+    draft: bool
 
     model_config = ConfigDict(extra="forbid")
 
@@ -302,7 +302,6 @@ class Generation:
         if not self.is_running:
             return False
         self.cancel_file.touch()
-        logger.info("generation_stop_requested")
         return True
 
     # End the run now. A halt must look exactly like the machine dying, so remove nothing.
