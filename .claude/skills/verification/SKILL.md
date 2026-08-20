@@ -1,1 +1,0 @@
-../../../.agents/skills/verification/SKILL.md

@@ -2,11 +2,10 @@
 [Concept doc](https://nicolaspujia.com/just-ralph-it.md)
 
 ## Workflow
-- After changes: `scripts/check.py`
-- Before a pull request: `scripts/mutate.py`
+After any `src` or `tests` change: `scripts/check.py`
 
 ## Style
-- Prefer cleanest long-term approach—no backwards-compat code
+- Prefer cleanest long-term approach—neither backwards-compatibility handling nor quick hacks at all
 - Trust types and JRI-managed data
 - `lib` = JRI-agnostic business logic only
 - `tui` = UI only, no tests

@@ -1,0 +1,50 @@
+---
+name: verify
+description: Verify changes made to JRI source. Use when making non-trivial logic changes, such as new features, bug fixes, and refactors. Skip for documentation or copy changes.
+---
+# Verification
+Implemented ≠ done. Test and polish as a human would, one step at a time.
+
+Run this in a thread that did not write the change — fresh eyes are what make it worth running. Report the verdict and the issues that survived; the transcripts and the file reads stay here.
+
+## Stage 1: Thorough testing
+1. Cheap first: `./scripts/check.py` + one-off Python scripts against the new code.
+2. Issues → subagent fixes → back to 1. Repeat until clean.
+3. `./scripts/mutate.py` asks whether the tests assert on the lines changed, which coverage cannot say. It reads commits, not the working tree, so commit first. Kill every survivor with an assertion, or say why the mutant makes no difference. Run it only once the suite is green—a red suite kills every mutant and reports nothing.
+4. Subagent(s) manually test *as a real user would use JRI in production*—real messages, real models, judging behavior and answer quality. Example using `tmux`:
+    ```bash
+    project="$PWD"
+    smoke_dir="$(mktemp -d)"
+    cp .env "$smoke_dir/.env"
+    (cd "$smoke_dir" && uv run --project "$project" jri init)
+    tmux has-session -t jri 2>/dev/null || tmux new-session -d -s jri
+    tmux new-window -t jri -n smoke -c "$smoke_dir" "uv run --project $project jri chat"
+    sleep 4
+    tmux send-keys -t jri:smoke "I want to build a small app for tracking books I read." Enter
+    sleep 4
+    tmux capture-pane -pt jri:smoke
+    tmux kill-window -t jri:smoke
+    rm -rf "$smoke_dir"
+    ```
+    `init` sets the workspace up and returns; `chat` is the window that reads keys. Always start JRI with `uv run --project <worktree>`—a bare `jri` runs the globally installed version, not the changed source. Very bounded example. Scope scales with the change: judge how many conversations, how long, how complex—then prompt testing subagents accordingly.
+5. Issues → judge whether they're real. Real → subagent fixes → back to 4. Else → stage 2.
+
+A failure that survives three rounds of fixes ends the stage — report what was tried and wait.
+
+## Stage 2: Ruthless refactoring
+Minimize diff LOC additions (logic and prompts, not comments or docs) preserving behavior and style.
+
+Each round, a fresh subagent audits the diff and diff-adjacent code against @AGENTS.md, hunting over-engineering and style violations. Require every finding in one pass — each round costs a full re-analysis, so a partial list is a defect even when every item in it is real.
+
+Judge each finding against original intent; have the subagent apply the aligned ones. New subagent, repeat until:
+- no findings, or
+- no finding aligns with original spec.
+
+Use fresh subagent per round because one that already argued for its own suggestions won't attack them.
+
+## Stage 3: Final smoke test
+One more round post-refactor, lighter than stage 1—just confirm nothing broke.
+
+## Notes
+- Only committed code in `main` is exemplary; dirty changes are disposable.
+- Judge behavioral correctness against the [project concept document](https://nicolaspujia.com/just-ralph-it.md).
