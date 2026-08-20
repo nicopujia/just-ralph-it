@@ -1,3 +1,4 @@
+import json
 from collections.abc import Generator
 from pathlib import Path
 from threading import Event
@@ -59,6 +60,41 @@ def test_designs_the_architecture_files(tmp_path: Path, create_repository: Creat
     client = FakeClient([], parsed=[architect.Output(result=ARCHITECTURE)])
 
     assert drain(build_architect(client, tmp_path).design(CONTEXT, Event()))[1] == ARCHITECTURE
+
+
+# A write call takes minutes, and this row is what the user sees of it while it runs.
+def test_names_the_row_of_an_architecture_write_call(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    client = FakeClient(
+        [],
+        parsed=[
+            response(call("write", "write_architecture_specs", files=[DESIGN.model_dump()])),
+            architect.Output(result=ARCHITECTURE),
+        ],
+    )
+
+    rows = [
+        event
+        for event in build_architect(client, tmp_path).design(CONTEXT, Event())
+        if not isinstance(event, ReasoningDelta)
+    ]
+
+    assert rows == [
+        ToolCallStarted("write", "Writing specification files", "✍️"),
+        ToolCallFinished("write", "Wrote specification files", "done"),
+    ]
+
+
+# A rewind replays the calls it keeps. A replayed write would put back a file that the rewind took away, so this
+# call is never replayed.
+def test_never_replays_an_architecture_write_call(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    designer = build_architect(FakeClient([]), tmp_path)
+    write_specs = next(item for item in designer.tools if item.name == "write_architecture_specs")
+
+    write_specs.replay(json.dumps({"files": [DESIGN.model_dump()]}))
+
+    assert not (tmp_path / SPECS_DIR / DESIGN.path).exists()
 
 
 # A design pass can take several minutes.

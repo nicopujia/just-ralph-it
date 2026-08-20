@@ -1800,6 +1800,23 @@ def test_reads_the_specifications_a_model_named(tmp_path: Path, create_repositor
     assert "# Delivery" not in rendered
 
 
+# One call answers for as many files as the cap holds, so a pass reads a set in one round instead of one round
+# for each file in it.
+def test_reads_a_batch_of_specifications_the_cap_holds(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path)
+    root = tmp_path / ".jri" / "specs" / "functional"
+    root.mkdir(parents=True)
+    (root / "behavior.md").write_text("# Behavior\n")
+    (root / "delivery.md").write_text("# Delivery\n")
+
+    rendered = Specs.read_selected(
+        repository, "functional", ["functional/behavior.md", "functional/delivery.md"], READ_CAP
+    )
+
+    assert "# Behavior" in rendered
+    assert "# Delivery" in rendered
+
+
 # A cut specification reads like a complete one, so a batch that passes the cap is refused whole. The refusal
 # names what each file weighs, which is what the model needs to ask for fewer of them.
 def test_refuses_to_read_more_specifications_than_one_call_answers_with(

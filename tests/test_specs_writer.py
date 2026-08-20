@@ -3,13 +3,14 @@ from pathlib import Path
 from threading import Event
 from typing import Any, cast
 
+import httpx
 import pytest
 
 from jri.core.ai import ReasoningDelta, functional_analyst
 from jri.core.specs import Specs
 from jri.lib import git
 from tests.conftest import CreateRepository
-from tests.doubles.models_dot_dev import serve_catalog
+from tests.doubles.models_dot_dev import serve_catalog, serve_outcome
 from tests.doubles.openai import FakeClient, Round, call, response
 from tests.doubles.settings import build_settings
 
@@ -19,6 +20,8 @@ NOTHING_LEFT = functional_analyst.Specifications(deleted_paths=[], unresolved=[]
 # A pass thus crosses the mark, and what it frees stops it before the last bodies go.
 BODY = "Behavior. " * 3_000
 PATHS = [f"functional/part{number}.md" for number in range(6)]
+# Four bodies free enough room, so the pass stops there and the last two stay in the request whole.
+COMPACTED_BODIES = 4
 # The room this catalog publishes, and the mark JRI takes from it, are what make the pass above cross it.
 ROOMY_CATALOG: dict[str, Any] = {"test": {"limit": {"context": 60_000, "input": 52_500, "output": 7_500}}}
 # A room this small caps one read at 100 tokens, which two files of a few hundred bytes already pass.
@@ -99,6 +102,10 @@ def test_writes_every_file_of_a_pass_that_wrote_them_in_several_calls(
     assert write(analyst) == NOTHING_LEFT
 
     assert analyst.written_paths == {"functional/behavior.md", "functional/exports.md", "functional/limits.md"}
+    assert read_outputs(client) == [
+        "Wrote functional/behavior.md.",
+        "Wrote functional/exports.md, functional/limits.md.",
+    ]
     assert Specs.read(repository, ".jri/specs/functional") == {
         ".jri/specs/functional/behavior.md": b"---\nsummary: Part 0.\n---\n\n# Behavior\n",
         ".jri/specs/functional/exports.md": b"---\nsummary: Part 1.\n---\n\n# Exports\n",
@@ -137,10 +144,25 @@ def test_takes_the_oldest_bodies_out_of_a_pass_that_passes_the_mark(
 
     assert write(build_analyst(client, tmp_path)) == NOTHING_LEFT
 
-    written = read_written_files(client)
-    assert written[0]["content"] == WRITTEN_FILE_RECORD.format(path=PATHS[0])
-    assert written[-1]["content"] == BODY
+    assert [file["content"] for file in read_written_files(client)] == [
+        *(WRITTEN_FILE_RECORD.format(path=path) for path in PATHS[:COMPACTED_BODIES]),
+        *([BODY] * (len(PATHS) - COMPACTED_BODIES)),
+    ]
     assert (tmp_path / ".jri/specs" / PATHS[0]).read_text().endswith(BODY)
+
+
+# A catalog JRI cannot reach publishes no room, and the pass must still write. It works against a room of its own,
+# which is wide enough to leave a written body where the model put it.
+def test_keeps_a_written_body_when_the_catalog_publishes_no_room(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path)
+    serve_outcome(monkeypatch, httpx.ConnectError("connection refused"))
+    client = FakeClient([], parsed=[write_call(0, {PATHS[0]: BODY}), NOTHING_LEFT])
+
+    write(build_analyst(client, tmp_path))
+
+    assert read_written_files(client)[0]["content"] == BODY
 
 
 # A call that JRI refused stands in the history with the arguments the model sent, which answer to no schema.

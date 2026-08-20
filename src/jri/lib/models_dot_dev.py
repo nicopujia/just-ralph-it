@@ -45,7 +45,7 @@ def get_limit(model: str, fallback: int | None = None, limit: Limit = "context")
 # Cache only the catalog value. The caller owns the fallback. `cache` does not store exceptions. JRI retries a
 # failed catalog read on the next call.
 @cache
-def read_limit(model: str, limit: Limit = "context") -> int | None:
+def read_limit(model: str, limit: Limit) -> int | None:
     catalog = _fetch_catalog()
     entry = catalog.get(model)
     if entry is None:

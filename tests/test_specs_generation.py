@@ -702,6 +702,88 @@ def test_keeps_the_accepted_specification_a_round_left_out(
     ]
 
 
+# A pass can write one file and remove another in the same round. Both reach the project.
+def test_removes_the_specification_a_pass_deleted_beside_the_files_it_wrote(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    generate(
+        FakeClient(
+            [streamed_reply("Repository report")],
+            parsed=[
+                *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+                *designed_architecture(),
+            ],
+        )
+    )
+
+    _, result = generate(
+        FakeClient(
+            [streamed_reply("Repository report")],
+            parsed=[
+                *written_specs(UPDATED_FUNCTIONAL_FILES, ["functional/exports.md"]),
+                *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+            ],
+        )
+    )
+
+    assert isinstance(result, str)
+    assert not (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").exists()
+
+
+# A pass that removes a file and asks a question changed the project as much as one that wrote a file. Save that
+# work in the draft, and then put the question to the user.
+def test_keeps_the_specification_a_pass_deleted_before_it_asked(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    generate(
+        FakeClient(
+            [streamed_reply("Repository report")],
+            parsed=[
+                *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+                *designed_architecture(),
+            ],
+        )
+    )
+
+    _, result = generate(
+        FakeClient([], parsed=[*written_specs({}, ["functional/exports.md"], ["JSON or plain text?"])])
+    )
+
+    assert result == specs_generation.Ambiguities(["JSON or plain text?"])
+    assert "-# Exports" in (tmp_path / paths.DRAFT_FILE).read_text()
+
+
+# A design can write one file and remove another in the same round. Both reach the project.
+def test_removes_the_architecture_a_design_deleted_beside_the_files_it_wrote(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    generate(
+        FakeClient(
+            [streamed_reply("Repository report")],
+            parsed=[
+                *written_specs(),
+                *designed_architecture({**ARCHITECTURE_FILES, "architecture/layers.md": "# Layers\n"}),
+            ],
+        )
+    )
+
+    _, result = generate(
+        FakeClient(
+            [streamed_reply("Repository report")],
+            parsed=[
+                *written_specs(UPDATED_FUNCTIONAL_FILES),
+                *designed_architecture(UPDATED_ARCHITECTURE_FILES, ["architecture/layers.md"]),
+            ],
+        )
+    )
+
+    assert isinstance(result, str)
+    assert not (tmp_path / paths.ARCHITECTURE_SPECS_DIR / "layers.md").exists()
+
+
 # A later round's prompt carries every current file, not only the one the architect flagged, so the model can
 # leave a file untouched while still seeing its content.
 def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:

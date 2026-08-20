@@ -1,8 +1,9 @@
+import json
 from pathlib import Path
 from threading import Event
 from typing import cast
 
-from jri.core.ai import ReasoningDelta, functional_analyst
+from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted, functional_analyst
 from jri.core.specs import Specs
 from jri.lib import git
 from tests.conftest import CreateRepository
@@ -57,6 +58,37 @@ def test_returns_the_removals_and_questions_a_pass_leaves_beside_its_files(
     client = FakeClient([], parsed=[SPECIFICATIONS])
 
     assert write(build_analyst(client, tmp_path), CONTEXT)[1] == SPECIFICATIONS
+
+
+# A write call takes minutes, and this row is what the user sees of it while it runs.
+def test_names_the_row_of_a_functional_write_call(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    client = FakeClient(
+        [], parsed=[response(call("write", "write_functional_specs", files=[BEHAVIOR.model_dump()])), SPECIFICATIONS]
+    )
+
+    rows = [
+        event
+        for event in build_analyst(client, tmp_path).write(CONTEXT, Event())
+        if not isinstance(event, ReasoningDelta)
+    ]
+
+    assert rows == [
+        ToolCallStarted("write", "Writing specification files", "✍️"),
+        ToolCallFinished("write", "Wrote specification files", "done"),
+    ]
+
+
+# A rewind replays the calls it keeps. A replayed write would put back a file that the rewind took away, so this
+# call is never replayed.
+def test_never_replays_a_functional_write_call(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    analyst = build_analyst(FakeClient([]), tmp_path)
+    write_specs = next(item for item in analyst.tools if item.name == "write_functional_specs")
+
+    write_specs.replay(json.dumps({"files": [BEHAVIOR.model_dump()]}))
+
+    assert not (tmp_path / ".jri" / "specs" / BEHAVIOR.path).exists()
 
 
 # Each set of rules speaks about input. A first pass has no notebook diff, no specification index, and no round to

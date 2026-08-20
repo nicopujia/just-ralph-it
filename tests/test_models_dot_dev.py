@@ -34,6 +34,13 @@ def test_leaves_the_room_the_window_holds_beside_the_largest_answer(monkeypatch:
     assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == INPUT_ROOM
 
 
+# A catalog that names no largest answer leaves the whole window to the request.
+def test_leaves_the_whole_window_to_a_request_when_the_catalog_names_no_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {"limit": {"context": WINDOW}}})
+
+    assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == WINDOW
+
+
 def test_falls_back_to_a_room_when_the_catalog_states_no_window(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {}})
 

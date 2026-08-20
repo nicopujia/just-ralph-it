@@ -121,6 +121,9 @@ def test_drops_turns_in_one_batch_that_lasts_for_the_turns_after_it(
     later = interviewer.get_context()
 
     assert read_questions(dropped)[0] >= BATCH_TURNS
+    # The drop stops at the target, which stands above the floor. A drop that ran down to the floor would take
+    # turns that the budget still holds.
+    assert len(read_questions(dropped)) > Interviewer.MIN_CONTEXT_TURNS
     assert read_questions(later) == [*read_questions(dropped), *range(30, 35)]
     assert later[: len(dropped) - 1] == dropped[:-1]
 
@@ -149,7 +152,7 @@ def test_holds_the_turns_a_rewind_leaves_in_the_history(monkeypatch: pytest.Monk
 
     interviewer.history = interviewer.history[:11]
 
-    assert read_questions(interviewer.get_context()) == list(range(5))
+    assert interviewer.get_context()[:-1] == interviewer.history
 
 
 @pytest.mark.parametrize(
