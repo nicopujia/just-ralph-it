@@ -720,14 +720,14 @@ def test_forgets_the_stop_a_folded_run_left_before_it_runs(tmp_path: Path, monke
 # about is a failed process.
 @pytest.mark.parametrize("ending", ["exhausted", "refused", "unavailable", "blocked", "oversized", "failed"])
 def test_states_that_the_run_could_not_do_the_work(ending: str) -> None:
-    assert Conclusion(kind="conclusion", ending=ending).failure
+    assert Conclusion.model_validate({"kind": "conclusion", "ending": ending}).failure
 
 
 # A stopped run did what it was told to do, and a run that found something to clarify did its work and asks a
 # question about it. Neither is a failed process.
 @pytest.mark.parametrize("ending", ["committed", "unchanged", "ambiguities", "stopped"])
 def test_states_that_the_run_did_the_work(ending: str) -> None:
-    assert not Conclusion(kind="conclusion", ending=ending).failure
+    assert not Conclusion.model_validate({"kind": "conclusion", "ending": ending}).failure
 
 
 # A run without a window has no journal left to read by the time its caller could read one. The conclusion it
