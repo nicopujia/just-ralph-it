@@ -1,6 +1,6 @@
 ---
 name: instruct-agent
-description: Write, compress, audit LLM inputs—system prompts, AGENTS.md, SKILL.md. Use also when an agent ignores instructions, over-searches, stops early, or drifts scope.
+description: Write, compress, audit LLM inputs—system prompts, AGENTS.md, SKILL.md. Load before editing any text a model reads, even where the change is mostly code. Use also when an agent ignores instructions, over-searches, stops early, or drifts scope.
 ---
 # Agent prompts
 Aim: the smallest set of high-signal lines that reliably produces the behavior. Attention is finite — each token added dilutes the rest, and recall degrades as context grows.
@@ -53,16 +53,17 @@ Sharpen the bound before you split the sequence, and split only across a real co
 ## Audit
 Reading a prompt you cannot run: check it against this file, in this order.
 1. Contradictions — two lines that disagree. Costliest, so first.
-2. Misplaced rules — a rule about X stated only in something that calls X.
-3. Weak pointers — must-have material behind wording that will not fire.
-4. Missing stopping rules — loops with no exit, "repeat until" with no bound, criteria the agent cannot check.
-5. Unbacked claims — every path, flag, and command verified against the repo.
-6. Wording.
+2. Leaked identity — the system named where the output belongs to the user. Silent: nothing downstream catches it.
+3. Misplaced rules — a rule about X stated only in something that calls X.
+4. Weak pointers — must-have material behind wording that will not fire.
+5. Missing stopping rules — loops with no exit, "repeat until" with no bound, criteria the agent cannot check.
+6. Unbacked claims — every path, flag, and command verified against the repo.
+7. Wording.
 
 Out: findings worst first, each as what the lines say → why it fails → the fix in one line. Then what works, in two or three lines. Rewrite only when asked.
 
 ## Known failure modes
-- **Leaked identity.** A name in the prompt becomes the name of the user's product. Drop it; mark unavoidable identifiers as not-the-answer.
+- **Leaked identity.** A name in the prompt becomes the name of what the agent produces. A role that speaks for the system may name it; wherever the output belongs to the user, the name offers itself as an answer. Drop it—the passive voice costs nothing—and mark unavoidable identifiers as not-the-answer. Worst in text injected per item, which repeats the name as the output grows.
 - **Drip-fed findings.** Models optimize for being right about what they report, not for reporting everything. Price it: an incomplete list is a defect even when every item on it is real.
 - **Scope drift.** Extra features, extra styling, extra sections. Say: exactly and only what was asked; ambiguity → simplest valid reading.
 - **Long runs.** Context rots. Notes to a file, compaction at milestones, subagents for wide search returning conclusions only.
