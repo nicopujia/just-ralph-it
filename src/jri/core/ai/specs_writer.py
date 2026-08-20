@@ -6,7 +6,7 @@ from typing import Any, ClassVar, cast, override
 from openai.types.responses import ResponseInputParam
 from pydantic import ValidationError
 
-from jri.core.paths import FUNCTIONAL_SPECS_ROOT, SPECS_DIR
+from jri.core.paths import FUNCTIONAL_SPECS_ROOT
 from jri.core.specs import File, Specs
 from jri.lib import git
 from jri.lib.context import estimate_tokens, measure_item, measure_request
@@ -25,6 +25,9 @@ class SpecsWriter(Agent):
     # Compact past this share of the room the model reads. The rest of that room holds the answer that the
     # request asks for, and the reasoning the model keeps while it writes.
     INPUT_SHARE: ClassVar[float] = 0.8
+    # Compact back to this share, and not to just under the mark above. The gap holds many more calls, so one
+    # compaction serves the rounds that follow it as well as the round that started it.
+    LOW_SHARE: ClassVar[float] = 0.6
     # One batched read answers with at most this share of that room. What a read brings in stays for the whole
     # pass, unlike a written body, which compaction can take back out.
     READ_SHARE: ClassVar[float] = 0.1
@@ -51,12 +54,7 @@ class SpecsWriter(Agent):
     # Put each file on disk as it arrives. The pass then reads back what the project holds, and not a copy of it
     # that this conversation keeps.
     @tool(
-        (
-            "Write specification files, each with its complete final content and a one-line summary. "
-            "Call this as many times as the set needs, and keep each call small enough to write well. "
-            "A call is final for the files it names: no later step fills a file in, and a file left out of every "
-            "call keeps the content it already has."
-        ),
+        "Write specification files, each with its complete final content and a one-line summary.",
         started_label="Writing specification files",
         finished_label="Wrote specification files",
         symbol="✍️",
@@ -65,7 +63,6 @@ class SpecsWriter(Agent):
     def write_specs(self, files: list[File]) -> str:
         Specs.write(self.repository, {file.path: Specs.format(file) for file in files}, (), self.specs_root)
         self.written_paths.update(file.path for file in files)
-        logger.info("specs_call_written root=%s files=%d", self.specs_root, len(files))
         return f"Wrote {', '.join(sorted(file.path for file in files))}."
 
     @tool(
@@ -91,15 +88,12 @@ class SpecsWriter(Agent):
     def _compact(self) -> None:
         tools = self.get_tools()
         size = measure_request(self.history, [item.definition for item in tools])
-        high = int(get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM) * self.INPUT_SHARE)
+        room = get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM)
+        high = int(room * self.INPUT_SHARE)
         if estimate_tokens(size) <= high:
             return
         write = next(item for item in tools if item.name == self.write_specs.__name__)
-        # One more call can add a file as large as the largest one the project holds, so leave that much room
-        # under the mark. A constant here would leave too little for a project of large files and too much for
-        # a project of small ones.
-        largest = max((len(content) for content in Specs.read(self.repository, SPECS_DIR).values()), default=0)
-        low = high - estimate_tokens(largest)
+        low = int(room * self.LOW_SHARE)
         logger.info("specs_compaction_started tokens=%d high=%d low=%d", estimate_tokens(size), high, low)
         for raw_item in self.history:
             item = cast("dict[str, Any]", raw_item)

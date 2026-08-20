@@ -20,8 +20,6 @@ class Input(BaseModel):
     explorer_report: str
 
 
-# A pass that sends the functional specifications back keeps the architecture files it already wrote. Those two
-# facts are not alternatives: the run saves that work and the next cycle designs on top of it.
 class Issues(BaseModel):
     outcome: Literal["functional_specification_issues"]
     issues: list[str]
@@ -37,6 +35,8 @@ class Output(BaseModel):
 
 
 class Architect(SpecsWriter):
+    READ_TOOL = "read_architecture_specs"
+    CALL_RULES = ai.prompts.read("specs_writer_calls", read_tool=READ_TOOL)
     # Both cycles read the same instructions and differ in one output rule. The last cycle takes the decisions
     # that a review would send back, so it always returns an architecture. Every other cycle can send functional
     # specification issues back instead.
@@ -45,14 +45,14 @@ class Architect(SpecsWriter):
         architecture_specs_root=ARCHITECTURE_SPECS_ROOT,
         workspace_dir=WORKSPACE_DIR,
         pass_rule=ai.prompts.read("architect_issues"),
-        call_rules=ai.prompts.read("specs_writer_calls", read_tool="read_architecture_specs"),
+        call_rules=CALL_RULES,
     )
     FINAL_PROMPT = ai.prompts.read(
         "architect",
         architecture_specs_root=ARCHITECTURE_SPECS_ROOT,
         workspace_dir=WORKSPACE_DIR,
         pass_rule=ai.prompts.read("architect_final"),
-        call_rules=ai.prompts.read("specs_writer_calls", read_tool="read_architecture_specs"),
+        call_rules=CALL_RULES,
     )
 
     def __init__(self, settings: Settings, repository: git.Repository, *, final: bool) -> None:
@@ -63,7 +63,7 @@ class Architect(SpecsWriter):
             prompt=self.FINAL_PROMPT if final else self.PROMPT,
             repository=repository,
             specs_root=ARCHITECTURE_SPECS_ROOT,
-            read_tool=self.read_architecture_specs.__name__,
+            read_tool=self.READ_TOOL,
         )
 
     def design(

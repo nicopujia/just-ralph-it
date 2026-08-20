@@ -184,6 +184,5 @@ class Client(OpenAI):
             options.json_data = body
         # The added fields of a request stand apart from its body until the library sends the request.
         if isinstance(options.extra_json, dict):
-            added = cast("dict[str, Any]", options.extra_json)
-            options.extra_json = {name: value for name, value in added.items() if name != GATEWAY_FIELD}
+            options.extra_json = {name: value for name, value in options.extra_json.items() if name != GATEWAY_FIELD}
         return super()._prepare_options(options)

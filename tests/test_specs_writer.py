@@ -24,15 +24,16 @@ from tests.doubles.specs import install_specifications
 
 CONTEXT = functional_analyst.Input(notebook="Report the totals.")
 NOTHING_LEFT = functional_analyst.Specifications(deleted_paths=[], unresolved=[])
-# Six bodies of this size weigh about 60000 tokens together, and the room below leaves the request about 42000.
-# A pass thus crosses the mark, and what it frees stops it before the last bodies go.
+# A body of this size weighs 10000 tokens, so six of them together pass the mark the room below sets, and what
+# the first of them free brings the request back under the lower mark before the last bodies go.
 BODY = "Behavior. " * 3_000
 # A body of blanks names a file and carries none of the behavior it names, so the write is refused.
 BLANK_BODY = " " * len(BODY)
 PATHS = [f"functional/part{number}.md" for number in range(6)]
-# Four bodies free enough room, so the pass stops there and the last two stay in the request whole.
-COMPACTED_BODIES = 4
-# The room this catalog publishes, and the mark JRI takes from it, are what make the pass above cross it.
+# Three bodies free enough room, so the pass stops there and the last three stay in the request whole.
+COMPACTED_BODIES = 3
+# The room this catalog publishes puts the marks at 42000 and 31500 tokens, which the pass above passes and
+# then comes back under.
 ROOMY_CATALOG: dict[str, Any] = {"test": {"limit": {"context": 60_000, "input": 52_500, "output": 7_500}}}
 # A room no pass of these tests can fill, for a pass that must stand in the history as the model made it.
 SPACIOUS_CATALOG: dict[str, Any] = {"test": {"limit": {"input": 10_000_000}}}
@@ -101,10 +102,12 @@ def measure_context(writer: SpecsWriter) -> int:
     return estimate_tokens(measure_request(writer.history, [item.definition for item in writer.tools]))
 
 
-# Publish the room whose mark the given estimate stands exactly on. The mark is a share of the room, so round the
+# Publish the room whose mark the given estimate stands exactly on. A mark is a share of the room, so round the
 # room up: a room short of the quotient would put the mark one token under the estimate.
-def serve_room(monkeypatch: pytest.MonkeyPatch, estimate: int) -> None:
-    serve_catalog(monkeypatch, {"test": {"limit": {"input": ceil(estimate / SpecsWriter.INPUT_SHARE)}}})
+def serve_room(monkeypatch: pytest.MonkeyPatch, estimate: int, share: float = SpecsWriter.INPUT_SHARE) -> int:
+    room = ceil(estimate / share)
+    serve_catalog(monkeypatch, {"test": {"limit": {"input": room}}})
+    return room
 
 
 # One answer no longer has to hold the whole set: a pass writes as many calls as it needs, and each file reaches
@@ -162,46 +165,19 @@ def test_never_replays_a_write_call(tmp_path: Path, create_repository: CreateRep
     assert not (tmp_path / SPECS_DIR / PATHS[0]).exists()
 
 
-# This definition is the whole account the model gets of the write tool. Without the rule that a call is final
-# for the files it names, a pass leaves a file half written for a later call that never comes.
-def test_offers_the_model_one_tool_that_writes_specification_files(
+# These descriptions are the whole account the model gets of the two tools a pass calls.
+def test_offers_the_model_tools_that_write_and_read_specification_files(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
+
     analyst = build_analyst(FakeClient([]), tmp_path)
 
-    write_specs = next(item for item in analyst.tools if item.name == "write_specs")
-
-    assert write_specs.definition == {
-        "type": "function",
-        "name": "write_specs",
-        "description": (
-            "Write specification files, each with its complete final content and a one-line summary. "
-            "Call this as many times as the set needs, and keep each call small enough to write well. "
-            "A call is final for the files it names: no later step fills a file in, and a file left out of every "
-            "call keeps the content it already has."
+    assert {item.name: item.definition.get("description") for item in analyst.tools} == {
+        "write_specs": "Write specification files, each with its complete final content and a one-line summary.",
+        "read_functional_specs": (
+            "Read the full, current body of existing functional specification files, named as the index shows them."
         ),
-        "parameters": {
-            "$defs": {
-                "File": {
-                    "additionalProperties": False,
-                    "properties": {
-                        "path": {"title": "Path", "type": "string"},
-                        "content": {"title": "Content", "type": "string"},
-                        "summary": {"title": "Summary", "type": "string"},
-                    },
-                    "required": ["path", "content", "summary"],
-                    "title": "File",
-                    "type": "object",
-                }
-            },
-            "additionalProperties": False,
-            "properties": {"files": {"items": {"$ref": "#/$defs/File"}, "title": "Files", "type": "array"}},
-            "required": ["files"],
-            "title": "Write_SpecsArguments",
-            "type": "object",
-        },
-        "strict": True,
     }
 
 
@@ -227,19 +203,6 @@ def test_never_replays_a_read_call(tmp_path: Path, create_repository: CreateRepo
     read_specs = next(item for item in analyst.tools if item.name == "read_functional_specs")
 
     read_specs.replay(json.dumps({"paths": ["functional/gone.md"]}))
-
-
-# A pass writes in calls of its own, and how many files one of them carried stands nowhere but the log.
-def test_logs_the_files_one_write_call_put_in_the_project(
-    tmp_path: Path, create_repository: CreateRepository, caplog: pytest.LogCaptureFixture
-) -> None:
-    create_repository(tmp_path)
-    client = FakeClient([], parsed=[write_call(0, {PATHS[0]: BODY, PATHS[1]: BODY}), NOTHING_LEFT])
-
-    with caplog.at_level(logging.INFO, logger="jri"):
-        write(build_analyst(client, tmp_path))
-
-    assert read_logs(caplog, "specs_call_written") == ["specs_call_written root=functional files=2"]
 
 
 # Past the mark, the oldest bodies leave the request and a record of the file takes their place. The pass keeps
@@ -287,11 +250,10 @@ def test_keeps_the_newest_bodies_when_the_request_weighs_the_lower_mark(
     serve_catalog(monkeypatch, SPACIOUS_CATALOG)
     records = [WRITTEN_FILE_RECORD.format(path=path) for path in PATHS]
     kept = [*records[:2], *([BODY] * (len(PATHS) - 2))]
-    # The request a compaction must leave, and the largest file one more call could add to it.
+    # The request a compaction must leave, which the lower mark stands exactly on.
     settled = build_pass(tmp_path, dict(zip(PATHS, kept, strict=True)))
     analyst = build_pass(tmp_path, dict.fromkeys(PATHS, BODY))
-    largest = (tmp_path / SPECS_DIR / PATHS[0]).stat().st_size
-    serve_room(monkeypatch, measure_context(settled) + estimate_tokens(largest))
+    serve_room(monkeypatch, measure_context(settled), SpecsWriter.LOW_SHARE)
 
     analyst.get_context()
 
@@ -299,8 +261,7 @@ def test_keeps_the_newest_bodies_when_the_request_weighs_the_lower_mark(
 
 
 # A compaction takes bodies out of a request the user never sees, so the log is the only account of it: the
-# weight the request stood at, and the marks it worked between. The lower mark leaves room for one more file as
-# large as the largest the project holds, and a project that holds none leaves the two marks together.
+# weight the request stood at, and the two marks it works between, which are shares of the room the model reads.
 def test_logs_the_marks_a_compaction_works_between(
     tmp_path: Path,
     create_repository: CreateRepository,
@@ -311,13 +272,14 @@ def test_logs_the_marks_a_compaction_works_between(
     serve_catalog(monkeypatch, SPACIOUS_CATALOG)
     analyst = build_pass(tmp_path, {})
     weight = measure_context(analyst)
-    serve_room(monkeypatch, weight - 1)
+    room = serve_room(monkeypatch, weight - 1)
 
     with caplog.at_level(logging.INFO, logger="jri"):
         analyst.get_context()
 
+    low = int(room * SpecsWriter.LOW_SHARE)
     assert read_logs(caplog, "specs_compaction_started") == [
-        f"specs_compaction_started tokens={weight} high={weight - 1} low={weight - 1}"
+        f"specs_compaction_started tokens={weight} high={weight - 1} low={low}"
     ]
 
 
@@ -432,19 +394,3 @@ def test_refuses_a_batch_of_reads_over_the_cap_instead_of_cutting_it(
     assert "over the 100 tokens one call answers with" in refusal
     assert "functional/behavior.md (147), functional/exports.md (1)" in refusal
     assert "# Behavior" not in refusal
-
-
-# No smaller request exists for one file, so a call that names one answers with it whatever it weighs.
-def test_reads_one_specification_the_cap_alone_would_refuse(
-    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    create_repository(tmp_path)
-    serve_catalog(monkeypatch, NARROW_CATALOG)
-    install_specifications(tmp_path, {"functional/behavior.md": "# Behavior\n" * 40})
-    client = FakeClient([], parsed=[read_call(0, ["functional/behavior.md"]), NOTHING_LEFT])
-
-    write(build_analyst(client, tmp_path))
-
-    assert read_outputs(client) == [
-        f"<file>\nfunctional/behavior.md\n</file>\n\n<content>\n{'# Behavior\n' * 40}\n</content>"
-    ]

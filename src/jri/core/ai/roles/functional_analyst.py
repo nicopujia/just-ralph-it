@@ -19,15 +19,14 @@ class Input(BaseModel):
     architect_feedback: list[str] | None = None
 
 
-# This is what one pass over the notebook leaves beside the files it wrote: the removals it decided and the
-# decisions it cannot take. A pass that writes no file states why under `unresolved`. Those two facts are not
-# alternatives: a pass that must ask the user still keeps the files it wrote.
+# A pass that must ask the user still keeps the files it wrote.
 class Specifications(BaseModel):
     deleted_paths: list[str]
     unresolved: list[str]
 
 
 class FunctionalAnalyst(SpecsWriter):
+    READ_TOOL = "read_functional_specs"
     DIFF_PROMPT = ai.prompts.read("functional_analyst_diff")
     EXISTING_PROMPT = ai.prompts.read("functional_analyst_existing")
     FEEDBACK_PROMPT = ai.prompts.read("functional_analyst_feedback")
@@ -47,11 +46,11 @@ class FunctionalAnalyst(SpecsWriter):
                 "functional_analyst",
                 functional_specs_root=FUNCTIONAL_SPECS_ROOT,
                 pass_rules="".join(f"\n{rule}\n" for rule, sent in rules if sent),
-                call_rules=ai.prompts.read("specs_writer_calls", read_tool="read_functional_specs"),
+                call_rules=ai.prompts.read("specs_writer_calls", read_tool=self.READ_TOOL),
             ),
             repository=repository,
             specs_root=FUNCTIONAL_SPECS_ROOT,
-            read_tool=self.read_functional_specs.__name__,
+            read_tool=self.READ_TOOL,
         )
 
     def write(

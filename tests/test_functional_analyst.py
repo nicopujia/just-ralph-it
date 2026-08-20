@@ -9,6 +9,7 @@ from tests.conftest import CreateRepository
 from tests.doubles.agents import drain
 from tests.doubles.openai import FakeClient, call, reply, response, thought
 from tests.doubles.settings import build_settings
+from tests.doubles.specs import install_specifications
 
 # This is a first pass: the project holds no accepted baseline and no specifications,
 # so it receives no diff, no index, and no feedback.
@@ -201,9 +202,7 @@ def test_reads_the_full_body_of_a_specification_it_judges_relevant(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path)
-    specification = tmp_path / ".jri" / "specs" / "functional" / "behavior.md"
-    specification.parent.mkdir(parents=True)
-    specification.write_text(Specs.format(BEHAVIOR), encoding="utf-8", newline="")
+    install_specifications(tmp_path, {BEHAVIOR.path: Specs.format(BEHAVIOR)})
     client = FakeClient(
         [], parsed=[response(call("read", "read_functional_specs", paths=["functional/behavior.md"])), SPECIFICATIONS]
     )

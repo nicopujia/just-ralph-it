@@ -135,6 +135,21 @@ def call(call_id: str, name: str, **arguments: object) -> dict[str, Any]:
     return {"type": "function_call", "call_id": call_id, "name": name, "arguments": json.dumps(arguments)}
 
 
+# What a run said back to the model with the answer of each tool call it made.
+def read_tool_outputs(client: "FakeClient") -> list[str]:
+    answered: list[str] = []
+    for context in client.responses.inputs:
+        for message in cast("list[dict[str, object]]", context):
+            if message.get("type") != "function_call_output":
+                continue
+            output = message["output"]
+            if isinstance(output, str):
+                answered.append(output)
+            else:
+                answered += [str(item.get("text", "")) for item in cast("list[dict[str, object]]", output)]
+    return answered
+
+
 def reply(text: str) -> dict[str, Any]:
     return {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": text}]}
 

@@ -24,6 +24,7 @@ from tests.doubles.openai import (
     Round,
     call,
     partial_reply,
+    read_tool_outputs,
     reply,
     response,
     stopped_stream,
@@ -31,6 +32,7 @@ from tests.doubles.openai import (
     thought,
 )
 from tests.doubles.settings import build_settings
+from tests.doubles.specs import summarize, write_files
 from tests.doubles.workspace import install_workspace
 
 if TYPE_CHECKING:
@@ -117,21 +119,6 @@ def commit_specs() -> None:
     assert isinstance(commit, str)
 
 
-def summarize(path: str) -> str:
-    return f"Specification for {path}."
-
-
-def describe_files(files: Mapping[str, str]) -> list[dict[str, str]]:
-    return [{"path": path, "content": content, "summary": summarize(path)} for path, content in files.items()]
-
-
-# A pass writes its files with tool calls, and then returns what stays outside them.
-def write_files(role: str, files: Mapping[str, str]) -> list[object]:
-    if not files:
-        return []
-    return [response(call(f"write-{role}", "write_specs", files=describe_files(files)))]
-
-
 # One pass answers over several rounds: one round for each call that writes files, and a last round that returns
 # what stays outside them. A pass that writes nothing goes straight to that last round.
 def written_specs(
@@ -191,20 +178,6 @@ def read_explorer_prompt(client: FakeClient) -> str:
         if "<working_directory>" in instructions:
             return instructions
     raise AssertionError("The explorer was never called.")
-
-
-def read_tool_outputs(client: FakeClient) -> list[str]:
-    answered: list[str] = []
-    for context in client.responses.inputs:
-        for message in cast("list[dict[str, object]]", context):
-            if message.get("type") != "function_call_output":
-                continue
-            output = message["output"]
-            if isinstance(output, str):
-                answered.append(output)
-            else:
-                answered += [str(item.get("text", "")) for item in cast("list[dict[str, object]]", output)]
-    return answered
 
 
 def read_rows(events: list[Progress]) -> list[tuple[str, str, str]]:

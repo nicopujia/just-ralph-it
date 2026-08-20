@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Never, cast
+from typing import Never
 
 import pytest
 
@@ -47,8 +47,9 @@ from tests.doubles.acceptance import (
 )
 from tests.doubles.generation import run_in_thread
 from tests.doubles.lock import hold, take, watch_a_process_go
-from tests.doubles.openai import FakeClient, call, reply, response, streamed_reply
+from tests.doubles.openai import FakeClient, read_tool_outputs, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
+from tests.doubles.specs import write_files
 from tests.doubles.workspace import install_workspace
 
 # An acceptance applies this diff, and a staging worktree hands it over.
@@ -398,12 +399,7 @@ def build_conversation(path: Path, client: FakeClient) -> Conversation:
 
 # What a run said to the model about a call it refused. A model that hears why can name something JRI writes.
 def read_refusals(client: FakeClient) -> str:
-    return "\n".join(
-        str(message.get("output", ""))
-        for context in client.responses.inputs
-        for message in cast("list[dict[str, object]]", context)
-        if message.get("type") == "function_call_output"
-    )
+    return "\n".join(read_tool_outputs(client))
 
 
 def read_ending(events: Iterable[TurnEvent], reason: str = "") -> Ending:
@@ -435,18 +431,6 @@ def read_specifications(worktree: Path) -> dict[str, str]:
         )
         for path in sorted((worktree / ".jri/specs").rglob("*.md"))
     }
-
-
-def summarize(path: str) -> str:
-    return f"Specification for {path}."
-
-
-# A pass writes its files with tool calls, and then returns what stays outside them.
-def write_files(role: str, files: Mapping[str, str]) -> list[object]:
-    if not files:
-        return []
-    written = [{"path": path, "content": content, "summary": summarize(path)} for path, content in files.items()]
-    return [response(call(f"write-{role}", "write_specs", files=written))]
 
 
 def build_client(
