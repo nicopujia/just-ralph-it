@@ -20,7 +20,7 @@ Work on its own branch, in conventional-commit style. Delegate the `verify` skil
 ## 2. Pull request
 Push, then `gh pr create`. A stack: `gh stack submit --auto --open` pushes every branch and opens or updates the whole chain, then `gh pr edit` writes the title and the body of each one.
 
-Title: imperative sentence, no prefix — "Control a run from the command line".
+Title: a conventional commit — `type(scope): imperative sentence`, lower case, no final period, 72 characters at most. Example: `feat(cli): control a run from the command line`. Scope names the module or the area the change lands in; leave it out when the change is repo-wide. The squash carries the title into `main` word for word, so the title is the line the history keeps.
 
 Body in plain English, for a person who did not do the work:
 1. **TL;DR** at the top — the change in one or two sentences.
@@ -32,9 +32,9 @@ Body in plain English, for a person who did not do the work:
 Say it as you would to a colleague. Keep the compressed vocabulary for the commits and the code.
 
 ## 3. Merge
-Once the checks on the pull request are green: `gh pr merge --squash --delete-branch`. Squash subject = conventional-commit type + the pull request title. Red: delegate fix to subagent, push.
+Once the checks on the pull request are green: `gh pr merge --squash --delete-branch`. GitHub takes the squash subject from the pull request title, so correct the title before you merge, not the subject after. Red: delegate fix to subagent, push.
 
-A stack: wait for every pull request in it to go green, then `gh stack merge --yes --squash <pr-number>` lands that one and each unmerged one below it, bottom up, all or nothing. GitHub takes the squash subject from the pull request title here.
+A stack: wait for every pull request in it to go green, then `gh stack merge --yes --squash <pr-number>` lands that one and each unmerged one below it, bottom up, all or nothing.
 
 ## 4. Release
 ```bash
