@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 class Header(BaseModel):
     version: str
     pid: int
-    started: str
+    started: AwareDatetime
 
     model_config = ConfigDict(extra="forbid")
 
@@ -352,7 +352,7 @@ class Generation:
         return Status(
             holder=Hold(self.workspace).find_holder(),
             pid=self._read_pid() if running else None,
-            started=datetime.fromisoformat(header.started) if running and header is not None else None,
+            started=header.started if running and header is not None else None,
             step=step.label if step is not None else "",
             step_started=step.started if step is not None else None,
             stopping=running and self.cancel_file.exists(),
@@ -635,7 +635,7 @@ def _write_thought(journal: IO[bytes], batch: str) -> str:
 def _write_journal(path: Path, events: Generator["specs_generation.Progress", None, Conclusion]) -> Conclusion:
     logger.info("generation_started pid=%d", os.getpid())
     with path.open("wb") as journal:
-        _append(journal, Header(version=__version__, pid=os.getpid(), started=datetime.now(UTC).isoformat()), sync=True)
+        _append(journal, Header(version=__version__, pid=os.getpid(), started=datetime.now(UTC)), sync=True)
         batch = ""
         written = time.monotonic()
         while True:

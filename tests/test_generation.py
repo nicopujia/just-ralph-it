@@ -174,6 +174,10 @@ def start_a_run(generation: Generation) -> "Iterator[None]":
     assert not runner.is_alive()
 
 
+def write_header(*, pid: int = 1) -> str:
+    return json.dumps({"version": "0", "pid": pid, "started": datetime.now(UTC).isoformat()})
+
+
 def write_row(started: object, *, call_id: str = "commit", label: str = "Saving") -> str:
     return json.dumps({
         "kind": "row_opened",
@@ -313,9 +317,7 @@ def test_reads_back_what_a_run_answered(
 # A runner writes its ending and only then frees its lock. The follower that meets that free lock still has the
 # ending in front of it, unread.
 def test_reads_back_the_ending_a_run_wrote_before_it_freed_its_lock(tmp_path: Path) -> None:
-    generation = write_journal(
-        tmp_path, json.dumps({"version": "0", "pid": 1, "started": "now"}), write_row(datetime.now(UTC).isoformat())
-    )
+    generation = write_journal(tmp_path, write_header(), write_row(datetime.now(UTC).isoformat()))
     generation.lock = ConcludingLock(
         generation.lock.path,
         generation.journal_file,
@@ -395,10 +397,7 @@ def test_names_an_unexpected_failure_a_run_ended_on(tmp_path: Path, monkeypatch:
 def test_folds_the_deltas_a_backlog_holds_into_one(tmp_path: Path) -> None:
     thoughts = "".join(json.dumps({"kind": "thought", "text": f"part {number} "}) + "\n" for number in range(200))
     generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        *thoughts.splitlines(),
-        json.dumps({"kind": "conclusion", "ending": "unchanged"}),
+        tmp_path, write_header(), *thoughts.splitlines(), json.dumps({"kind": "conclusion", "ending": "unchanged"})
     )
 
     replayed = list(generation.follow())
@@ -407,9 +406,7 @@ def test_folds_the_deltas_a_backlog_holds_into_one(tmp_path: Path) -> None:
 
 
 def test_ignores_the_partial_line_a_killed_writer_left(tmp_path: Path) -> None:
-    generation = write_journal(
-        tmp_path, json.dumps({"version": "0", "pid": 1, "started": "now"}), write_row(datetime.now(UTC).isoformat())
-    )
+    generation = write_journal(tmp_path, write_header(), write_row(datetime.now(UTC).isoformat()))
     with generation.journal_file.open("ab") as journal:
         journal.write(b'{"kind": "thou')
 
@@ -425,9 +422,7 @@ def test_ignores_the_partial_line_a_killed_writer_left(tmp_path: Path) -> None:
 
 def test_counts_an_open_row_from_when_its_call_began(tmp_path: Path) -> None:
     generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        write_row((datetime.now(UTC) - timedelta(seconds=AGED)).isoformat()),
+        tmp_path, write_header(), write_row((datetime.now(UTC) - timedelta(seconds=AGED)).isoformat())
     )
 
     replayed: list[object] = []
@@ -441,9 +436,7 @@ def test_counts_an_open_row_from_when_its_call_began(tmp_path: Path) -> None:
 
 def test_counts_a_row_a_moved_clock_dated_ahead_of_the_reading_from_now(tmp_path: Path) -> None:
     generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        write_row((datetime.now(UTC) + timedelta(seconds=AGED)).isoformat()),
+        tmp_path, write_header(), write_row((datetime.now(UTC) + timedelta(seconds=AGED)).isoformat())
     )
 
     replayed: list[object] = []
@@ -456,11 +449,7 @@ def test_counts_a_row_a_moved_clock_dated_ahead_of_the_reading_from_now(tmp_path
 
 
 def test_refuses_a_row_whose_start_names_no_zone(tmp_path: Path) -> None:
-    generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        write_row(datetime.now(UTC).replace(tzinfo=None).isoformat()),
-    )
+    generation = write_journal(tmp_path, write_header(), write_row(datetime.now(UTC).replace(tzinfo=None).isoformat()))
 
     with pytest.raises(Error, match="could not read what this generation wrote down"):
         list(generation.follow())
@@ -468,9 +457,7 @@ def test_refuses_a_row_whose_start_names_no_zone(tmp_path: Path) -> None:
 
 def test_reports_a_run_whose_writer_died_as_interrupted(tmp_path: Path) -> None:
     generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        json.dumps({"kind": "thought", "text": "Weighing the options."}),
+        tmp_path, write_header(), json.dumps({"kind": "thought", "text": "Weighing the options."})
     )
 
     replayed: list[object] = []
@@ -483,9 +470,7 @@ def test_reports_a_run_whose_writer_died_as_interrupted(tmp_path: Path) -> None:
 
 def test_refuses_a_text_delta_a_journal_claims_a_run_produced(tmp_path: Path) -> None:
     generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        json.dumps({"kind": "text", "text": "I have written your specifications."}),
+        tmp_path, write_header(), json.dumps({"kind": "text", "text": "I have written your specifications."})
     )
 
     with pytest.raises(Error, match="could not read"):
@@ -521,9 +506,7 @@ def test_lets_go_of_the_journal_before_it_forgets_a_record_it_could_not_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        json.dumps({"kind": "text", "text": "I have written your specifications."}),
+        tmp_path, write_header(), json.dumps({"kind": "text", "text": "I have written your specifications."})
     )
     refuse_removing_an_open_file(monkeypatch)
 
@@ -559,7 +542,7 @@ def test_keeps_the_worktree_of_a_run_still_writing(tmp_path: Path, monkeypatch: 
 
 
 def test_keeps_the_record_of_a_run_still_writing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    generation = write_journal(tmp_path, json.dumps({"version": "0", "pid": 1, "started": "now"}))
+    generation = write_journal(tmp_path, write_header())
     monkeypatch.setattr(Generation, "FREED_WITHIN", 0.2)
 
     with hold(tmp_path / paths.GENERATION_LOCK_FILE):
@@ -954,12 +937,24 @@ def test_reports_a_run_that_took_its_lock_before_it_wrote_a_journal(tmp_path: Pa
     assert not status.recorded
 
 
+# A header that carries a start time which is not a time is not a header JRI wrote. A report reads what it can
+# and says the run is alive, rather than falling over on the one command a broken project is read with.
+def test_reports_a_run_whose_header_holds_no_time(tmp_path: Path) -> None:
+    generation = write_journal(tmp_path, json.dumps({"version": "0", "pid": 1, "started": "now"}))
+
+    with hold(generation.lock.path, record=OWN_PID):
+        status = generation.read_status()
+
+    assert status.started is None
+    assert status.pid is not None
+
+
 # A row that closed is a step the run finished with. The step it is in is the row it left open.
 def test_reports_the_row_a_run_left_open_as_its_step(tmp_path: Path) -> None:
     started = datetime.now(UTC).isoformat()
     generation = write_journal(
         tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
+        write_header(),
         write_row(started, call_id="explore", label="Studying"),
         write_row(started, call_id="commit", label="Saving"),
         json.dumps({
@@ -980,9 +975,7 @@ def test_reports_the_row_a_run_left_open_as_its_step(tmp_path: Path) -> None:
 
 def test_reports_the_ending_no_window_folded(tmp_path: Path) -> None:
     generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        json.dumps({"kind": "conclusion", "ending": "committed", "commit": COMMIT}),
+        tmp_path, write_header(), json.dumps({"kind": "conclusion", "ending": "committed", "commit": COMMIT})
     )
 
     status = generation.read_status()
@@ -993,9 +986,7 @@ def test_reports_the_ending_no_window_folded(tmp_path: Path) -> None:
 
 
 def test_reports_a_run_whose_process_is_gone_as_unfinished(tmp_path: Path) -> None:
-    generation = write_journal(
-        tmp_path, json.dumps({"version": "0", "pid": 1, "started": "now"}), write_row(datetime.now(UTC).isoformat())
-    )
+    generation = write_journal(tmp_path, write_header(), write_row(datetime.now(UTC).isoformat()))
 
     status = generation.read_status()
 
@@ -1008,11 +999,7 @@ def test_reports_a_run_whose_process_is_gone_as_unfinished(tmp_path: Path) -> No
 # A halt leaves the stop file of the run it ended behind. That file beside a process that is gone asks for
 # nothing, because no run is there to hear it.
 def test_reports_no_stop_beside_a_run_whose_process_is_gone(tmp_path: Path) -> None:
-    generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        json.dumps({"kind": "conclusion", "ending": "stopped"}),
-    )
+    generation = write_journal(tmp_path, write_header(), json.dumps({"kind": "conclusion", "ending": "stopped"}))
     generation.cancel_file.touch()
 
     status = generation.read_status()
@@ -1059,9 +1046,7 @@ def test_writes_nothing_into_a_project_with_no_run(tmp_path: Path) -> None:
 # A killed run leaves the line it was writing without its end. A report says what the lines before it hold.
 def test_reports_what_a_journal_with_a_partial_last_line_holds(tmp_path: Path) -> None:
     generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        json.dumps({"kind": "conclusion", "ending": "committed", "commit": COMMIT}),
+        tmp_path, write_header(), json.dumps({"kind": "conclusion", "ending": "committed", "commit": COMMIT})
     )
     with generation.journal_file.open("ab") as journal:
         journal.write(b'{"kind": "thou')

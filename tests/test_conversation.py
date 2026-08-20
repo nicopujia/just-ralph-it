@@ -211,7 +211,7 @@ def test_closes_the_rows_a_killed_run_left_open_from_the_inside_out() -> None:
     list(conversation.chat("Build a reporting CLI."))
     # A killed runner writes no ending, and leaves open every row of the work it was in the middle of.
     records = (
-        Header(version="0", pid=1, started="now"),
+        Header(version="0", pid=1, started=datetime.now(UTC)),
         RowOpened(
             kind="row_opened",
             call_id="explorer",

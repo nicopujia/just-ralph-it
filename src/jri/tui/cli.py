@@ -179,8 +179,13 @@ def _status(*, json: bool) -> None:
         print(status.model_dump_json())
         return
     lines = []
-    if status.pid is not None and status.started is not None:
-        lines.append(copy.STATUS_RUNNING.format(pid=status.pid, started=_describe_time(status.started)))
+    # A runner takes its lock before it writes its first line. Report that run, which has no start time yet.
+    if status.pid is not None:
+        lines.append(
+            copy.STATUS_RUNNING.format(pid=status.pid, started=_describe_time(status.started))
+            if status.started is not None
+            else copy.STATUS_STARTING.format(pid=status.pid)
+        )
     # A run that is gone left the step it was on. Report that step in the past, so it does not read as work in hand.
     if status.step and status.step_started is not None:
         step_copy = copy.STATUS_STEP if status.pid is not None else copy.STATUS_LAST_STEP
