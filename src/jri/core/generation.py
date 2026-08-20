@@ -321,13 +321,11 @@ class Generation:
         deadline = time.monotonic() + self.FREED_WITHIN
         while self.lock.is_held():
             if time.monotonic() >= deadline:
-                logger.info("generation_halt_failed pid=%d", pid)
                 raise PersistenceError(
                     f"JRI ended the generation process {pid}, and it still holds `{self.lock.path}`. "
                     "Wait a moment, then try again."
                 )
             time.sleep(self.POLL)
-        logger.info("generation_halted pid=%d", pid)
         return True
 
     # This reads what stands in the project. It creates nothing and it folds nothing, so a project with no run
@@ -496,7 +494,7 @@ class Generation:
             try:
                 yield Header.model_validate_json(line) if not number else Record.model_validate_json(line).root
             except ValidationError:
-                logger.info("generation_record_unreadable line=%d", number)
+                continue
 
     def _read_errors(self) -> str:
         try:

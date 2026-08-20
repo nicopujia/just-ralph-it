@@ -118,6 +118,9 @@ time.sleep(60)
 SETTINGS = "llm:\n  provider: http://127.0.0.1:9/v1\n  api_key: JRI_TEST_API_KEY\nlogging:\n  level: CRITICAL\n"
 STARTS_WITHIN = 60.0
 STOPS_AFTER = 0.5
+# This is one more than the largest number a run can read as a process. A record of it names no process, thus a
+# halt has nothing to end.
+TOO_LARGE_PID = 2147483648
 WRITTEN_WITHIN = 30.0
 
 
@@ -869,6 +872,14 @@ def test_refuses_to_end_a_run_that_does_not_name_itself(tmp_path: Path) -> None:
         generation.halt()
 
 
+def test_refuses_to_end_a_run_that_names_a_number_too_large_for_a_process(tmp_path: Path) -> None:
+    generation = build_generation(tmp_path)
+    generation.workspace.open_generation_dir()
+
+    with hold(generation.lock.path, record=str(TOO_LARGE_PID)), pytest.raises(PersistenceError, match="what it is"):
+        generation.halt()
+
+
 def test_reports_a_run_that_would_not_let_its_lock_go(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
@@ -902,6 +913,20 @@ def test_reports_the_run_that_is_going_and_the_step_it_reached(tmp_path: Path, m
     generation.cancel_file.touch()
     runner.join(timeout=CONCLUDES_WITHIN)
     assert not runner.is_alive()
+
+
+# A runner takes its lock before it writes its first journal line. A report of that moment says a run is alive and
+# gives it no start time.
+def test_reports_a_run_that_took_its_lock_before_it_wrote_a_journal(tmp_path: Path) -> None:
+    generation = build_generation(tmp_path)
+    generation.workspace.open_generation_dir()
+
+    with hold(generation.lock.path, record=OWN_PID) as runner:
+        status = generation.read_status()
+
+    assert status.pid == runner.pid
+    assert status.started is None
+    assert not status.recorded
 
 
 # A row that closed is a step the run finished with. The step it is in is the row it left open.
@@ -953,6 +978,23 @@ def test_reports_a_run_whose_process_is_gone_as_unfinished(tmp_path: Path) -> No
     assert not status.ending
     assert status.pid is None
     assert status.started is None
+
+
+# A halt leaves the stop file of the run it ended behind. That file beside a process that is gone asks for
+# nothing, because no run is there to hear it.
+def test_reports_no_stop_beside_a_run_whose_process_is_gone(tmp_path: Path) -> None:
+    generation = write_journal(
+        tmp_path,
+        json.dumps({"version": "0", "pid": 1, "started": "now"}),
+        json.dumps({"kind": "conclusion", "ending": "stopped"}),
+    )
+    generation.cancel_file.touch()
+
+    status = generation.read_status()
+
+    assert not status.stopping
+    assert status.pid is None
+    assert status.ending == "stopped"
 
 
 def test_reports_the_draft_a_run_saved(tmp_path: Path) -> None:
