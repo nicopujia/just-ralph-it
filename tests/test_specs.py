@@ -62,6 +62,8 @@ new file mode 100644
 +# Behavior
 """
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
+# What the two files of the batch tests below weigh together: eleven tokens and four.
+BATCH_WEIGHT = 15
 # A read answers with at most this many tokens. The tests below write files of a few bytes, so only a test that
 # asks for a cap of its own ever meets it.
 READ_CAP = 1_000
@@ -440,11 +442,11 @@ def summarize(path: str) -> str:
 
 
 # A pass writes its files with tool calls, and then returns what stays outside them.
-def write_files(tool: str, files: Mapping[str, str]) -> list[object]:
+def write_files(role: str, files: Mapping[str, str]) -> list[object]:
     if not files:
         return []
     written = [{"path": path, "content": content, "summary": summarize(path)} for path, content in files.items()]
-    return [response(call(tool, tool, files=written))]
+    return [response(call(f"write-{role}", "write_specs", files=written))]
 
 
 def build_client(
@@ -457,9 +459,9 @@ def build_client(
     return FakeClient(
         [streamed_reply("Repository report"), response(reply("Specifications ready."))],
         parsed=[
-            *write_files("write_functional_specs", functional),
+            *write_files("functional", functional),
             functional_analyst.Specifications(deleted_paths=list(functional_deleted), unresolved=[]),
-            *write_files("write_architecture_specs", architecture),
+            *write_files("architecture", architecture),
             architect.Output(
                 result=architect.Architecture(outcome="architecture", deleted_paths=list(architecture_deleted))
             ),
@@ -1801,16 +1803,16 @@ def test_reads_the_specifications_a_model_named(tmp_path: Path, create_repositor
 
 
 # One call answers for as many files as the cap holds, so a pass reads a set in one round instead of one round
-# for each file in it.
+# for each file in it. A batch of exactly the cap is not over it.
 def test_reads_a_batch_of_specifications_the_cap_holds(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path)
     root = tmp_path / ".jri" / "specs" / "functional"
     root.mkdir(parents=True)
-    (root / "behavior.md").write_text("# Behavior\n")
-    (root / "delivery.md").write_text("# Delivery\n")
+    (root / "behavior.md").write_bytes(b"# Behavior\n" * 3)
+    (root / "delivery.md").write_bytes(b"# Delivery\n")
 
     rendered = Specs.read_selected(
-        repository, "functional", ["functional/behavior.md", "functional/delivery.md"], READ_CAP
+        repository, "functional", ["functional/behavior.md", "functional/delivery.md"], BATCH_WEIGHT
     )
 
     assert "# Behavior" in rendered
@@ -2191,7 +2193,6 @@ def test_prepares_a_baseline_after_a_forced_start_over(tmp_path: Path, create_re
     assert baseline.accepted == git.Repository(tmp_path).read_head()
 
 
-@pytest.mark.parametrize("deletes", [False, True], ids=["written", "deleted"])
 @pytest.mark.parametrize(
     ("path", "reason"),
     [
@@ -2238,20 +2239,29 @@ def test_prepares_a_baseline_after_a_forced_start_over(tmp_path: Path, create_re
     ],
 )
 def test_refuses_a_path_that_is_not_a_specification_of_its_root(
-    tmp_path: Path, path: str, reason: str, create_repository: CreateRepository, *, deletes: bool
+    tmp_path: Path, path: str, reason: str, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
-    files = {} if deletes else {path: "# Behavior\n"}
-    client = build_client(files, functional_deleted=[path] if deletes else [])
+    client = build_client({path: "# Behavior\n"})
     conversation = build_conversation(tmp_path, client)
 
-    finished = list(conversation.ralph())[-1]
+    # The model wrote this path and can write again under one JRI takes, so it is the model that hears the name.
+    # The pass then ends with no file written, and the run ends over that.
+    assert read_ending(conversation.ralph(), "at least one file") == "failed"
+    assert re.search(reason, read_refusals(client)), read_refusals(client)
+    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ".jri/specs").exists()
 
-    # The path is named to whoever can still act on it: the model, which writes again under a name JRI takes, or
-    # the user, when the run ends over it. A pass that ends with no file written ends the run either way.
-    assert isinstance(finished, TurnFinished)
-    assert re.search(reason, f"{finished.detail}\n{read_refusals(client)}")
-    assert finished.ending == "failed"
+
+# A removal reaches the project after the pass has ended, so no call of the model is left to hear about it. The
+# run ends over the name, and the user reads it. The rules the name is read against are the ones above.
+def test_refuses_to_remove_a_path_that_is_not_a_specification_of_its_root(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, build_client({}, functional_deleted=["architecture/behavior.md"]))
+
+    assert read_ending(conversation.ralph(), r"cannot change `architecture/behavior\.md`") == "failed"
     assert find_accepted_commit(tmp_path) is None
     assert not (tmp_path / ".jri/specs").exists()
 
@@ -2287,12 +2297,13 @@ def test_refuses_a_specification_that_carries_no_behavior(
     assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
 
 
+# A model can call the write tool with no file at all. Such a call changes nothing, and the model hears so while
+# it can still write one.
 def test_refuses_specifications_that_change_no_file(tmp_path: Path, create_repository: CreateRepository) -> None:
-    create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, build_client({}))
+    repository = create_repository(tmp_path)
 
-    assert read_ending(conversation.ralph(), "at least one file") == "failed"
-    assert find_accepted_commit(tmp_path) is None
+    with pytest.raises(SpecsError, match="must change at least one file"):
+        Specs.write(repository, {}, (), "functional")
 
 
 # A link answers to none of the rules that the path itself is read against.

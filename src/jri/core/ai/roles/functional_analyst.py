@@ -4,13 +4,10 @@ from threading import Event
 from pydantic import BaseModel
 
 from jri.core import ai
-from jri.core.ai.tool import tool
+from jri.core.ai.specs_writer import SpecsWriter
 from jri.core.paths import FUNCTIONAL_SPECS_ROOT
 from jri.core.settings import Settings
-from jri.core.specs import File
 from jri.lib import git, prompt
-
-from .specs_writer import SpecsWriter
 
 
 class Input(BaseModel):
@@ -50,10 +47,10 @@ class FunctionalAnalyst(SpecsWriter):
                 "functional_analyst",
                 functional_specs_root=FUNCTIONAL_SPECS_ROOT,
                 pass_rules="".join(f"\n{rule}\n" for rule, sent in rules if sent),
+                call_rules=ai.prompts.read("specs_writer_calls", read_tool="read_functional_specs"),
             ),
             repository=repository,
             specs_root=FUNCTIONAL_SPECS_ROOT,
-            write_tool=self.write_functional_specs.__name__,
             read_tool=self.read_functional_specs.__name__,
         )
 
@@ -61,31 +58,6 @@ class FunctionalAnalyst(SpecsWriter):
         self, context: Input, cancelled: Event
     ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Specifications | None]:
         return (yield from self.parse(self._render(context), Specifications, cancelled))
-
-    @tool(
-        (
-            "Write functional specification files, each with its complete final content and a one-line summary. "
-            "Call this as many times as the set needs, and keep each call small enough to write well. "
-            "A call is final for the files it names: no later step fills a file in, and a file left out of every "
-            "call keeps the content it already has."
-        ),
-        started_label="Writing specification files",
-        finished_label="Wrote specification files",
-        symbol="✍️",
-        replayed=False,
-    )
-    def write_functional_specs(self, files: list[File]) -> str:
-        return self.write_specs(files)
-
-    @tool(
-        "Read the full, current body of existing functional specification files, named as the index shows them.",
-        started_label="Reading {paths}",
-        finished_label="Read {paths}",
-        symbol="📖",
-        replayed=False,
-    )
-    def read_functional_specs(self, paths: list[str]) -> str:
-        return self.read_specs(paths, FUNCTIONAL_SPECS_ROOT)
 
     @staticmethod
     def _render(context: Input) -> str:

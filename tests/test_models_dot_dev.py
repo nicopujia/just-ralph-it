@@ -41,6 +41,23 @@ def test_leaves_the_whole_window_to_a_request_when_the_catalog_names_no_answer(m
     assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == WINDOW
 
 
+# A catalogued model can state a window no larger than the answer it can write into that window. Such an entry
+# leaves a request no room at all, and it says as little about the model as an entry JRI cannot read.
+def test_falls_back_to_a_room_when_the_window_leaves_a_request_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {"limit": {"context": OUTPUT_LIMIT, "output": OUTPUT_LIMIT}}})
+
+    assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
+
+
+# A window one token wider than the answer leaves the request that one token, and JRI works against it. Only a
+# window that leaves nothing at all falls back.
+def test_reads_the_room_a_window_leaves_beside_the_largest_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    catalog = {"openai/gpt-5.6-sol": {"limit": {"context": OUTPUT_LIMIT + 1, "output": OUTPUT_LIMIT}}}
+    serve_catalog(monkeypatch, catalog)
+
+    assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == 1
+
+
 def test_falls_back_to_a_room_when_the_catalog_states_no_window(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {}})
 

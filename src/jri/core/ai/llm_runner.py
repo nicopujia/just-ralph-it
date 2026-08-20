@@ -35,11 +35,8 @@ EXHAUSTION_CODES = frozenset({"insufficient_quota", "usage_limit_reached", "bill
 STATUS_PHRASES = {int(status): status.phrase for status in HTTPStatus}
 """What a status is called; a provider may use one nobody named."""
 
-# Without this field the gateway sends the request as it is. Some providers then cache the start of it by
-# themselves, but Anthropic caches nothing until the request marks what to keep. This value makes the gateway put
-# those marks in. Keep the default lifetime of 5 minutes: a lifetime of 1 hour costs twice the base input price to
-# write, against 1.25 times for 5 minutes, so it must be read three times to pay for itself instead of two. The
-# rounds of one agent pass are only seconds apart.
+# Some providers cache the start of a request by themselves, but Anthropic caches nothing until the request marks
+# what to keep. This field makes the gateway put those marks in.
 PROMPT_CACHING = {"caching": "auto"}
 
 Result = TypeVar("Result", bound=BaseModel)

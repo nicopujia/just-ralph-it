@@ -19,6 +19,8 @@ type Progress = ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished
 type SpecsResult = Ambiguities | Unchanged | str
 
 MAX_CYCLES = 10
+# A pass that wrote no file and removed none decided nothing, and the run has nothing to save from it.
+NO_CHANGE_REFUSAL = "Specifications must change at least one file."
 
 logger = logging.getLogger(__name__)
 
@@ -61,17 +63,18 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             if functional_result is None:
                 return None
             # A pass with questions and no work has nothing to save. Ask them, and leave the project as it stands.
-            # A pass with neither is a pass that did nothing. `Specs.write` refuses it below.
+            # A pass with neither is a pass that did nothing. The run refuses it below.
             if functional_result.unresolved and not (analyst.written_paths or functional_result.deleted_paths):
                 logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.unresolved))
                 yield ai.ToolCallFinished(f"functional-{cycle}", "Found project details to clarify", "done")
                 return Ambiguities(list(functional_result.unresolved))
             yield ai.ToolCallFinished(f"functional-{cycle}", _describe_written(cycle), "done")
 
-            # The files reached the worktree as the pass wrote them, so only the removals remain here. A pass that
-            # neither wrote nor removed a file changed nothing, and this write is where JRI refuses that pass.
-            if functional_result.deleted_paths or not analyst.written_paths:
+            # The files reached the worktree as the pass wrote them, so only the removals remain here.
+            if functional_result.deleted_paths:
                 Specs.write(staging, {}, functional_result.deleted_paths, paths.FUNCTIONAL_SPECS_ROOT)
+            elif not analyst.written_paths:
+                raise SpecsError(NO_CHANGE_REFUSAL)
             functional = specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)
             if not functional:
                 raise SpecsError("Functional specifications cannot be empty.")
@@ -140,8 +143,10 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 )
                 continue
 
-            if architecture_result.deleted_paths or not designer.written_paths:
+            if architecture_result.deleted_paths:
                 Specs.write(staging, {}, architecture_result.deleted_paths, paths.ARCHITECTURE_SPECS_ROOT)
+            elif not designer.written_paths:
+                raise SpecsError(NO_CHANGE_REFUSAL)
             if not specs.read(staging, paths.ARCHITECTURE_SPECS_DIR):
                 raise SpecsError("Architecture specifications cannot be empty.")
             patch = specs.save_draft(staging, baseline)

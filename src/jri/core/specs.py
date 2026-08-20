@@ -131,7 +131,6 @@ class Specs:
         return None
 
     # A model writes as many times as one pass needs, so a write can arrive with one file or with twenty.
-    # The repository it writes into is the one the caller gives, and never a repository of this instance.
     @classmethod
     def write(
         cls, repository: git.Repository, written: Mapping[str, str], deleted: Sequence[str], model_root: str

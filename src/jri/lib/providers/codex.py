@@ -17,9 +17,9 @@ from jri.lib.lock import Lock, LockError
 
 __all__ = ["Auth", "AuthError", "Client"]
 
-# A gateway in front of a model reads these request fields. An endpoint that serves the model itself does not
-# know them, and it refuses a request that carries one.
-GATEWAY_FIELDS = frozenset({"caching"})
+# A gateway in front of a model reads this request field. An endpoint that serves the model itself does not
+# know it, and it refuses a request that carries it.
+GATEWAY_FIELD = "caching"
 
 
 class AuthError(Exception): ...
@@ -185,5 +185,5 @@ class Client(OpenAI):
         # The added fields of a request stand apart from its body until the library sends the request.
         if isinstance(options.extra_json, dict):
             added = cast("dict[str, Any]", options.extra_json)
-            options.extra_json = {name: value for name, value in added.items() if name not in GATEWAY_FIELDS}
+            options.extra_json = {name: value for name, value in added.items() if name != GATEWAY_FIELD}
         return super()._prepare_options(options)

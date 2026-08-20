@@ -1,6 +1,5 @@
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import suppress
-from itertools import groupby
 from pathlib import Path
 from threading import Event
 from typing import TYPE_CHECKING, cast
@@ -126,16 +125,11 @@ def describe_files(files: Mapping[str, str]) -> list[dict[str, str]]:
     return [{"path": path, "content": content, "summary": summarize(path)} for path, content in files.items()]
 
 
-def write_functional_files(files: Mapping[str, str]) -> list[object]:
+# A pass writes its files with tool calls, and then returns what stays outside them.
+def write_files(role: str, files: Mapping[str, str]) -> list[object]:
     if not files:
         return []
-    return [response(call("write-functional", "write_functional_specs", files=describe_files(files)))]
-
-
-def write_architecture_files(files: Mapping[str, str]) -> list[object]:
-    if not files:
-        return []
-    return [response(call("write-architecture", "write_architecture_specs", files=describe_files(files)))]
+    return [response(call(f"write-{role}", "write_specs", files=describe_files(files)))]
 
 
 # One pass answers over several rounds: one round for each call that writes files, and a last round that returns
@@ -144,14 +138,14 @@ def written_specs(
     files: Mapping[str, str] = FUNCTIONAL_FILES, deleted: Sequence[str] = (), unresolved: Sequence[str] = ()
 ) -> list[object]:
     return [
-        *write_functional_files(files),
+        *write_files("functional", files),
         functional_analyst.Specifications(deleted_paths=list(deleted), unresolved=list(unresolved)),
     ]
 
 
 def designed_architecture(files: Mapping[str, str] = ARCHITECTURE_FILES, deleted: Sequence[str] = ()) -> list[object]:
     return [
-        *write_architecture_files(files),
+        *write_files("architecture", files),
         architect.Output(result=architect.Architecture(outcome="architecture", deleted_paths=list(deleted))),
     ]
 
@@ -159,14 +153,14 @@ def designed_architecture(files: Mapping[str, str] = ARCHITECTURE_FILES, deleted
 # The last cycle asks for an architecture alone, so its pass answers with that shape and not with the union above.
 def drafted_architecture(files: Mapping[str, str] = ARCHITECTURE_FILES, deleted: Sequence[str] = ()) -> list[object]:
     return [
-        *write_architecture_files(files),
+        *write_files("architecture", files),
         architect.Architecture(outcome="architecture", deleted_paths=list(deleted)),
     ]
 
 
 def reported_issues(*issues: str, files: Mapping[str, str] | None = None) -> list[object]:
     return [
-        *write_architecture_files(files or {}),
+        *write_files("architecture", files or {}),
         architect.Output(result=architect.Issues(outcome="functional_specification_issues", issues=list(issues))),
     ]
 
@@ -187,12 +181,6 @@ def read_prompts(client: FakeClient) -> list[str]:
             for message in cast("list[dict[str, object]]", context)
         )
     )
-
-
-# The instructions of each request, in order, with the repeats of one pass collapsed into that one pass.
-def read_pass_instructions(client: FakeClient) -> list[str]:
-    instructions = [str(cast("list[dict[str, object]]", context)[0]["content"]) for context in client.responses.inputs]
-    return [item for item, _ in groupby(instructions)]
 
 
 # The explorer is the only agent that works in a directory of its own, so its instructions are the only ones that
@@ -1063,9 +1051,9 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
 
     # The instructions that take every remaining decision reach the last cycle, and only it. Every earlier cycle
     # keeps the instructions that let it send the functional specifications back instead.
-    passes = read_pass_instructions(client)
-    assert passes[-1].startswith(architect.Architect.FINAL_PROMPT)
-    assert sum(item.startswith(architect.Architect.FINAL_PROMPT) for item in passes) == 1
+    last = str(cast("list[dict[str, object]]", client.responses.inputs[-1])[0]["content"])
+    assert last.startswith(architect.Architect.FINAL_PROMPT)
+    assert sum(item.startswith(architect.Architect.FINAL_PROMPT) for item in read_prompts(client)) == 1
     assert [
         row.call_id for row in rows if isinstance(row, ToolCallStarted) and row.call_id.startswith("architecture-")
     ] == [f"architecture-{cycle}" for cycle in range(1, specs_generation.MAX_CYCLES + 1)]

@@ -1,21 +1,21 @@
+import json
 import logging
-from collections.abc import Generator
 from threading import Event
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 import pytest
-from openai import omit
+from openai import OpenAI, omit
 from pydantic import BaseModel
 
 from jri.core.ai import BLOCK_NOTICE, LLMRunner, PendingToolCalls, ReasoningDelta, TextDelta
 from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavailableError, UsageLimitError
 from jri.core.settings import ReasoningEffort
+from tests.doubles.agents import drain
 from tests.doubles.openai import (
     BASE_URL,
     FakeClient,
     bad_gateway,
-    build_gateway_client,
     disconnection,
     failed_response,
     incomplete_response,
@@ -34,7 +34,7 @@ from tests.doubles.openai import (
 )
 
 if TYPE_CHECKING:
-    from openai import OpenAI, OpenAIError, RateLimitError
+    from openai import OpenAIError, RateLimitError
 
     from tests.doubles.openai import Round
 
@@ -50,18 +50,16 @@ def build_runner(parsed: object) -> LLMRunner:
     return LLMRunner(client=cast("OpenAI", FakeClient([], parsed=[parsed])), model="test")
 
 
-# A parsed call sends model reasoning as a stream.
-# Its return value is the parsed output.
-# Read all reasoning before reading that output.
-def drain(
-    parse: Generator[ReasoningDelta, None, "Output | PendingToolCalls | None"],
-) -> tuple[list[ReasoningDelta], "Output | PendingToolCalls | None"]:
-    thoughts: list[ReasoningDelta] = []
-    while True:
-        try:
-            thoughts.append(next(parse))
-        except StopIteration as stop:
-            return thoughts, cast("Output | PendingToolCalls | None", stop.value)
+# The gateway in front of the model reads fields of its own off the request. It answers nothing about them, so a
+# double stands at the transport and keeps the body that left the process. The stream it answers with is empty,
+# because what this double serves is the send and not the answer.
+def build_gateway_client(bodies: list[dict[str, Any]]) -> OpenAI:
+    def handle(request: httpx.Request) -> httpx.Response:
+        bodies.append(cast("dict[str, Any]", json.loads(request.content)))
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
+
+    transport = httpx.MockTransport(handle)
+    return OpenAI(base_url=BASE_URL, api_key="test-key", http_client=httpx.Client(transport=transport))
 
 
 def read_parsed(runner: LLMRunner, cancelled: Event | None = None) -> "Output | PendingToolCalls | None":

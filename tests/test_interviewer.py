@@ -27,10 +27,6 @@ HEAVY_NOTE = "This note weighs on every request that carries the excerpt. " * 42
 LONG_INTERVIEW = 30
 # The turns a drop must leave standing. One more than the floor, so the drop stops on the target and not on the floor.
 KEPT_TURNS = 11
-# The floor of recent turns, and the shares of the limit that a drop starts at and runs down to.
-FLOOR_TURNS = 10
-THRESHOLD_SHARE = 0.4
-TARGET_SHARE = 0.25
 
 
 def build_interviewer(path: Path, client: FakeClient | None = None) -> Interviewer:
@@ -180,9 +176,15 @@ def test_counts_the_system_prompt_against_the_context_limit(monkeypatch: pytest.
     interviewer = build_interviewer(tmp_path)
     add_turns(interviewer, LONG_INTERVIEW, filler="")
     half_prompt = estimate_tokens(measure_item(interviewer.history[0])) // 2
-    serve_limit(monkeypatch, measure_context(interviewer, interviewer.get_context()) - half_prompt, THRESHOLD_SHARE)
+    serve_limit(
+        monkeypatch,
+        measure_context(interviewer, interviewer.get_context()) - half_prompt,
+        Interviewer.CONTEXT_THRESHOLD,
+    )
 
-    assert read_questions(interviewer.get_context()) == list(range(LONG_INTERVIEW - FLOOR_TURNS, LONG_INTERVIEW))
+    assert read_questions(interviewer.get_context()) == list(
+        range(LONG_INTERVIEW - Interviewer.MIN_CONTEXT_TURNS, LONG_INTERVIEW)
+    )
 
 
 # The threshold says when a request is too heavy, and a request of exactly that weight is not yet too heavy.
@@ -191,7 +193,7 @@ def test_keeps_every_turn_when_the_request_weighs_the_threshold(
 ) -> None:
     interviewer = build_interviewer(tmp_path)
     add_turns(interviewer, LONG_INTERVIEW, filler="")
-    serve_limit(monkeypatch, measure_context(interviewer, interviewer.get_context()), THRESHOLD_SHARE)
+    serve_limit(monkeypatch, measure_context(interviewer, interviewer.get_context()), Interviewer.CONTEXT_THRESHOLD)
 
     assert read_questions(interviewer.get_context()) == list(range(LONG_INTERVIEW))
 
@@ -205,7 +207,7 @@ def test_stops_dropping_turns_when_the_request_weighs_the_target(
     context = interviewer.get_context()
     # The context a drop must leave: the prompt, the last turns, and the excerpt that stands behind them.
     kept = [context[0], *context[-2 * KEPT_TURNS - 1 :]]
-    serve_limit(monkeypatch, measure_context(interviewer, kept), TARGET_SHARE)
+    serve_limit(monkeypatch, measure_context(interviewer, kept), Interviewer.CONTEXT_TARGET)
 
     assert read_questions(interviewer.get_context()) == list(range(LONG_INTERVIEW - KEPT_TURNS, LONG_INTERVIEW))
 
