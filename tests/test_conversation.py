@@ -1398,7 +1398,8 @@ def test_retries_the_newest_of_several_prompts() -> None:
         "Build a reporting CLI.",
         "Deploy it automatically.",
     ]
-    assert context[-1]["content"] == "Deploy it automatically."
+    # The project excerpt stands after the turns, so the prompt is the last item in front of it.
+    assert context[-2]["content"] == "Deploy it automatically."
 
 
 def test_removes_knowledge_captured_after_the_rewind_point() -> None:

@@ -20,6 +20,11 @@ if TYPE_CHECKING:
 
 class Interviewer(Agent):
     CONTEXT_THRESHOLD = 0.4
+    # A drop takes the request down to this share of the limit, and not to the threshold above it. It thus frees
+    # more than a third of the budget at one time. The interview fills that space again over many turns, and each
+    # of those turns starts with the same bytes as the turn before it, which the provider serves from its cache.
+    # A drop that stopped at the threshold would free one turn, and the next turn would drop again.
+    CONTEXT_TARGET = 0.25
     FALLBACK_CONTEXT_LIMIT = 100_000
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to make?"
@@ -32,6 +37,7 @@ class Interviewer(Agent):
         self.generated_project = False
         self.initial_topic = notebook.initial_topic
         self.active_topic_id = self.initial_topic.id
+        self.dropped_turns = 0
         super().__init__(
             client=settings.llm.client,
             profile=settings.agents.interviewer,
@@ -55,16 +61,25 @@ class Interviewer(Agent):
                 turns.append([])
             turns[-1].append(raw_item)
         tools = [item.definition for item in self.get_tools()]
-        budget = get_limit(self.profile.model, self.FALLBACK_CONTEXT_LIMIT) * self.CONTEXT_THRESHOLD
+        limit = get_limit(self.profile.model, self.FALLBACK_CONTEXT_LIMIT)
+        # A rewind takes turns out of the history, and the count of dropped ones can then stand past its end.
+        # Bring the count back to what the shorter history holds.
+        self.dropped_turns = min(self.dropped_turns, max(len(turns) - self.MIN_CONTEXT_TURNS, 0))
         # Weigh each turn once, and take the weight of a dropped turn off the total. Weighing the whole context
         # again for each dropped turn would make this grow with the square of the interview length.
         weights = [sum(measure_item(item) for item in turn) for turn in turns]
-        total = measure_request([self.history[0], pinned], tools) + sum(weights)
-        dropped = 0
-        while len(turns) - dropped > self.MIN_CONTEXT_TURNS and estimate_tokens(total) > budget:
-            total -= weights[dropped]
-            dropped += 1
-        return [self.history[0], pinned, *(item for turn in turns[dropped:] for item in turn)]
+        total = measure_request([self.history[0], pinned], tools) + sum(weights[self.dropped_turns :])
+        # A turn that stays dropped keeps the start of each later request the same as the start of this one.
+        if estimate_tokens(total) > limit * self.CONTEXT_THRESHOLD:
+            while (
+                len(turns) - self.dropped_turns > self.MIN_CONTEXT_TURNS
+                and estimate_tokens(total) > limit * self.CONTEXT_TARGET
+            ):
+                total -= weights[self.dropped_turns]
+                self.dropped_turns += 1
+        # The excerpt stands last, after the turns. It changes each time a note changes, and everything behind a
+        # changed item is new bytes that no cache holds. Behind it there is now nothing.
+        return [self.history[0], *(item for turn in turns[self.dropped_turns :] for item in turn), pinned]
 
     # A generated project is one that JRI cannot change yet, so take the offer away once a run reports no ambiguities.
     # Keep the tool itself, because a rewind replays the call that made an earlier offer.

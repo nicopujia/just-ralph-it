@@ -200,8 +200,9 @@ def test_does_not_retry_a_call_whose_thinking_reached_the_user(waits: list[float
 
 # The provider reports usage when the response completes.
 # A parsed call cannot report usage before it streams.
+# The count that the cache served is the only sign of a cache that works, so a log line carries it.
 def test_logs_the_context_a_call_spent(caplog: pytest.LogCaptureFixture) -> None:
-    parsing = build_runner(response(reply('{"answer": "ready"}'), input_tokens=4321))
+    parsing = build_runner(response(reply('{"answer": "ready"}'), input_tokens=4321, cached_tokens=4000))
     replying = build_streaming_runner(response(reply("How often does it deploy?"), input_tokens=1234))
 
     with caplog.at_level(logging.INFO, logger="jri"):
@@ -209,8 +210,8 @@ def test_logs_the_context_a_call_spent(caplog: pytest.LogCaptureFixture) -> None
         list(replying.respond([]).events)
 
     assert [record.getMessage() for record in caplog.records if record.getMessage().startswith("context_usage")] == [
-        "context_usage input_tokens=4321",
-        "context_usage input_tokens=1234",
+        "context_usage input_tokens=4321 cached_tokens=4000",
+        "context_usage input_tokens=1234 cached_tokens=0",
     ]
 
 

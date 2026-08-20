@@ -405,6 +405,7 @@ def test_adapts_responses_requests_to_the_codex_backend(tmp_path: Path, monkeypa
         model="gpt-5.6-sol",
         input=[{"role": "system", "content": "Be terse."}, {"role": "user", "content": "Hello."}],
         temperature=0.7,
+        extra_body={"caching": "auto"},
     )
 
     assert json.loads(requests[0].content) == {
