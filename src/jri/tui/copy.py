@@ -99,6 +99,7 @@ All commands, including `jri view`, use these settings.
 """
 SHORTCUTS = "Shortcuts"
 SHOW_THINKING_BLOCKS = "Show thinking blocks"
+START_BEGAN = "The run started. It holds this terminal until it ends, and `jri status` reports it from another one."
 START_ENDED = "The run ended with `{ending}`."
 START_ENDED_DETAIL = "The run ended with `{ending}`: {detail}"
 STATUS_DRAFT = "Specifications are drafted and saved. The next run starts again from them."

@@ -152,6 +152,8 @@ def _start() -> None:
     settings = _load_settings()
     logs.configure(settings)
     settings.llm.validate_authentication()
+    # A run says nothing for as long as it works. Say that it began, so a reader knows the wait is the run.
+    print(copy.START_BEGAN, flush=True)
     conclusion = Generation.execute(settings)
     print(
         copy.START_ENDED_DETAIL.format(ending=conclusion.ending, detail=conclusion.detail)
