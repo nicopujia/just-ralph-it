@@ -777,10 +777,7 @@ def test_undoes_the_acceptance_a_halted_run_left_half_written(
 
     with (
         open_a_filter_window(
-            tmp_path,
-            RECORD_THE_GIT + MARK_THE_WINDOW + HOLD_THE_WINDOW,
-            side="smudge",
-            path=WINDOWED_SPECIFICATION,
+            tmp_path, RECORD_THE_GIT + MARK_THE_WINDOW + HOLD_THE_WINDOW, side="smudge", path=WINDOWED_SPECIFICATION
         ),
         hold_a_run_amid_accepting(tmp_path, PAIRED_ACCEPTANCE_PATCH) as runner,
     ):
@@ -788,9 +785,11 @@ def test_undoes_the_acceptance_a_halted_run_left_half_written(
 
         assert Generation(Workspace(tmp_path)).halt()
 
-    # A killed process answers with the signal that ended it, and a process that ended by itself answers zero.
-    assert runner.wait(TIMEOUT)
-    assert watch_a_process_go(applying), "the Git the run started is still running"
+        # A killed process answers with the signal that ended it, and a process that ended by itself answers zero.
+        # Read both here, because the block ends the group that a halt of the run alone would leave behind.
+        assert runner.wait(TIMEOUT)
+        assert watch_a_process_go(applying), "the Git the run started is still running"
+
     # The operating system freed both locks, thus a run after this one can take them and settle what it finds.
     assert take(tmp_path / ".jri/generation/lock")
     assert take(tmp_path / ".jri/generation/acceptance.lock")
