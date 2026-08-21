@@ -5,7 +5,7 @@ import pytest
 
 from jri.core.settings import AgentProfiles
 from jri.lib import models_dot_dev
-from jri.lib.models_dot_dev import RETRY_DELAY, get_input_room, get_limit
+from jri.lib.models_dot_dev import RETRY_DELAY, forget_catalog, get_input_room, get_limit
 from tests.doubles.models_dot_dev import build_response, serve_catalog, serve_outcome
 
 CONTEXT_LIMIT = 273_000
@@ -181,6 +181,23 @@ def test_reads_the_catalog_again_after_the_delay(monkeypatch: pytest.MonkeyPatch
     clock[0] = RETRY_DELAY
 
     assert get_limit("openai/gpt-5.6-sol", FALLBACK) == CONTEXT_LIMIT
+
+
+# A read that gets no answer must not wait without end. An agent waits with it, and the user waits for
+# the agent.
+def test_waits_a_limited_time_for_the_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    waited: list[object] = []
+
+    def get(_url: str, **options: object) -> httpx.Response:
+        waited.append(options["timeout"])
+        return build_response(CATALOG)
+
+    monkeypatch.setattr(httpx, "get", get)
+    forget_catalog()
+
+    get_limit("openai/gpt-5.6-sol")
+
+    assert waited == [30.0]
 
 
 # A catalog that JRI cannot read is not a catalog that failed to arrive. Name the two in different words, so
