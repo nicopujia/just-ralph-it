@@ -4,7 +4,8 @@ import httpx
 import pytest
 
 from jri.core.settings import AgentProfiles
-from jri.lib.models_dot_dev import get_input_room, get_limit
+from jri.lib import models_dot_dev
+from jri.lib.models_dot_dev import RETRY_DELAY, get_input_room, get_limit
 from tests.doubles.models_dot_dev import build_response, serve_catalog, serve_outcome
 
 CONTEXT_LIMIT = 273_000
@@ -160,14 +161,37 @@ def test_logs_a_catalog_read_that_failed(monkeypatch: pytest.MonkeyPatch, caplog
     assert [record.getMessage() for record in caplog.records] == ["catalog_read_failed"]
 
 
-# An agent measures its request on each of its rounds, and each measurement reads a limit. An endpoint that
-# does not answer holds each of those reads for the timeout. Read the catalog one time, and hold a read that
-# failed as JRI holds a read that answered. Every later call then uses the fallback and waits for nothing.
-def test_holds_a_read_that_failed_and_does_not_read_the_catalog_again(monkeypatch: pytest.MonkeyPatch) -> None:
+# An agent measures its request on each round, and each round reads a limit. An endpoint that does not answer
+# holds each of those reads for the timeout. Hold a read that failed, so that only the first round waits.
+def test_holds_a_read_that_failed_and_reads_nothing_inside_the_delay(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_outcome(monkeypatch, httpx.ConnectError("connection refused"), build_response(CATALOG))
 
     assert get_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
     assert get_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
+
+
+# A read that failed gives every agent the fallback room, which is smaller than the room of a model. JRI must
+# not hold that for all a session. Read the catalog again after the delay.
+def test_reads_the_catalog_again_after_the_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_outcome(monkeypatch, httpx.ConnectError("connection refused"), build_response(CATALOG))
+    clock = [0.0]
+    monkeypatch.setattr(models_dot_dev, "monotonic", lambda: clock[0])
+
+    assert get_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
+    clock[0] = RETRY_DELAY
+
+    assert get_limit("openai/gpt-5.6-sol", FALLBACK) == CONTEXT_LIMIT
+
+
+# A catalog that JRI cannot read is not a catalog that failed to arrive. Name the two in different words, so
+# that a reader of the log knows which one occurred.
+def test_logs_a_catalog_it_could_not_read(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    serve_catalog(monkeypatch, [])
+
+    with caplog.at_level(logging.ERROR, logger="jri"):
+        get_input_room("openai/gpt-5.6-sol", FALLBACK)
+
+    assert [record.getMessage() for record in caplog.records] == ["catalog_unreadable"]
 
 
 def test_reads_the_catalog_once_for_a_model_it_answered_for(monkeypatch: pytest.MonkeyPatch) -> None:

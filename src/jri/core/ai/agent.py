@@ -12,7 +12,6 @@ from jri.core import ai
 from jri.core.exceptions import ModelError
 from jri.core.settings import AgentProfile
 from jri.lib import prompt
-from jri.lib.models_dot_dev import get_input_room
 
 from .tool import DEFAULT_SYMBOL, Invocation, Tool
 
@@ -33,7 +32,7 @@ class Agent:
     CANCELLATION_RECORD: ClassVar[str] = "User stopped last reply. Items before this message are all that happened."
     # The last round has no tools. A model that finds no tools can think that it lost them. Record why.
     EXHAUSTION_RECORD: ClassVar[str] = "Response rounds were spent. No tool was available for the rest of that reply."
-    # The input room that an agent measures against when the catalog gives no limit for the model.
+    # An agent measures its request against this room when the catalog gives no limit for its model.
     FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
 
     prompt: InitVar[str]
@@ -65,12 +64,6 @@ class Agent:
         )
         self.history = list(initial_context or [])
         self.history.insert(0, {"role": "system", "content": self.runner.prompt})
-
-    # Every agent that measures a request reads the room the same way. Read it here, so that each of them names
-    # the same fallback.
-    @property
-    def input_room(self) -> int:
-        return get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM)
 
     def get_context(self) -> ResponseInputParam:
         return self.history

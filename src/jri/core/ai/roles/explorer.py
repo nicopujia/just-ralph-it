@@ -27,6 +27,7 @@ from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavai
 from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, files, prompt, youtube
 from jri.lib.context import estimate_tokens, measure_request
+from jri.lib.models_dot_dev import get_input_room
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class Explorer(Agent):
     def get_context(self) -> ResponseInputParam:
         if not self.at_input_limit:
             estimate = estimate_tokens(measure_request(self.history, [item.definition for item in self.get_tools()]))
-            room = self.input_room
+            room = get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM)
             if estimate > room * self.INPUT_SHARE:
                 self.at_input_limit = True
                 record = self.FINAL_LIMIT_RECORD if self.final_segment else self.INPUT_LIMIT_RECORD
@@ -323,8 +324,8 @@ class Explorer(Agent):
         return output
 
 
-# A segment can find nothing and write a blank report. Leave the blank parts out, so that an exploration that
-# found nothing answers with nothing, and not with the space between its segments.
+# A segment can find nothing and write a blank report. Leave a blank part out of the join.
+# An exploration that found nothing then answers with nothing. A separator alone is not a report.
 def _join(parts: list[str], separator: str) -> str:
     return separator.join(part for part in parts if part.strip())
 

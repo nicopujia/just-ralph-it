@@ -12,7 +12,7 @@ from dotenv import dotenv_values
 
 from jri.core.settings import LLM
 from jri.lib import git
-from jri.lib.models_dot_dev import read_catalog
+from jri.lib.models_dot_dev import forget_catalog
 from tests.doubles.models_dot_dev import serve_catalog
 
 type CreateLink = Callable[[Path, Path], None]
@@ -83,7 +83,7 @@ def isolate_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPa
     if request.node.get_closest_marker(CONTRACT_MARKER):
         # No other fixture clears this cache.
         # A catalog that another test served could replace the endpoint result.
-        read_catalog.cache_clear()
+        forget_catalog()
         return
 
     def guard(*_: object, **__: object) -> Never:
