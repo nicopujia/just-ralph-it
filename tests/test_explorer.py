@@ -638,13 +638,16 @@ def test_answers_an_exploration_with_the_report_of_every_segment(monkeypatch: py
 # The summary of a report is what stands for it where the whole of it no longer fits. A model that writes none
 # would leave its report standing whole for the rest of the interview, so the beginning of the report stands for
 # it instead. A blank record would leave the reader with nothing where the report stood.
+@pytest.mark.parametrize("written", ["", "   \n  "], ids=["no summary", "a summary of blank space"])
 @pytest.mark.parametrize(
     ("report", "summary"),
     [("Cats are mammals.", "Cats are mammals."), (LONG_REPORT, LONG_REPORT[:SUMMARY_LENGTH])],
     ids=["a short report", "a long report"],
 )
-def test_answers_with_the_beginning_of_a_report_the_model_wrote_no_summary_for(report: str, summary: str) -> None:
-    client = FakeClient([], parsed=[Exploration(report=report, summary="", remaining="")])
+def test_answers_with_the_beginning_of_a_report_the_model_wrote_no_summary_for(
+    report: str, summary: str, written: str
+) -> None:
+    client = FakeClient([], parsed=[Exploration(report=report, summary=written, remaining="")])
 
     result = drain(build_explorer(client=client).report("cats"))[1]
 

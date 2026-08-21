@@ -135,7 +135,7 @@ class Explorer(Agent):
             # An exploration that has a report always answers with a summary. The summary is what stands for the
             # report where the whole of it no longer fits, so where the model wrote none, the beginning of the
             # report stands in its place. A report that had none would stand whole for the rest of the interview.
-            summaries.append(exploration.summary or prompt.truncate(exploration.report, self.SUMMARY_LENGTH))
+            summaries.append(exploration.summary.strip() or prompt.truncate(exploration.report, self.SUMMARY_LENGTH))
             remaining = exploration.remaining
             # Another segment follows only where JRI recorded the size limit for this one and this one named work
             # that is left. Work left over where the room lasted is work for a further round of the same segment,
