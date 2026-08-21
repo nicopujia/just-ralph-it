@@ -93,6 +93,9 @@ class Session(BaseModel):
     interview: list[dict[str, Any]] = Field(default_factory=list)
     transcript: list[Turn] = Field(default_factory=list)
     failed_call_ids: list[str] = Field(default_factory=list)
+    # What each recorded exploration stands as once the interview outgrows the room its report takes. Without
+    # this record a restart leaves every saved report whole, and nothing can stand for one again.
+    output_summaries: dict[str, str] = Field(default_factory=dict)
     ready_graph: Graph | None = None
     # A run that reported no ambiguities built the project. JRI cannot change a built project yet.
     # A rewind does not undo that build, so this record outlives the turns that a rewind drops.
@@ -283,6 +286,7 @@ class Conversation:
         self.interviewer.history = history
         self.interviewer.active_topic_id = self.session.active_topic_id
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
+        self.interviewer.output_summaries = dict(self.session.output_summaries)
         self.interviewer.generated_project = self.session.generated_project
         self.logger.info("restored interview_items=%d", len(self.session.interview))
         self._settle_interrupted_turn()
@@ -291,7 +295,11 @@ class Conversation:
     def update_session(self, **values: object) -> None:
         with self.session_lock:
             session = self.session.model_copy(
-                update={"failed_call_ids": list(self.interviewer.failed_call_ids), **values}
+                update={
+                    "failed_call_ids": list(self.interviewer.failed_call_ids),
+                    "output_summaries": dict(self.interviewer.output_summaries),
+                    **values,
+                }
             )
             try:
                 files.write_atomically(self.workspace.session_file, session.model_dump_json())

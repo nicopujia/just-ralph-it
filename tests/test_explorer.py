@@ -74,6 +74,11 @@ FINAL_LIMIT_RECORD = (
 # A catalog that names another model states nothing about this one, which then explores on the room JRI falls
 # back to.
 UNNAMED_MODEL_CATALOG = {"other": {"limit": {"context": 400_000}}}
+# This is how much of a report the explorer stands for it where the model writes no summary. Write it here too:
+# a test that reads the constant accepts every change to the constant.
+SUMMARY_LENGTH = 200
+# A report longer than that. It holds no line of its own, so a cut of it closes no block.
+LONG_REPORT = "Cats are mammals. " * 20
 
 
 # `run_shell` starts a login shell, and a login shell reads the profile of whoever runs the suite. Give each test a
@@ -628,6 +633,22 @@ def test_answers_an_exploration_with_the_report_of_every_segment(monkeypatch: py
         summary="Mammals.\nCarnivores.\nSleepers.",
         remaining="",
     )
+
+
+# The summary of a report is what stands for it where the whole of it no longer fits. A model that writes none
+# would leave its report standing whole for the rest of the interview, so the beginning of the report stands for
+# it instead. A blank record would leave the reader with nothing where the report stood.
+@pytest.mark.parametrize(
+    ("report", "summary"),
+    [("Cats are mammals.", "Cats are mammals."), (LONG_REPORT, LONG_REPORT[:SUMMARY_LENGTH])],
+    ids=["a short report", "a long report"],
+)
+def test_answers_with_the_beginning_of_a_report_the_model_wrote_no_summary_for(report: str, summary: str) -> None:
+    client = FakeClient([], parsed=[Exploration(report=report, summary="", remaining="")])
+
+    result = drain(build_explorer(client=client).report("cats"))[1]
+
+    assert result == Exploration(report=report, summary=summary, remaining="")
 
 
 # A segment that leaves work behind hands it to the next one. The exploration is one job, so the segment that

@@ -61,6 +61,9 @@ class Explorer(Agent):
         "No more tool output fits in it, and no segment follows it."
     )
     FINAL_SEGMENT_PROMPT = ai.prompts.read("explorer_final_segment")
+    # How much of a report stands for it where the model wrote no summary of its own. A summary is one or two
+    # lines, and this much of a report reads as that many.
+    SUMMARY_LENGTH = 200
 
     def __init__(self, settings: Settings, directory: Path) -> None:
         self.settings = settings
@@ -129,7 +132,10 @@ class Explorer(Agent):
             if exploration is None:
                 return None
             reports.append(exploration.report)
-            summaries.append(exploration.summary)
+            # An exploration that has a report always answers with a summary. The summary is what stands for the
+            # report where the whole of it no longer fits, so where the model wrote none, the beginning of the
+            # report stands in its place. A report that had none would stand whole for the rest of the interview.
+            summaries.append(exploration.summary or prompt.truncate(exploration.report, self.SUMMARY_LENGTH))
             remaining = exploration.remaining
             # Another segment follows only where JRI recorded the size limit for this one and this one named work
             # that is left. Work left over where the room lasted is work for a further round of the same segment,

@@ -22,7 +22,7 @@ from jri.core.exceptions import PersistenceError, RunDetached
 from jri.core.generation import Generation, Header, RowOpened
 from jri.core.notes import Graph, Notebook, Topic
 from tests.conftest import CreateRepository
-from tests.doubles.agents import explored
+from tests.doubles.agents import EXPLORATION_SUMMARY, explored
 from tests.doubles.generation import run_in_thread
 from tests.doubles.lock import hold
 from tests.doubles.openai import (
@@ -59,6 +59,11 @@ from tests.doubles.workspace import install_workspace
 # pattern holds it to that.
 NO_WORDING = "^$"
 RUN_STARTED = datetime(2026, 1, 1, tzinfo=UTC)
+# What the interview holds where an exploration report stood, once the summary beside it stands for the report.
+SUMMARIZED_EXPLORATION = (
+    "[This exploration report was taken out of the message to make room. Nothing holds it now, and the summary "
+    f"below is all that is left of it.]\n\n<exploration_summary>\n{EXPLORATION_SUMMARY}\n</exploration_summary>"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -493,6 +498,32 @@ def test_restores_ralph_readiness_after_restart() -> None:
     restarted.restore()
 
     assert restarted.is_ready_to_ralph
+
+
+# A summary is what stands for an exploration report once the interview outgrows the room the report takes. A
+# restart that lost the summaries would leave every report the session saved standing whole for good.
+def test_stands_a_restored_exploration_as_its_summary() -> None:
+    conversation = build_conversation(
+        FakeClient(
+            [response(call("explore", "explore", query="deployment options")), streamed_reply("It deploys from main.")],
+            parsed=explored("Deployments run from the main branch."),
+        )
+    )
+    list(conversation.chat("What are the deployment options?"))
+    client = FakeClient(
+        [response(call("rollback", "explore", query="rollback options")), streamed_reply("It rolls back by hand.")],
+        parsed=explored("Rollbacks run by hand."),
+    )
+    restarted = build_conversation(client)
+    restarted.restore()
+
+    list(restarted.chat("How does it roll back?"))
+
+    context = cast("list[dict[str, object]]", client.responses.inputs[-1])
+    assert [item["output"] for item in context if item.get("type") == "function_call_output"] == [
+        SUMMARIZED_EXPLORATION,
+        "<exploration_report>\nRollbacks run by hand.\n</exploration_report>",
+    ]
 
 
 def test_restores_the_thinking_blocks_preference_after_restart() -> None:
