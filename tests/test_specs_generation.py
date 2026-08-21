@@ -1115,7 +1115,7 @@ def test_studies_the_project_as_it_stands_on_disk(tmp_path: Path, create_reposit
         ],
     )
 
-    generate(client)
+    rows, _ = generate(client)
 
     instructions = read_explorer_prompt(client)
     directory = Path(instructions.split("<working_directory>\n")[1].split("\n</working_directory>")[0])
@@ -1123,6 +1123,14 @@ def test_studies_the_project_as_it_stands_on_disk(tmp_path: Path, create_reposit
     # in the run snapshot directory, so its own reported working directory is never the real project path.
     assert directory == (tmp_path / paths.SNAPSHOT_DIR).resolve()
     assert any(str(directory / paths.NOTEBOOK_FILE) in output for output in read_tool_outputs(client))
+    # The study asks for the whole of the project, and every row it opens nests under the study row.
+    assert any(
+        "Study this repository generally. Report its structure, architecture, established patterns" in prompt
+        for prompt in read_prompts(client)
+    )
+    assert [
+        row.depth for row in rows if isinstance(row, ToolCallStarted | ToolCallFinished) and row.call_id == "read"
+    ] == [1, 1]
 
 
 def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: CreateRepository) -> None:

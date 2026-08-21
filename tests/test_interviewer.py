@@ -257,9 +257,17 @@ def test_stands_every_exploration_but_the_newest_as_its_summary(tmp_path: Path) 
     add_exploration(interviewer, "e0", REPORT, "Mammals.")
     add_exploration(interviewer, "e1", LATER_REPORT, "Dogs too.")
 
-    outputs = read_outputs(interviewer.get_context())
+    context = interviewer.get_context()
 
-    assert outputs == [SUMMARIZED_EXPLORATION, f"<exploration_report>\n{LATER_REPORT}\n</exploration_report>"]
+    assert read_outputs(context) == [
+        SUMMARIZED_EXPLORATION,
+        f"<exploration_report>\n{LATER_REPORT}\n</exploration_report>",
+    ]
+    # A recorded report is what the swap replaces. The call that asked for it stands as the model wrote it.
+    assert [item for item in cast("list[dict[str, str]]", context) if item.get("type") == "function_call"] == [
+        {"type": "function_call", "call_id": "e0", "name": "explore", "arguments": '{"query": "cats"}'},
+        {"type": "function_call", "call_id": "e1", "name": "explore", "arguments": '{"query": "cats"}'},
+    ]
 
 
 # The context is built again before every round. A swap that stacked one record on the one before it would move

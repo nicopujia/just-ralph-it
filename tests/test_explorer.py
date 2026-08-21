@@ -5,18 +5,19 @@ import os
 import sys
 import time
 from pathlib import Path
+from threading import Event
 from typing import cast
 
 import httpx
 import pytest
 
-from jri.core.ai import Exploration, Explorer, Invocation, Tool
+from jri.core.ai import Exploration, Explorer, Invocation, ReasoningDelta, Tool, ToolCallFinished, ToolCallStarted
 from jri.core.exceptions import ModelError
 from jri.lib import brave, youtube
 from tests.doubles.agents import drain
 from tests.doubles.brave import RESULTS, FakeProvider, respond
-from tests.doubles.models_dot_dev import serve_catalog
-from tests.doubles.openai import FakeClient, call, response
+from tests.doubles.models_dot_dev import CATALOG, serve_catalog
+from tests.doubles.openai import FakeClient, call, response, stopped_thinking, thought
 from tests.doubles.process import serve_timeout
 from tests.doubles.settings import build_settings
 from tests.doubles.web import serve_chunks, serve_pages
@@ -37,6 +38,7 @@ time.sleep(60)
 HEARTBEAT_SCRIPT = """\
 import time
 from pathlib import Path
+from threading import Event
 
 while True:
     Path("alive.txt").write_text("alive")
@@ -51,6 +53,14 @@ MAX_SEGMENTS = 10
 MAX_ROUNDS = 100
 # What the explorer records where a request stands at its size limit.
 INPUT_LIMIT_RECORD = "This request is at its size limit. No more tool output fits in this segment of the exploration."
+# What it records instead where the segment at that limit is the last one of the exploration.
+FINAL_LIMIT_RECORD = (
+    "This request is at its size limit, and this is the last segment of the exploration. "
+    "No more tool output fits in it, and no segment follows it."
+)
+# A catalog that names another model states nothing about this one, which then explores on the room JRI falls
+# back to.
+UNNAMED_MODEL_CATALOG = {"other": {"limit": {"context": 400_000}}}
 
 
 # `run_shell` starts a login shell, and a login shell reads the profile of whoever runs the suite. Give each test a
@@ -463,14 +473,97 @@ def test_reads_the_paths_a_call_names_rather_than_the_row_describing_them(tmp_pa
 
 # A request that stands at its size limit ends the segment it belongs to. The explorer records that, so the model
 # reports what it found instead of gathering more.
-def test_records_a_request_that_stands_at_its_size_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_records_a_request_that_stands_at_its_size_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "notes.md").write_bytes(b"Notes\n")
     serve_catalog(monkeypatch, CRAMPED_CATALOG)
-    client = FakeClient([], parsed=[Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")])
+    finding = Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
+    client = FakeClient([], parsed=[response(call("call-1", "read_files", paths=["notes.md"])), finding])
+    explorer = build_explorer(tmp_path, client)
 
-    result = drain(build_explorer(client=client).report("cats"))[1]
+    result = drain(explorer.report("cats"))[1]
 
-    assert result == Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
+    assert result == finding
     assert {"role": "system", "content": INPUT_LIMIT_RECORD} in cast("list[object]", client.responses.inputs[-1])
+    # The segment holds no tool any more, so a call it still makes reaches none.
+    assert [item["output"] for item in cast("list[dict[str, object]]", explorer.history) if "output" in item] == [
+        "<tool_call_failed>\nUnknown tool `read_files`.\n</tool_call_failed>"
+    ]
+
+
+# A request well under the mark leaves the segment room to gather. It keeps its tools, and no record tells the
+# model that the segment ends here.
+@pytest.mark.parametrize("catalog", [CATALOG, UNNAMED_MODEL_CATALOG], ids=["published-room", "fallback-room"])
+def test_gathers_on_while_a_request_sits_under_its_size_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, catalog: dict[str, object]
+) -> None:
+    (tmp_path / "notes.md").write_bytes(b"Notes\n")
+    serve_catalog(monkeypatch, catalog)
+    finding = Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
+    client = FakeClient([], parsed=[response(call("call-1", "read_files", paths=["notes.md"])), finding])
+
+    explorer = build_explorer(tmp_path, client)
+
+    result = drain(explorer.report("cats"))[1]
+
+    assert result == finding
+    # A segment at its limit holds no tools, and answers a call with an unknown-tool report instead of a file.
+    assert [item["output"] for item in cast("list[dict[str, object]]", explorer.history) if "output" in item] == [
+        [
+            {"type": "input_text", "text": f"<file>\n{tmp_path / 'notes.md'}\n</file>"},
+            {"type": "input_text", "text": "<content>\nNotes\n\n</content>"},
+        ]
+    ]
+    assert not [
+        item
+        for item in cast("list[dict[str, str]]", explorer.history)
+        if item.get("content") in {INPUT_LIMIT_RECORD, FINAL_LIMIT_RECORD}
+    ]
+
+
+# The last segment of an exploration has no segment after it to hand the rest of the work to. Its own record says
+# that too, so the model writes the report it has instead of holding work back for a segment that never runs.
+def test_records_the_size_limit_of_the_last_segment_as_the_end_of_the_exploration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report=f"Segment {number}.", summary="So far.", remaining="More.")
+            for number in range(1, MAX_SEGMENTS + 1)
+        ],
+    )
+
+    drain(build_explorer(client=client).report("cats"))
+
+    assert {"role": "system", "content": FINAL_LIMIT_RECORD} in cast("list[object]", client.responses.inputs[-1])
+
+
+# An exploration reports its progress to whoever asked for it: the model's thoughts reach that caller as they
+# are, and every row of a segment stands at the depth the caller runs at.
+def test_reports_the_progress_of_a_segment_at_the_depth_of_its_caller(tmp_path: Path) -> None:
+    (tmp_path / "notes.md").write_bytes(b"Notes\n")
+    finding = Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
+    gathering = [thought("Weighing "), *response(call("call-1", "read_files", paths=["notes.md"]))]
+    client = FakeClient([], parsed=[gathering, finding])
+
+    events = list(build_explorer(tmp_path, client).report("cats", depth=2))
+
+    assert [event.text for event in events if isinstance(event, ReasoningDelta)] == ["Weighing "]
+    assert [
+        (event.call_id, event.depth) for event in events if isinstance(event, ToolCallStarted | ToolCallFinished)
+    ] == [("call-1", 2), ("call-1", 2)]
+
+
+# The user can stop an exploration while a segment runs. The exploration then ends with nothing, and the caller
+# reads that instead of a report the run never wrote.
+def test_ends_an_exploration_the_user_stopped() -> None:
+    cancelled = Event()
+    client = FakeClient([], parsed=[stopped_thinking(cancelled)])
+
+    result = drain(build_explorer(client=client).report("cats", cancelled=cancelled))[1]
+
+    assert result is None
 
 
 # A segment that leaves work behind hands it to the next one. The exploration is one job, so the segment that

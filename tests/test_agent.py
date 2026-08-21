@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 # This is the round limit the agent applies.
 # Write it here too: a test that reads the constant accepts every change to the constant.
 MAX_ROUNDS = 100
+# What the agent records where the last round of a reply carries no tools.
+EXHAUSTION_RECORD = "Response rounds are spent. No tool is available for the rest of this reply."
 
 
 def build_agent(rounds: Iterable[Round]) -> "ToolAgent":
@@ -52,7 +54,7 @@ def test_answers_with_what_it_has_when_the_rounds_run_out() -> None:
     list(agent.send_message("Go."))
 
     history = cast("list[dict[str, object]]", agent.history)
-    assert history[-2] == {"role": "system", "content": Agent.EXHAUSTION_RECORD}
+    assert history[-2] == {"role": "system", "content": EXHAUSTION_RECORD}
     assert history[-1] == reply("Done.")
 
 
@@ -63,7 +65,7 @@ def test_ends_the_reply_when_the_rounds_run_out_on_a_tool_call() -> None:
 
     list(agent.send_message("Go."))
 
-    record = {"role": "system", "content": Agent.EXHAUSTION_RECORD}
+    record = {"role": "system", "content": EXHAUSTION_RECORD}
     assert agent.calls == ["again"] * MAX_ROUNDS
     assert [item for item in agent.history if item == record] == [record]
 
@@ -89,7 +91,7 @@ def test_shares_one_round_budget_across_the_parse_calls_of_a_job() -> None:
     result = drain(agent.parse("Again.", Answer))[1]
 
     assert result == Answer(text="second")
-    assert cast("list[dict[str, object]]", agent.history)[-1] == {"role": "system", "content": Agent.EXHAUSTION_RECORD}
+    assert cast("list[dict[str, object]]", agent.history)[-1] == {"role": "system", "content": EXHAUSTION_RECORD}
 
 
 # A reply that spent every round leaves the next reply the whole budget again, so it starts with its tools.
