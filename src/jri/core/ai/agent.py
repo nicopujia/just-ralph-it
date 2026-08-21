@@ -25,6 +25,8 @@ Result = TypeVar("Result", bound=BaseModel)
 
 @dataclass(kw_only=True)
 class Agent:
+    # A reply that spends these rounds ends with what it holds, so this number bounds what a run can cost and
+    # not what it can do. One exploration spends them across all of its segments.
     MAX_ROUNDS: ClassVar[int] = 100
     # A stopped reply ends where the user stopped it. Record the stop, because the text alone reads as a full reply.
     CANCELLATION_RECORD: ClassVar[str] = "User stopped last reply. Items before this message are all that happened."
