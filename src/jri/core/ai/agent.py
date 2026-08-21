@@ -26,8 +26,6 @@ Result = TypeVar("Result", bound=BaseModel)
 @dataclass(kw_only=True)
 class Agent:
     MAX_ROUNDS: ClassVar[int] = 100
-    # The room a request has when the catalog states none for the model. Two roles measure the same room.
-    FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
     # A stopped reply ends where the user stopped it. Record the stop, because the text alone reads as a full reply.
     CANCELLATION_RECORD: ClassVar[str] = "User stopped last reply. Items before this message are all that happened."
     # The last round carries no tools. Record that, because a model with no tools reads them as lost, not as spent.
@@ -45,11 +43,12 @@ class Agent:
     history: ResponseInputParam = field(init=False)
     runner: "ai.LLMRunner" = field(init=False)
     failed_call_ids: list[str] = field(init=False, default_factory=list)
-    output_summaries: dict[str, str] = field(init=False, default_factory=dict)
+    output_summaries: dict[str, str] = field(init=False)
     remaining_rounds: int = field(init=False)
 
     def __post_init__(self, prompt: str, initial_context: ResponseInputParam | None) -> None:
         self.tools = Tool.discover(self)
+        self.output_summaries = {}
         self.remaining_rounds = self.MAX_ROUNDS
         self.runner = ai.LLMRunner(
             client=self.client,
@@ -105,8 +104,7 @@ class Agent:
             function_calls = [output for output in response.outputs if output.get("type") == "function_call"]
 
             if not function_calls:
-                logger.info("message_finished agent=%s", type(self).__name__)
-                return
+                break
 
             # Give each call in a round an output, including cancelled calls. The next request requires every output.
             for output in function_calls:
@@ -117,8 +115,9 @@ class Agent:
             # The round that spends the budget is the last one, whatever the model answered with. Each further
             # round is one more request the user pays for.
             if not self.remaining_rounds:
-                logger.info("message_finished agent=%s", type(self).__name__)
-                return
+                break
+
+        logger.info("message_finished agent=%s", type(self).__name__)
 
     # A structured-output sibling to `respond`, for an agent that must both call tools and return a typed result.
     # Each call starts a fresh turn from the system prompt alone, discarding any history from an earlier call.

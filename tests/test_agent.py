@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Generator, Iterable
 from threading import Event
 from typing import TYPE_CHECKING, cast
@@ -60,14 +61,18 @@ def test_answers_with_what_it_has_when_the_rounds_run_out() -> None:
 
 # The round that spends the budget is the last round, whatever the model answers with. Each further round is one
 # more request the user pays for.
-def test_ends_the_reply_when_the_rounds_run_out_on_a_tool_call() -> None:
+def test_ends_the_reply_when_the_rounds_run_out_on_a_tool_call(caplog: pytest.LogCaptureFixture) -> None:
     agent = build_agent(repeat_calls(MAX_ROUNDS))
 
-    list(agent.send_message("Go."))
+    with caplog.at_level(logging.INFO, logger="jri"):
+        list(agent.send_message("Go."))
 
     record = {"role": "system", "content": EXHAUSTION_RECORD}
     assert agent.calls == ["again"] * MAX_ROUNDS
     assert [item for item in agent.history if item == record] == [record]
+    messages = [entry.getMessage() for entry in caplog.records]
+    assert "rounds_spent agent=ToolAgent" in messages
+    assert "message_finished agent=ToolAgent" in messages
 
 
 # A structured run has no text round to end on. A model that keeps calling tools to the last round leaves the turn

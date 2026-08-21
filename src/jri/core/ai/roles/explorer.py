@@ -47,6 +47,8 @@ class Explorer(Agent):
     # End a segment past this share of the room the model reads. The rest of that room holds the report that the
     # segment writes, and the reasoning the model keeps while it writes it.
     INPUT_SHARE: ClassVar[float] = 0.8
+    # The room a segment measures against when the catalog states none for the model.
+    FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
     # A segment ends where its request runs out of room. Record that, because a model with no tool reads it as a
     # tool it lost, not as a segment that ends.
     INPUT_LIMIT_RECORD: ClassVar[str] = (
@@ -102,13 +104,14 @@ class Explorer(Agent):
     ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Exploration | None]:
         exploration = None
         for segment in range(1, self.MAX_SEGMENTS + 1):
-            self.at_input_limit = False
-            self.final_segment = segment == self.MAX_SEGMENTS
             # The first segment carries the query alone, which the caller wrote for a model to read whole.
             message = query if exploration is None else self._render(query, exploration)
             exploration = yield from _stamp_rows(self.parse(message, Exploration, cancelled), depth)
             if exploration is None or not exploration.remaining.strip():
                 return exploration
+            # The handoff gives the segment that follows room again, and tells it whether it is the last one.
+            self.at_input_limit = False
+            self.final_segment = segment + 1 == self.MAX_SEGMENTS
         return exploration
 
     @tool(

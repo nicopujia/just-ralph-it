@@ -12,7 +12,7 @@ from jri.lib import prompt
 from jri.lib.context import estimate_tokens, measure_item, measure_request
 from jri.lib.models_dot_dev import get_limit
 
-from .explorer import Explorer
+from .explorer import Exploration, Explorer
 
 if TYPE_CHECKING:
     from openai.types.responses import ResponseInputItemParam
@@ -123,7 +123,9 @@ class Interviewer(Agent):
     )
     def explore(self, query: str) -> Stream:
         exploration = yield from Explorer(self.settings, Workspace.find().root).report(query)
-        if exploration is None or not exploration.report:
+        # An exploration the user stopped ends with nothing, and reads as one that found nothing.
+        exploration = exploration if exploration is not None else Exploration(report="", summary="", remaining="")
+        if not exploration.report:
             yield ToolOutput("Exploration produced no report.", "empty")
             return
         # A model creates this report from web content. Quote it because JRI text can follow a long report.

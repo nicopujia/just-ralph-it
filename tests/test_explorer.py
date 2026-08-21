@@ -47,6 +47,8 @@ while True:
 HEARTBEAT_WINDOW = 1.0
 # A room this small puts the mark under every request, so the first round of a segment already stands past it.
 CRAMPED_CATALOG = {"test": {"limit": {"input": 1}}}
+# This room puts the mark at exactly the tokens the request of the test below estimates.
+MARKED_CATALOG = {"test": {"limit": {"input": 50}}}
 # These are the limits the explorer applies. Write them here too: a test that reads a constant accepts every
 # change to that constant.
 MAX_SEGMENTS = 10
@@ -473,21 +475,38 @@ def test_reads_the_paths_a_call_names_rather_than_the_row_describing_them(tmp_pa
 
 # A request that stands at its size limit ends the segment it belongs to. The explorer records that, so the model
 # reports what it found instead of gathering more.
-def test_records_a_request_that_stands_at_its_size_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_records_a_request_that_stands_at_its_size_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     (tmp_path / "notes.md").write_bytes(b"Notes\n")
     serve_catalog(monkeypatch, CRAMPED_CATALOG)
     finding = Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
     client = FakeClient([], parsed=[response(call("call-1", "read_files", paths=["notes.md"])), finding])
     explorer = build_explorer(tmp_path, client)
 
-    result = drain(explorer.report("cats"))[1]
+    with caplog.at_level(logging.INFO, logger="jri"):
+        result = drain(explorer.report("cats"))[1]
 
     assert result == finding
     assert {"role": "system", "content": INPUT_LIMIT_RECORD} in cast("list[object]", client.responses.inputs[-1])
+    reached = next(entry for entry in caplog.records if entry.getMessage().startswith("exploration_limit_reached"))
+    assert reached.getMessage().endswith(" room=1")
     # The segment holds no tool any more, so a call it still makes reaches none.
     assert [item["output"] for item in cast("list[dict[str, object]]", explorer.history) if "output" in item] == [
         "<tool_call_failed>\nUnknown tool `read_files`.\n</tool_call_failed>"
     ]
+
+
+# The mark reserves the rest of the room for the report the segment writes. A request that stands exactly on the
+# mark still has that room, so the segment gathers on.
+def test_gathers_on_from_a_request_that_stands_exactly_on_the_mark(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, MARKED_CATALOG)
+    explorer = build_explorer()
+    # With no tool beside it, a request of this one item weighs the tokens that the room above marks.
+    explorer.tools = []
+    explorer.history = [{"role": "user", "content": "x" * 67}]
+
+    assert explorer.get_context() == [{"role": "user", "content": "x" * 67}]
 
 
 # A request well under the mark leaves the segment room to gather. It keeps its tools, and no record tells the
