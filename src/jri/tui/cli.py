@@ -2,7 +2,6 @@ import argparse
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
 from typing import NoReturn
 
 import yaml
@@ -110,8 +109,7 @@ def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
     print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=directory))
     if installation.commit is not None:
         print(copy.INIT_COMMITTED)
-    # A settings file with no comments holds nothing to follow. Whoever asks for one knows the file and the
-    # command that comes next.
+    # A settings file with no comments has no instructions to read.
     if comments:
         print(copy.INIT_NEXT_STEPS.format(settings_file=files.shorten_path(workspace.settings_file)))
 
@@ -227,7 +225,7 @@ def _load_settings() -> Settings:
     try:
         return Settings.load()
     except (ValidationError, yaml.YAMLError) as error:
-        _report_settings_error(error, workspace.settings_file, copy.SETTINGS_ERROR_PROJECT_USE)
+        _report_settings_error(error, files.shorten_path(workspace.settings_file), copy.SETTINGS_ERROR_PROJECT_USE)
 
 
 # A global settings file that JRI cannot read stops the installation. A default that disappears silently is worse
@@ -236,16 +234,15 @@ def _load_global_settings() -> Settings | None:
     try:
         return Settings.load_global()
     except (ValidationError, yaml.YAMLError) as error:
-        _report_settings_error(error, Path(paths.GLOBAL_SETTINGS_FILE), copy.SETTINGS_ERROR_GLOBAL_USE)
+        _report_settings_error(error, paths.GLOBAL_SETTINGS_FILE, copy.SETTINGS_ERROR_GLOBAL_USE)
 
 
-# The message sends the reader to the file that JRI read, and says what that file is for. The global settings
-# and the project settings are two files with two uses.
-def _report_settings_error(error: ValidationError | yaml.YAMLError, settings_file: Path, use: str) -> NoReturn:
+# The message names the file that JRI read, and says what that file is for.
+def _report_settings_error(error: ValidationError | yaml.YAMLError, settings_file: str, use: str) -> NoReturn:
     error_lines = (
         [_describe_issue(issue) for issue in error.errors()] if isinstance(error, ValidationError) else [f"- {error}"]
     )
-    print(copy.SETTINGS_ERROR.format(file=files.shorten_path(settings_file), errors="\n".join(error_lines), use=use))
+    print(copy.SETTINGS_ERROR.format(file=settings_file, errors="\n".join(error_lines), use=use))
     raise SystemExit(1) from error
 
 
