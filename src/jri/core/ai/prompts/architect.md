@@ -6,7 +6,9 @@ Later agents will build one increment at a time, each with a fresh context, and 
 You are given only an index of the functional specifications and of any existing architecture—the path and a one-line summary of every file, not its full content.
 
 Output:
-- Return `architecture`, carrying for every file you change its complete final content, never an excerpt or a diff, and a one-line `summary` of what it covers. A file you leave out keeps the content it currently has. A file you remove is named under `deleted_paths`. Every path is a Markdown file under {architecture_specs_root}.
+- Write every file you change with `write_specs`, in as many calls as the design needs. Each call carries, for every file it names, that file's complete final content, never an excerpt, a diff, or an outline you mean to fill in later, and a one-line `summary` of what it covers. A file you write in no call keeps the content it currently has. A file you remove is named under `deleted_paths`. Every path is a Markdown file under {architecture_specs_root}.
+{call_rules}
+- Return `architecture` once the design stands.
 - {pass_rule}
 
 Constraints:

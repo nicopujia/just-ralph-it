@@ -1,5 +1,4 @@
 import logging
-from collections.abc import Generator
 from threading import Event
 from typing import TYPE_CHECKING, cast
 
@@ -11,6 +10,7 @@ from pydantic import BaseModel
 from jri.core.ai import BLOCK_NOTICE, LLMRunner, PendingToolCalls, ReasoningDelta, TextDelta
 from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavailableError, UsageLimitError
 from jri.core.settings import ReasoningEffort
+from tests.doubles.agents import drain
 from tests.doubles.openai import (
     BASE_URL,
     FakeClient,
@@ -47,20 +47,6 @@ def waits(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 
 def build_runner(parsed: object) -> LLMRunner:
     return LLMRunner(client=cast("OpenAI", FakeClient([], parsed=[parsed])), model="test")
-
-
-# A parsed call sends model reasoning as a stream.
-# Its return value is the parsed output.
-# Read all reasoning before reading that output.
-def drain(
-    parse: Generator[ReasoningDelta, None, "Output | PendingToolCalls | None"],
-) -> tuple[list[ReasoningDelta], "Output | PendingToolCalls | None"]:
-    thoughts: list[ReasoningDelta] = []
-    while True:
-        try:
-            thoughts.append(next(parse))
-        except StopIteration as stop:
-            return thoughts, cast("Output | PendingToolCalls | None", stop.value)
 
 
 def read_parsed(runner: LLMRunner, cancelled: Event | None = None) -> "Output | PendingToolCalls | None":
@@ -200,8 +186,9 @@ def test_does_not_retry_a_call_whose_thinking_reached_the_user(waits: list[float
 
 # The provider reports usage when the response completes.
 # A parsed call cannot report usage before it streams.
+# The count that the cache served is the only sign of a cache that works, so a log line carries it.
 def test_logs_the_context_a_call_spent(caplog: pytest.LogCaptureFixture) -> None:
-    parsing = build_runner(response(reply('{"answer": "ready"}'), input_tokens=4321))
+    parsing = build_runner(response(reply('{"answer": "ready"}'), input_tokens=4321, cached_tokens=4000))
     replying = build_streaming_runner(response(reply("How often does it deploy?"), input_tokens=1234))
 
     with caplog.at_level(logging.INFO, logger="jri"):
@@ -209,8 +196,8 @@ def test_logs_the_context_a_call_spent(caplog: pytest.LogCaptureFixture) -> None
         list(replying.respond([]).events)
 
     assert [record.getMessage() for record in caplog.records if record.getMessage().startswith("context_usage")] == [
-        "context_usage input_tokens=4321",
-        "context_usage input_tokens=1234",
+        "context_usage input_tokens=4321 cached_tokens=4000",
+        "context_usage input_tokens=1234 cached_tokens=0",
     ]
 
 

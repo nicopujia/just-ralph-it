@@ -20,6 +20,7 @@ from . import prompts
 from .events import AgentEvent, ReasoningDelta, TextDelta
 
 if TYPE_CHECKING:
+    from openai.types.responses import ResponseUsage
     from openai.types.shared import ReasoningEffort as ProviderReasoningEffort
 
 # A fence protects content only when the model has instructions for it. Add this notice to every prompt.
@@ -185,8 +186,7 @@ class LLMRunner:
                     case "response.output_item.done":
                         outputs_by_index[event.output_index] = cast("dict[str, Any]", event.item.to_dict())
                     case "response.completed":
-                        if usage := event.response.usage:
-                            logger.info("context_usage input_tokens=%d", usage.input_tokens)
+                        _log_usage(event.response.usage)
                 # Check for a stop during structured streaming. Leaving this block closes the stream.
                 # Do not request a final response from an unfinished stream because that waits for completion.
                 if cancelled.is_set():
@@ -265,8 +265,7 @@ class LLMRunner:
                         if text := "".join(part["text"] for part in parts if part.get("type") == "output_text"):
                             yield TextDelta(text)
                 case "response.completed":
-                    if usage := event.response.usage:
-                        logger.info("context_usage input_tokens=%d", usage.input_tokens)
+                    _log_usage(event.response.usage)
                     return
                 case _:
                     _diagnose(event)
@@ -277,6 +276,16 @@ class LLMRunner:
         size = len(json.dumps(context).encode())
         if size > self.max_input_size:
             raise ModelError(f"Request context is {size} bytes, over the {self.max_input_size} byte limit.")
+
+
+# The gateway reports what the cache saved. Log it, because a read is the only proof that the start of the
+# request stayed the same as the last one, byte for byte.
+def _log_usage(usage: "ResponseUsage | None") -> None:
+    if usage is None:
+        return
+    logger.info(
+        "context_usage input_tokens=%d cached_tokens=%d", usage.input_tokens, usage.input_tokens_details.cached_tokens
+    )
 
 
 # The library uses `Connection error.` for every transport failure. The transport error identifies the actual cause.

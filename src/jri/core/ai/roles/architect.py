@@ -5,11 +5,10 @@ from typing import Literal
 from pydantic import BaseModel
 
 from jri.core import ai
-from jri.core.ai.agent import Agent
+from jri.core.ai.specs_writer import SpecsWriter
 from jri.core.ai.tool import tool
-from jri.core.paths import ARCHITECTURE_SPECS_ROOT, FUNCTIONAL_SPECS_ROOT, WORKSPACE_DIR
+from jri.core.paths import ARCHITECTURE_SPECS_ROOT, WORKSPACE_DIR
 from jri.core.settings import Settings
-from jri.core.specs import File, Specs
 from jri.lib import git, prompt
 
 type Result = Issues | Architecture
@@ -28,7 +27,6 @@ class Issues(BaseModel):
 
 class Architecture(BaseModel):
     outcome: Literal["architecture"]
-    files: list[File]
     deleted_paths: list[str]
 
 
@@ -36,7 +34,9 @@ class Output(BaseModel):
     result: Issues | Architecture
 
 
-class Architect(Agent):
+class Architect(SpecsWriter):
+    READ_TOOL = "read_architecture_specs"
+    CALL_RULES = ai.prompts.read("specs_writer_calls", read_tool=READ_TOOL)
     # Both cycles read the same instructions and differ in one output rule. The last cycle takes the decisions
     # that a review would send back, so it always returns an architecture. Every other cycle can send functional
     # specification issues back instead.
@@ -45,21 +45,25 @@ class Architect(Agent):
         architecture_specs_root=ARCHITECTURE_SPECS_ROOT,
         workspace_dir=WORKSPACE_DIR,
         pass_rule=ai.prompts.read("architect_issues"),
+        call_rules=CALL_RULES,
     )
     FINAL_PROMPT = ai.prompts.read(
         "architect",
         architecture_specs_root=ARCHITECTURE_SPECS_ROOT,
         workspace_dir=WORKSPACE_DIR,
         pass_rule=ai.prompts.read("architect_final"),
+        call_rules=CALL_RULES,
     )
 
     def __init__(self, settings: Settings, repository: git.Repository, *, final: bool) -> None:
-        self.repository = repository
         self._final = final
         super().__init__(
             client=settings.llm.client,
             profile=settings.agents.architect,
             prompt=self.FINAL_PROMPT if final else self.PROMPT,
+            repository=repository,
+            specs_root=ARCHITECTURE_SPECS_ROOT,
+            read_tool=self.READ_TOOL,
         )
 
     def design(
@@ -76,16 +80,6 @@ class Architect(Agent):
         return None if output is None else output.result
 
     @tool(
-        "Read the full, current body of existing functional specification files, named as the index shows them.",
-        started_label="Reading {paths}",
-        finished_label="Read {paths}",
-        symbol="📖",
-        replayed=False,
-    )
-    def read_functional_specs(self, paths: list[str]) -> str:
-        return Specs.read_selected(self.repository, FUNCTIONAL_SPECS_ROOT, paths)
-
-    @tool(
         "Read the full, current body of existing architecture specification files, named as the index shows them.",
         started_label="Reading {paths}",
         finished_label="Read {paths}",
@@ -93,4 +87,4 @@ class Architect(Agent):
         replayed=False,
     )
     def read_architecture_specs(self, paths: list[str]) -> str:
-        return Specs.read_selected(self.repository, ARCHITECTURE_SPECS_ROOT, paths)
+        return self.read_specs(paths, ARCHITECTURE_SPECS_ROOT)

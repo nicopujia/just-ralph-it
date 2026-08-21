@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from yaml import YAMLError, safe_dump, safe_load
 
 from jri.lib import files, git, prompt
+from jri.lib.context import estimate_tokens
 from jri.lib.lock import Lock
 
 from . import paths
@@ -129,8 +130,10 @@ class Specs:
         self._restore_specifications(repository, draft, standing, status)
         return None
 
+    # A model writes as many times as one pass needs, so a write can arrive with one file or with twenty.
+    @classmethod
     def write(
-        self, repository: git.Repository, written: Mapping[str, str], deleted: Sequence[str], model_root: str
+        cls, repository: git.Repository, written: Mapping[str, str], deleted: Sequence[str], model_root: str
     ) -> None:
         if not written and not deleted:
             raise SpecsError("Specifications must change at least one file.")
@@ -139,12 +142,19 @@ class Specs:
         binary = next((path for path, content in sorted(written.items()) if "\x00" in content), None)
         if binary is not None:
             raise SpecsError(f"Specifications are text, and `{binary}` holds a null character.")
+        # A file with a summary and no body is a placeholder for work that no later pass comes back to do.
+        # Refuse it where the write happens, so the model hears about it while it can still write the file.
+        empty = next(
+            (path for path, content in sorted(written.items()) if not cls._split_frontmatter(content)[1].strip()), None
+        )
+        if empty is not None:
+            raise SpecsError(f"Specifications carry the behavior they name, and `{empty}` carries none.")
         root = repository.path / paths.SPECS_DIR
         # A path in both lists is written and removed by the model. The removal takes precedence.
         specifications: dict[Path, str | None] = {
-            self._locate_specification(repository.path, path, model_root): content for path, content in written.items()
-        } | {self._locate_specification(repository.path, path, model_root): None for path in deleted}
-        folded = self._find_folded_names(root, model_root, (*written, *deleted))
+            cls._locate_specification(repository.path, path, model_root): content for path, content in written.items()
+        } | {cls._locate_specification(repository.path, path, model_root): None for path in deleted}
+        folded = cls._find_folded_names(root, model_root, (*written, *deleted))
         if folded is not None:
             raise SpecsError(
                 f"Specifications cannot hold both `{folded[0]}` and `{folded[1]}`, which some filesystems read as "
@@ -167,7 +177,7 @@ class Specs:
                     "drafted. Nothing was committed. Your notes stand, and your project keeps the "
                     "specifications it already had."
                 ) from error
-        self._stage(repository, [destination.relative_to(repository.path).as_posix() for destination in specifications])
+        cls._stage(repository, [destination.relative_to(repository.path).as_posix() for destination in specifications])
         logger.info("specifications_written root=%s files=%d deleted=%d", model_root, len(written), len(deleted))
 
     # A specification must be a plain file. The file system and Git represent links differently.
@@ -199,12 +209,24 @@ class Specs:
     # Read the files a model named under one root, and refuse the read when a name matches none.
     # A model reads what it never wrote, so the names it gives are a request, not JRI data.
     # Raise the failure the tool loop reports to that model, not a `SpecsError` about the specifications themselves.
+    # `cap` bounds one answer in tokens. A cut specification reads like a complete one, and the model would then
+    # design against the part that arrived, so refuse the batch and name what each file costs. A call that names
+    # one file answers with it whatever its size, because no smaller request for that file exists.
     @staticmethod
-    def read_selected(repository: git.Repository, model_root: str, selected: Sequence[str]) -> str:
-        found = Specs.read(repository, f"{paths.SPECS_DIR}/{model_root}", selected=selected)
-        missing = sorted(set(selected) - {path.removeprefix(f"{paths.SPECS_DIR}/") for path in found})
+    def read_selected(repository: git.Repository, model_root: str, selected: Sequence[str], cap: int) -> str:
+        prefix = f"{paths.SPECS_DIR}/"
+        found = Specs.read(repository, f"{prefix}{model_root}", selected=selected)
+        missing = sorted(set(selected) - {path.removeprefix(prefix) for path in found})
         if missing:
             raise RuntimeError(f"Could not find these {model_root} specifications: {', '.join(missing)}.")
+        weights = {path.removeprefix(prefix): estimate_tokens(len(content)) for path, content in sorted(found.items())}
+        total = sum(weights.values())
+        if len(found) > 1 and total > cap:
+            raise RuntimeError(
+                f"These {model_root} specifications weigh {total} tokens together, over the {cap} tokens one call "
+                f"answers with: {', '.join(f'{name} ({weight})' for name, weight in weights.items())}. "
+                "Ask for fewer paths."
+            )
         return Specs.render(found)
 
     # Full content, frontmatter stripped, for files a model chose to read in full.

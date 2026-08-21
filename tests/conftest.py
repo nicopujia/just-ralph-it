@@ -12,7 +12,7 @@ from dotenv import dotenv_values
 
 from jri.core.settings import LLM
 from jri.lib import git
-from jri.lib.models_dot_dev import read_limit
+from jri.lib.models_dot_dev import read_limits
 from tests.doubles.models_dot_dev import serve_catalog
 
 type CreateLink = Callable[[Path, Path], None]
@@ -82,7 +82,7 @@ def isolate_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPa
     if request.node.get_closest_marker(CONTRACT_MARKER):
         # No other fixture clears this cache.
         # A cached limit from another test could replace the endpoint result.
-        read_limit.cache_clear()
+        read_limits.cache_clear()
         return
 
     def guard(*_: object, **__: object) -> Never:

@@ -47,8 +47,9 @@ from tests.doubles.acceptance import (
 )
 from tests.doubles.generation import run_in_thread
 from tests.doubles.lock import hold, take, watch_a_process_go
-from tests.doubles.openai import FakeClient, reply, response, streamed_reply
+from tests.doubles.openai import FakeClient, read_tool_outputs, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
+from tests.doubles.specs import write_files
 from tests.doubles.workspace import install_workspace
 
 # An acceptance applies this diff, and a staging worktree hands it over.
@@ -62,6 +63,11 @@ new file mode 100644
 +# Behavior
 """
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
+# What the two files of the batch tests below weigh together: eleven tokens and four.
+BATCH_WEIGHT = 15
+# A read answers with at most this many tokens. The tests below write files of a few bytes, so only a test that
+# asks for a cap of its own ever meets it.
+READ_CAP = 1_000
 # The same acceptance over both roots, in the order `git apply` writes them. Git writes the files of a patch one
 # at a time, thus a window over the second one stands with the first written and the second not.
 PAIRED_ACCEPTANCE_PATCH = b"""\
@@ -391,6 +397,11 @@ def build_conversation(path: Path, client: FakeClient) -> Conversation:
     return Conversation(build_settings(client))
 
 
+# What a run said to the model about a call it refused. A model that hears why can name something JRI writes.
+def read_refusals(client: FakeClient) -> str:
+    return "\n".join(read_tool_outputs(client))
+
+
 def read_ending(events: Iterable[TurnEvent], reason: str = "") -> Ending:
     finished = list(events)[-1]
     assert isinstance(finished, TurnFinished)
@@ -422,10 +433,6 @@ def read_specifications(worktree: Path) -> dict[str, str]:
     }
 
 
-def summarize(path: str) -> str:
-    return f"Specification for {path}."
-
-
 def build_client(
     functional: Mapping[str, str],
     architecture: Mapping[str, str] = ARCHITECTURE_FILES,
@@ -436,23 +443,11 @@ def build_client(
     return FakeClient(
         [streamed_reply("Repository report"), response(reply("Specifications ready."))],
         parsed=[
-            functional_analyst.Specifications(
-                files=[
-                    functional_analyst.File(path=path, content=content, summary=summarize(path))
-                    for path, content in functional.items()
-                ],
-                deleted_paths=list(functional_deleted),
-                unresolved=[],
-            ),
+            *write_files("functional", functional),
+            functional_analyst.Specifications(deleted_paths=list(functional_deleted), unresolved=[]),
+            *write_files("architecture", architecture),
             architect.Output(
-                result=architect.Architecture(
-                    outcome="architecture",
-                    files=[
-                        architect.File(path=path, content=content, summary=summarize(path))
-                        for path, content in architecture.items()
-                    ],
-                    deleted_paths=list(architecture_deleted),
-                )
+                result=architect.Architecture(outcome="architecture", deleted_paths=list(architecture_deleted))
             ),
         ],
     )
@@ -1785,10 +1780,60 @@ def test_reads_the_specifications_a_model_named(tmp_path: Path, create_repositor
     (root / "behavior.md").write_text("# Behavior\n")
     (root / "delivery.md").write_text("# Delivery\n")
 
-    rendered = Specs.read_selected(repository, "functional", ["functional/behavior.md"])
+    rendered = Specs.read_selected(repository, "functional", ["functional/behavior.md"], READ_CAP)
 
     assert "# Behavior" in rendered
     assert "# Delivery" not in rendered
+
+
+# One call answers for as many files as the cap holds, so a pass reads a set in one round instead of one round
+# for each file in it. A batch of exactly the cap is not over it.
+def test_reads_a_batch_of_specifications_the_cap_holds(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path)
+    root = tmp_path / ".jri" / "specs" / "functional"
+    root.mkdir(parents=True)
+    (root / "behavior.md").write_bytes(b"# Behavior\n" * 3)
+    (root / "delivery.md").write_bytes(b"# Delivery\n")
+
+    rendered = Specs.read_selected(
+        repository, "functional", ["functional/behavior.md", "functional/delivery.md"], BATCH_WEIGHT
+    )
+
+    assert "# Behavior" in rendered
+    assert "# Delivery" in rendered
+
+
+# A cut specification reads like a complete one, so a batch that passes the cap is refused whole. The refusal
+# names what each file weighs, which is what the model needs to ask for fewer of them.
+def test_refuses_to_read_more_specifications_than_one_call_answers_with(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    root = tmp_path / ".jri" / "specs" / "functional"
+    root.mkdir(parents=True)
+    (root / "behavior.md").write_bytes(b"# Behavior\n" * 3)
+    (root / "delivery.md").write_bytes(b"# Delivery\n")
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            r"weigh 15 tokens together, over the 10 tokens one call answers with: functional/behavior\.md \(11\), "
+            r"functional/delivery\.md \(4\)\. Ask for fewer paths\."
+        ),
+    ):
+        Specs.read_selected(repository, "functional", ["functional/behavior.md", "functional/delivery.md"], 10)
+
+
+# No smaller request exists for one file, so a call that names one answers with it whatever it weighs.
+def test_reads_one_specification_that_alone_passes_the_cap(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path)
+    root = tmp_path / ".jri" / "specs" / "functional"
+    root.mkdir(parents=True)
+    (root / "behavior.md").write_bytes(b"# Behavior\n" * 3)
+
+    assert "# Behavior\n# Behavior\n# Behavior" in Specs.read_selected(
+        repository, "functional", ["functional/behavior.md"], 1
+    )
 
 
 # A model names these files itself, so a name that matches none is its mistake to hear about and correct.
@@ -1800,7 +1845,7 @@ def test_refuses_to_read_a_specification_no_file_answers_to(
     (tmp_path / ".jri" / "specs" / "architecture").mkdir(parents=True)
 
     with pytest.raises(RuntimeError, match=r"Could not find these architecture specifications: architecture/gone\.md"):
-        Specs.read_selected(repository, "architecture", ["architecture/gone.md"])
+        Specs.read_selected(repository, "architecture", ["architecture/gone.md"], READ_CAP)
 
 
 def test_renders_a_specification_that_reads_like_a_file_header() -> None:
@@ -2032,11 +2077,13 @@ def test_keeps_the_accepted_specifications_when_a_generation_fails(
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
     first_spec_commit = find_accepted_commit(tmp_path)
-    conversation = build_conversation(tmp_path, build_client({"functional/behavior.txt": "# Behavior\n"}))
+    client = build_client({"functional/behavior.txt": "# Behavior\n"})
+    conversation = build_conversation(tmp_path, client)
     conversation.restore()
     conversation.interviewer.notebook.add(["Report the totals too."], "t1")
 
-    assert read_ending(conversation.ralph(), r"cannot change `functional/behavior\.txt`") == "failed"
+    assert read_ending(conversation.ralph(), "at least one file") == "failed"
+    assert r"cannot change `functional/behavior.txt`" in read_refusals(client)
 
     assert find_accepted_commit(tmp_path) == first_spec_commit
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
@@ -2052,9 +2099,11 @@ def test_reports_a_specification_path_the_filesystem_refuses(
     create_repository(tmp_path)
     # This 320-character name exceeds the roughly 255-byte limit most filesystems place on one path component,
     # so the write fails at the OS level.
-    conversation = build_conversation(tmp_path, build_client({f"functional/{'behavior' * 40}.md": "# Behavior\n"}))
+    client = build_client({f"functional/{'behavior' * 40}.md": "# Behavior\n"})
+    conversation = build_conversation(tmp_path, client)
 
-    assert read_ending(conversation.ralph(), "could not write the specification") == "failed"
+    assert read_ending(conversation.ralph(), "at least one file") == "failed"
+    assert "could not write the specification" in read_refusals(client)
     assert find_accepted_commit(tmp_path) is None
     assert not (tmp_path / ".jri/specs").exists()
 
@@ -2128,7 +2177,6 @@ def test_prepares_a_baseline_after_a_forced_start_over(tmp_path: Path, create_re
     assert baseline.accepted == git.Repository(tmp_path).read_head()
 
 
-@pytest.mark.parametrize("deletes", [False, True], ids=["written", "deleted"])
 @pytest.mark.parametrize(
     ("path", "reason"),
     [
@@ -2175,13 +2223,29 @@ def test_prepares_a_baseline_after_a_forced_start_over(tmp_path: Path, create_re
     ],
 )
 def test_refuses_a_path_that_is_not_a_specification_of_its_root(
-    tmp_path: Path, path: str, reason: str, create_repository: CreateRepository, *, deletes: bool
+    tmp_path: Path, path: str, reason: str, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
-    files = {} if deletes else {path: "# Behavior\n"}
-    conversation = build_conversation(tmp_path, build_client(files, functional_deleted=[path] if deletes else []))
+    client = build_client({path: "# Behavior\n"})
+    conversation = build_conversation(tmp_path, client)
 
-    assert read_ending(conversation.ralph(), reason) == "failed"
+    # The model wrote this path and can write again under one JRI takes, so it is the model that hears the name.
+    # The pass then ends with no file written, and the run ends over that.
+    assert read_ending(conversation.ralph(), "at least one file") == "failed"
+    assert re.search(reason, read_refusals(client)), read_refusals(client)
+    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ".jri/specs").exists()
+
+
+# A removal reaches the project after the pass has ended, so no call of the model is left to hear about it. The
+# run ends over the name, and the user reads it. The rules the name is read against are the ones above.
+def test_refuses_to_remove_a_path_that_is_not_a_specification_of_its_root(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, build_client({}, functional_deleted=["architecture/behavior.md"]))
+
+    assert read_ending(conversation.ralph(), r"cannot change `architecture/behavior\.md`") == "failed"
     assert find_accepted_commit(tmp_path) is None
     assert not (tmp_path / ".jri/specs").exists()
 
@@ -2193,19 +2257,37 @@ def test_refuses_a_specification_body_git_would_read_as_binary(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, build_client({"functional/behavior.md": "# Behavior\x00\n"}))
+    client = build_client({"functional/behavior.md": "# Behavior\x00\n"})
+    conversation = build_conversation(tmp_path, client)
 
-    assert read_ending(conversation.ralph(), "holds a null character") == "failed"
+    assert read_ending(conversation.ralph(), "at least one file") == "failed"
+    assert "holds a null character" in read_refusals(client)
     assert find_accepted_commit(tmp_path) is None
     assert not (tmp_path / ".jri/specs").exists()
 
 
-def test_refuses_specifications_that_change_no_file(tmp_path: Path, create_repository: CreateRepository) -> None:
-    create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, build_client({}))
+# A file with a summary and no body of its own is a stub, and no later pass comes back to fill it in.
+@pytest.mark.parametrize(
+    "content", ["", "   \n", "---\nsummary: How the product behaves.\n---\n\n"], ids=["empty", "blank", "summary-only"]
+)
+def test_refuses_a_specification_that_carries_no_behavior(
+    content: str, tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
 
-    assert read_ending(conversation.ralph(), "at least one file") == "failed"
-    assert find_accepted_commit(tmp_path) is None
+    with pytest.raises(SpecsError, match=r"carry the behavior they name, and `functional/behavior\.md` carries none"):
+        Specs.write(repository, {"functional/behavior.md": content}, (), "functional")
+
+    assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
+
+
+# A model can call the write tool with no file at all. Such a call changes nothing, and the model hears so while
+# it can still write one.
+def test_refuses_specifications_that_change_no_file(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path)
+
+    with pytest.raises(SpecsError, match="must change at least one file"):
+        Specs.write(repository, {}, (), "functional")
 
 
 # A link answers to none of the rules that the path itself is read against.

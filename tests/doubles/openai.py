@@ -15,13 +15,20 @@ RATE_LIMIT_MESSAGE = "Rate limit reached on tokens per min (TPM)."
 REQUEST = httpx.Request("POST", f"{BASE_URL}/responses")
 
 
-def response(*outputs: dict[str, Any], input_tokens: int | None = None) -> Round:
+def response(*outputs: dict[str, Any], input_tokens: int | None = None, cached_tokens: int = 0) -> Round:
     events = [
         SimpleNamespace(type="response.output_item.done", output_index=index, item=_Item(output))
         for index, output in enumerate(outputs)
     ]
     # A provider reports what a call spent one time, on the event that completes it. Some providers report nothing.
-    usage = None if input_tokens is None else SimpleNamespace(input_tokens=input_tokens)
+    # The part of the input that came from the cache stands in the details of the input.
+    usage = (
+        None
+        if input_tokens is None
+        else SimpleNamespace(
+            input_tokens=input_tokens, input_tokens_details=SimpleNamespace(cached_tokens=cached_tokens)
+        )
+    )
     events.append(SimpleNamespace(type="response.completed", response=SimpleNamespace(usage=usage)))
     return events
 
@@ -126,6 +133,21 @@ def failed_response(message: str | None) -> Round:
 
 def call(call_id: str, name: str, **arguments: object) -> dict[str, Any]:
     return {"type": "function_call", "call_id": call_id, "name": name, "arguments": json.dumps(arguments)}
+
+
+# What a run said back to the model with the answer of each tool call it made.
+def read_tool_outputs(client: "FakeClient") -> list[str]:
+    answered: list[str] = []
+    for context in client.responses.inputs:
+        for message in cast("list[dict[str, object]]", context):
+            if message.get("type") != "function_call_output":
+                continue
+            output = message["output"]
+            if isinstance(output, str):
+                answered.append(output)
+            else:
+                answered += [str(item.get("text", "")) for item in cast("list[dict[str, object]]", output)]
+    return answered
 
 
 def reply(text: str) -> dict[str, Any]:
