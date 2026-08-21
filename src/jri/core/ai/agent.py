@@ -81,8 +81,7 @@ class Agent:
 
         while True:
             partial_text: list[str] = []
-            tool_definitions = self._spend_round()
-            context = self.get_context()
+            context, tool_definitions = self._start_round()
             logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(context))
             response = self.runner.respond(context, tool_definitions)
             for event in response.events:
@@ -131,8 +130,7 @@ class Agent:
         logger.info("parse_started agent=%s model=%s", type(self).__name__, self.profile.model)
 
         while True:
-            tool_definitions = self._spend_round()
-            context = self.get_context()
+            context, tool_definitions = self._start_round()
             logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(context))
             result = yield from self.runner.parse(context, output_type, cancelled, tools=tool_definitions)
 
@@ -164,14 +162,16 @@ class Agent:
         logger.info("message_cancelled agent=%s", type(self).__name__)
 
     # A round costs one round of the budget. The round that spends it carries no tools, so the agent has nothing left
-    # to do but answer with what it has. Read the tools each round, because a round can take them away.
-    def _spend_round(self) -> list[FunctionToolParam]:
+    # to do but answer with what it has. The context comes before the tools, because the context of a round decides
+    # what that round can call. The record above goes into the history first, so a context that a role builds fresh
+    # from the history carries it into this same round.
+    def _start_round(self) -> tuple[ResponseInputParam, list[FunctionToolParam]]:
         self.remaining_rounds = max(self.remaining_rounds - 1, 0)
-        if self.remaining_rounds:
-            return [tool.definition for tool in self.get_tools()]
-        self.history.append({"role": "system", "content": self.EXHAUSTION_RECORD})
-        logger.info("rounds_spent agent=%s", type(self).__name__)
-        return []
+        if not self.remaining_rounds:
+            self.history.append({"role": "system", "content": self.EXHAUSTION_RECORD})
+            logger.info("rounds_spent agent=%s", type(self).__name__)
+        context = self.get_context()
+        return context, [tool.definition for tool in self.get_tools()] if self.remaining_rounds else []
 
     def _invoke(
         self, output: dict[str, object], cancelled: Event

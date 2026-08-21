@@ -99,6 +99,19 @@ def test_shares_one_round_budget_across_the_parse_calls_of_a_job() -> None:
     assert cast("list[dict[str, object]]", agent.history)[-1] == {"role": "system", "content": EXHAUSTION_RECORD}
 
 
+# The tools of a round are what the model can call in it. Every round offers them until the round that spends
+# the budget, which offers none, so the model answers with what it has instead of calling a tool that no longer
+# answers.
+def test_offers_its_tools_until_the_round_that_spends_the_budget() -> None:
+    client = FakeClient([*repeat_calls(MAX_ROUNDS - 1), response(reply("Done."))])
+    agent = ToolAgent(cast("OpenAI", client))
+
+    list(agent.send_message("Go."))
+
+    assert client.responses.tools[0] == ["echo", "fail", "summarize", "narrate"]
+    assert client.responses.tools[-1] == []
+
+
 # A reply that spent every round leaves the next reply the whole budget again, so it starts with its tools.
 def test_refills_the_round_budget_for_each_reply() -> None:
     spent = [*repeat_calls(MAX_ROUNDS - 1), response(reply("Done."))]

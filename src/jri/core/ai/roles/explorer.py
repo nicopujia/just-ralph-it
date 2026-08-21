@@ -23,6 +23,7 @@ from pydantic import BaseModel, PlainSerializer
 from jri.core import ai
 from jri.core.ai.agent import Agent
 from jri.core.ai.tool import Invocation, Tool, tool
+from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavailableError, UsageLimitError
 from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, files, prompt, youtube
 from jri.lib.context import estimate_tokens, measure_request
@@ -98,21 +99,47 @@ class Explorer(Agent):
         return [] if self.at_input_limit else self.tools
 
     # One exploration runs in segments, and each segment is a call of its own that starts from the query, the
-    # findings so far, and what is left. They share one round budget, because `parse` never refills it.
+    # summaries of the segments before it, and what is left. They share one round budget, because `parse` never
+    # refills it. Each segment reports what it found, and JRI holds every report, so the answer is the whole of
+    # the exploration and not the part that the last segment happened to write.
     def report(
         self, query: str, depth: int = 0, cancelled: Event | None = None
     ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Exploration | None]:
-        exploration = None
+        reports: list[str] = []
+        summaries: list[str] = []
+        remaining = ""
         for segment in range(1, self.MAX_SEGMENTS + 1):
             # The first segment carries the query alone, which the caller wrote for a model to read whole.
-            message = query if exploration is None else self._render(query, exploration)
-            exploration = yield from _stamp_rows(self.parse(message, Exploration, cancelled), depth)
-            if exploration is None or not exploration.remaining.strip():
-                return exploration
+            message = self._render(query, summaries, remaining) if summaries else query
+            try:
+                exploration = yield from _stamp_rows(self.parse(message, Exploration, cancelled), depth)
+            # A spent budget, a refusal and an outage are conditions of the provider, and each one ends the turn
+            # its own way for the caller to report. They travel out of the exploration whatever the segments
+            # found, because a user who pays for nothing, or waits for a provider that is down, must read why.
+            except (UsageLimitError, ProviderRefusalError, ProviderUnavailableError):
+                raise
+            # The provider answered and JRI could not read the answer. That ends the segment, and the exploration
+            # ends with what the segments before it found. The first segment holds nothing to answer with, so its
+            # failure is the failure of the whole exploration.
+            except ModelError:
+                if not reports:
+                    raise
+                break
+            # The user stopped the run, which stops the job that asked for the exploration too.
+            if exploration is None:
+                return None
+            reports.append(exploration.report)
+            summaries.append(exploration.summary)
+            remaining = exploration.remaining
+            # Another segment follows only where JRI recorded the size limit for this one and this one named work
+            # that is left. Work left over where the room lasted is work for a further round of the same segment,
+            # and a segment costs a whole request.
+            if not self.at_input_limit or not remaining.strip():
+                break
             # The handoff gives the segment that follows room again, and tells it whether it is the last one.
             self.at_input_limit = False
             self.final_segment = segment + 1 == self.MAX_SEGMENTS
-        return exploration
+        return Exploration(report="\n\n".join(reports), summary="\n".join(summaries), remaining="")
 
     @tool(
         "Explore the web with a search engine.",
@@ -291,12 +318,14 @@ class Explorer(Agent):
         logger.info("shell_finished return_code=%d output_characters=%d", process.returncode, len(output))
         return output
 
-    def _render(self, query: str, exploration: Exploration) -> str:
+    # The handoff carries the summaries and not the reports: a segment ends where its request runs out of room,
+    # so what it hands on must be small.
+    def _render(self, query: str, summaries: list[str], remaining: str) -> str:
         return ai.prompts.read(
             "explorer_segment",
             final_rule=f"\n{self.FINAL_SEGMENT_PROMPT}\n" if self.final_segment else "",
             context=prompt.render(
-                exploration_query=query, findings_so_far=exploration.report, remaining_work=exploration.remaining
+                exploration_query=query, summaries_so_far="\n".join(summaries), remaining_work=remaining
             ),
         )
 

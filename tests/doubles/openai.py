@@ -171,6 +171,9 @@ class _Responses:
         self.rounds = iter(rounds)
         self.parsed = iter(parsed)
         self.inputs: list[object] = []
+        # What each request offered the model to call. This is what JRI told the model it can do, as the prompt
+        # in `inputs` is what JRI told it to do, so a test reads it.
+        self.tools: list[list[str]] = []
         self.options: list[dict[str, object]] = []
 
     def create(self, **options: object) -> "_Stream":
@@ -181,6 +184,7 @@ class _Responses:
 
     def _serve(self, source: Iterator[object], options: dict[str, object]) -> object:
         self.inputs.append(options["input"])
+        self.tools.append([item["name"] for item in cast("list[dict[str, str]]", options["tools"])])
         self.options.append(options)
         served = next(source)
         if isinstance(served, OpenAIError):
