@@ -25,12 +25,12 @@ Result = TypeVar("Result", bound=BaseModel)
 
 @dataclass(kw_only=True)
 class Agent:
-    # A reply that spends these rounds ends with what it holds, so this number bounds what a run can cost and
-    # not what it can do. One exploration spends them across all of its segments.
+    # A reply that uses all these rounds ends with the data it has. This number limits the cost of a run, and
+    # not its result. All the segments of one exploration use these same rounds.
     MAX_ROUNDS: ClassVar[int] = 100
     # A stopped reply ends where the user stopped it. Record the stop, because the text alone reads as a full reply.
     CANCELLATION_RECORD: ClassVar[str] = "User stopped last reply. Items before this message are all that happened."
-    # The last round carries no tools. Record that, because a model with no tools reads them as lost, not as spent.
+    # The last round has no tools. A model that finds no tools can think that it lost them. Record why.
     EXHAUSTION_RECORD: ClassVar[str] = "Response rounds were spent. No tool was available for the rest of that reply."
 
     prompt: InitVar[str]
@@ -78,7 +78,7 @@ class Agent:
     def respond(self, cancelled: Event | None = None) -> Generator["ai.AgentEvent"]:
         cancelled = cancelled or Event()
         logger.info("message_started agent=%s model=%s", type(self).__name__, self.profile.model)
-        # A reply gets the whole budget. Only a job of many `parse` calls shares one.
+        # Each reply starts with all the rounds. Only a job of many `parse` calls divides them between its calls.
         self.remaining_rounds = self.MAX_ROUNDS
 
         while True:
@@ -113,8 +113,8 @@ class Agent:
             if cancelled.is_set():
                 self._record_cancellation()
                 return
-            # The round that spends the budget is the last one, whatever the model answered with. Each further
-            # round is one more request the user pays for.
+            # This round was the last one, whatever the model answered. Each round after it is one more request
+            # that the user pays for.
             if not self.remaining_rounds:
                 break
 
@@ -153,8 +153,8 @@ class Agent:
             if cancelled.is_set():
                 self._record_cancellation()
                 return None
-            # The round that spends the budget is the last chance at a result. A result never came, so the turn
-            # failed. `None` is the answer for a stopped run alone.
+            # This round was the last one, and it gave no result. Fail the turn, because `None` is the result
+            # of a stopped run only.
             if not self.remaining_rounds:
                 raise ModelError(f"Agent spent all {self.MAX_ROUNDS} response rounds without a result.")
 
@@ -163,10 +163,9 @@ class Agent:
         self.history.append({"role": "system", "content": self.CANCELLATION_RECORD})
         logger.info("message_cancelled agent=%s", type(self).__name__)
 
-    # A round costs one round of the budget. The round that spends it carries no tools, so the agent has nothing left
-    # to do but answer with what it has. The context comes before the tools, because the context of a round decides
-    # what that round can call. The record above goes into the history first, so a context that a role builds fresh
-    # from the history carries it into this same round.
+    # The last round has no tools, and the model must answer with the data it has. Make the context before the
+    # tools, because a role can remove its tools while it makes its context. Put the record in the history
+    # first. A role that makes its context again from the history then reads the record in this same round.
     def _start_round(self) -> tuple[ResponseInputParam, list[FunctionToolParam]]:
         self.remaining_rounds = max(self.remaining_rounds - 1, 0)
         if not self.remaining_rounds:

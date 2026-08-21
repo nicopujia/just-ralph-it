@@ -32,8 +32,8 @@ from jri.lib.models_dot_dev import get_input_room
 logger = logging.getLogger(__name__)
 
 
-# What one segment of an exploration answers with. The report is the whole of the findings, the summary stands for
-# it where the whole does not fit, and the remaining work is what a further segment takes up.
+# The result of one segment of an exploration. The report contains everything that the segment found. The
+# summary replaces the report when the report is too large. The remaining work is for the segment that follows.
 class Exploration(BaseModel):
     report: str
     summary: str
@@ -42,26 +42,25 @@ class Exploration(BaseModel):
 
 class Explorer(Agent):
     MAX_INPUT_SIZE = 10 * 1024 * 1024
-    # An exploration runs at most this many segments. Each one costs a full request, and a query that ten of them
-    # do not answer is one that no further segment answers either.
+    # Each segment costs a full request. If ten segments do not answer the query, more segments do not answer
+    # it either.
     MAX_SEGMENTS = 10
-    # End a segment past this share of the room the model reads. The rest of that room holds the report that the
-    # segment writes, and the reasoning the model keeps while it writes it.
+    # A segment ends when its request is larger than this part of the input space. The remaining space holds the
+    # report and the reasoning that the model writes.
     INPUT_SHARE = 0.8
-    # The room a segment measures against when the catalog states none for the model.
+    # The input space that a segment measures against when the catalog gives no limit for the model.
     FALLBACK_INPUT_ROOM = 100_000
-    # A segment ends where its request runs out of room. Record that, because a model with no tool reads it as a
-    # tool it lost, not as a segment that ends.
+    # A model that finds no tools can think that it lost them. Tell it that the segment is at its size limit.
     INPUT_LIMIT_RECORD = (
         "This request is at its size limit. No more tool output fits in this segment of the exploration."
     )
-    # The last segment has no segment after it, so a record of its own says that no room follows this one either.
+    # No segment comes after the last one. Its own record tells the model that no more space follows.
     FINAL_LIMIT_RECORD = (
         "This request is at its size limit, and this is the last segment of the exploration. "
         "No more tool output fits in it, and no segment follows it."
     )
-    # How much of a report stands for it where the model wrote no summary of its own. A summary is one or two
-    # lines, and this much of a report reads as that many.
+    # This much of a report replaces the report when the model wrote no summary. A summary is one or two lines,
+    # and this many characters are one or two lines.
     SUMMARY_LENGTH = 200
 
     def __init__(self, settings: Settings, directory: Path) -> None:
@@ -80,8 +79,8 @@ class Explorer(Agent):
         self.at_input_limit = False
         self.final_segment = False
 
-    # Measure the request that the round about to start sends. Past the mark, record that the segment stands at
-    # its limit, so that round reports the findings it has instead of gathering more.
+    # Measure the request that the next round sends. A request that is too large puts the segment at its size
+    # limit. Record that limit, so that the round reports its findings and does not collect more.
     @override
     def get_context(self) -> ResponseInputParam:
         if not self.at_input_limit:
@@ -94,16 +93,16 @@ class Explorer(Agent):
                 logger.info("exploration_limit_reached tokens=%d room=%d", estimate, room)
         return self.history
 
-    # A segment at its limit has nothing left to gather. Take its tools away, so the rounds it has left write the
-    # report rather than fill the request further.
+    # Remove the tools of a segment that is at its size limit. Its remaining rounds then write the report and do
+    # not make the request larger.
     @override
     def get_tools(self) -> list[Tool]:
         return [] if self.at_input_limit else self.tools
 
-    # One exploration runs in segments, and each segment is a call of its own that starts from the query, the
-    # summaries of the segments before it, and what is left. They share one round budget, because `parse` never
-    # refills it. Each segment reports what it found, and JRI holds every report, so the answer is the whole of
-    # the exploration and not the part that the last segment happened to write.
+    # An exploration runs in segments. Each segment is a `parse` call. It starts from the query, the summaries
+    # of the segments before it, and the remaining work. All the segments use the same rounds, because `parse`
+    # does not add more. Keep all the reports, so that the result is the whole exploration and not the last
+    # segment.
     def report(
         self, query: str, depth: int = 0, cancelled: Event | None = None
     ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Exploration | None]:
@@ -111,38 +110,39 @@ class Explorer(Agent):
         summaries: list[str] = []
         remaining = ""
         for segment in range(1, self.MAX_SEGMENTS + 1):
-            # The first segment carries the query alone, which the caller wrote for a model to read whole.
+            # The caller wrote the query for a model. The first segment sends it as the whole message, with no
+            # JRI words beside it.
             message = _render(query, summaries, remaining) if summaries else query
             try:
                 exploration = yield from _stamp_rows(self.parse(message, Exploration, cancelled), depth)
-            # A spent budget, a refusal and an outage are conditions of the provider, and each one ends the turn
-            # its own way for the caller to report. They travel out of the exploration whatever the segments
-            # found, because a user who pays for nothing, or waits for a provider that is down, must read why.
+            # A usage limit, a refusal and an outage come from the provider. Each one ends the turn in its own
+            # way. Raise them again, whatever the segments found, because the user must read why the run
+            # stopped.
             except (UsageLimitError, ProviderRefusalError, ProviderUnavailableError):
                 raise
-            # The provider answered and JRI could not read the answer. That ends the segment, and the exploration
-            # ends with what the segments before it found. The first segment holds nothing to answer with, so its
-            # failure is the failure of the whole exploration.
+            # The provider answered, but JRI could not read the answer. The segment ends, and the exploration
+            # ends with the findings of the segments before it. The exploration fails if the first segment
+            # fails, because no segment before it found data.
             except ModelError:
                 if not reports:
                     raise
                 break
-            # The user stopped the run, which stops the job that asked for the exploration too.
+            # The user stopped the run. This also stops the job that asked for the exploration.
             if exploration is None:
                 return None
             reports.append(exploration.report)
-            # An exploration that has a report always answers with a summary. The summary is what stands for the
-            # report where the whole of it no longer fits, so where the model wrote none, the beginning of the
-            # report stands in its place. A report that had none would stand whole for the rest of the interview.
+            # The summary replaces the report when the report no longer fits. If the model wrote no summary,
+            # the first part of the report replaces it. A report with no summary would stay whole for all the
+            # interview.
             summaries.append(exploration.summary.strip() or prompt.truncate(exploration.report, self.SUMMARY_LENGTH))
             remaining = exploration.remaining
-            # Another segment follows only where JRI recorded the size limit for this one and this one named work
-            # that is left. Work left over where the room lasted is work for a further round of the same segment,
-            # and a segment costs a whole request.
+            # A segment follows only if JRI recorded the size limit and the model named remaining work. If the
+            # space was sufficient, a further round of the same segment does that work. A segment costs a full
+            # request.
             if not self.at_input_limit or not remaining.strip():
                 break
-            # The handoff gives the segment that follows room again. Where that segment is the last one, the
-            # record of its size limit is what tells it so.
+            # The segment that follows starts with space again. If it is the last segment, its record of the
+            # size limit tells it so.
             self.at_input_limit = False
             self.final_segment = segment + 1 == self.MAX_SEGMENTS
         return Exploration(report="\n\n".join(reports), summary="\n".join(summaries), remaining="")
@@ -325,8 +325,8 @@ class Explorer(Agent):
         return output
 
 
-# The handoff carries the summaries and not the reports: a segment ends where its request runs out of room, so
-# what it hands on must be small.
+# A segment ends because its request has no more space. The segment that follows gets the summaries and not
+# the reports, which are too large.
 def _render(query: str, summaries: list[str], remaining: str) -> str:
     return ai.prompts.read(
         "explorer_segment",
@@ -334,8 +334,8 @@ def _render(query: str, summaries: list[str], remaining: str) -> str:
     )
 
 
-# `yield from` passes on each event as it is, and every row of a segment carries the depth of the caller of the
-# exploration. Drain the segment here, stamp each row it opens, and give the result back to the caller.
+# `yield from` sends each event out unchanged, but each row of a segment must show the depth of the caller.
+# Read the segment here, set the depth of each of its rows, and return the result to the caller.
 def _stamp_rows(
     segment: Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Exploration | None],
     depth: int,

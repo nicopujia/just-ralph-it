@@ -8,8 +8,8 @@ type Progress = ReasoningDelta | ToolCallStarted | ToolCallFinished
 EXPLORATION_SUMMARY = "The project, in two lines."
 
 
-# An exploration that answers its query in one segment, and leaves nothing for another one. A segment that thinks
-# out loud answers over a round of its own, because a thought arrives before the result and not with it.
+# An exploration that answers its query in one segment, and leaves no work for a second segment. A segment that
+# sends its reasoning needs a round of its own, because the reasoning comes before the result.
 def explored(report: str = "Repository report", thinking: str = "") -> list[object]:
     exploration = Exploration(report=report, summary=EXPLORATION_SUMMARY, remaining="")
     if not thinking:

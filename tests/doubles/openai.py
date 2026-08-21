@@ -132,9 +132,9 @@ def failed_response(message: str | None) -> Round:
     return [SimpleNamespace(type="response.failed", response=SimpleNamespace(error=error))]
 
 
-# The provider library reads the structured answer while the stream runs. Where the model wrote text that the
-# schema does not accept, the library raises inside the loop over the events, and no event follows it. Give this
-# round text that `output_type` cannot read.
+# The provider library reads the structured answer during the stream. If the model wrote text that the schema
+# does not accept, the library raises an error. It raises during the loop over the events, and no event follows.
+# This round gives text that `output_type` cannot read.
 def unreadable_answer(output_type: type[BaseModel], text: str) -> Round:
     yield _delta(text)
     output_type.model_validate_json(text)
@@ -180,8 +180,8 @@ class _Responses:
         self.rounds = iter(rounds)
         self.parsed = iter(parsed)
         self.inputs: list[object] = []
-        # What each request offered the model to call. This is what JRI told the model it can do, as the prompt
-        # in `inputs` is what JRI told it to do, so a test reads it.
+        # The tools that each request gave to the model. These tools tell the model what it can do, and the
+        # prompt in `inputs` tells it what to do. A test reads them.
         self.tools: list[list[str]] = []
         self.options: list[dict[str, object]] = []
 

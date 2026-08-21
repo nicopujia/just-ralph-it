@@ -44,7 +44,7 @@ def tool(
 class ToolOutput:
     value: str | ResponseFunctionCallOutputItemListParam
     outcome: "ai.Outcome" = "done"
-    # A short stand-in a tool offers for its own output, for a reader that cannot hold the whole of it.
+    # A short text that replaces the output of a tool, for a reader that cannot keep the full output.
     summary: str = ""
 
 

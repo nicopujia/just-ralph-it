@@ -28,8 +28,8 @@ class Interviewer(Agent):
     FALLBACK_CONTEXT_LIMIT = 100_000
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to make?"
-    # This stands where an exploration report stood. No tool reads an exploration back, so the record says that the
-    # report is gone and that the summary beside it is all that is left of it.
+    # This record replaces an exploration report. No tool can read an exploration again. The record tells the
+    # model that the report is gone, and that only the summary below it is left.
     EXPLORATION_RECORD = (
         "[This exploration report was taken out of the message to make room. Nothing holds it now, and the "
         "summary below is all that is left of it.]"
@@ -123,13 +123,14 @@ class Interviewer(Agent):
     )
     def explore(self, query: str) -> Stream:
         exploration = yield from Explorer(self.settings, Workspace.find().root).report(query)
-        # An exploration the user stopped ends with nothing, and reads as one that found nothing.
+        # An exploration that the user stopped has no result. It is the same as an exploration that found
+        # nothing.
         exploration = exploration if exploration is not None else Exploration(report="", summary="", remaining="")
         if not exploration.report:
             yield ToolOutput("Exploration produced no report.", "empty")
             return
         # A model creates this report from web content. Quote it because JRI text can follow a long report.
-        # The summary stands for the report in a turn that the whole of it no longer fits in.
+        # The summary replaces the report in a turn when the full report no longer fits.
         yield ToolOutput(prompt.render(exploration_report=exploration.report), summary=exploration.summary)
 
     @tool(
@@ -283,19 +284,20 @@ class Interviewer(Agent):
     def disconnect_notes(self, connections: list[Connection]) -> str:
         return f"Disconnected {self.notebook.disconnect(connections)} relationship(s)."
 
-    # Ten reports at the limit of a tool output weigh more than a drop of every turn can free, and a report that
-    # stays whole crowds out the interview it serves. Each recorded exploration but the newest thus stands as its
-    # summary, and the newest stands whole whatever the request weighs. The swap happens in place, before the
-    # weights are measured, so a swapped report never comes back, turns drop only if the request is still too
-    # heavy, and every later request repeats the bytes of this one, which the provider serves from its cache.
+    # Ten reports at the size limit of a tool output are too large for the interview. A drop of all the turns
+    # cannot free sufficient space. A report that stays whole also pushes the interview out of the request.
+    # Each recorded exploration but the newest becomes its summary, and the newest stays whole at any size.
+    # JRI replaces the report in the history, before it measures the request. A replaced report can then never
+    # come back, and turns drop only if the request is still too large. Each later request repeats these same
+    # bytes, which the provider gives from its cache.
     def _summarize_explorations(self) -> None:
         explorations = [
             item
             for item in cast("list[dict[str, Any]]", self.history)
             if item.get("type") == "function_call_output" and item.get("call_id") in self.output_summaries
         ]
-        # The summary comes from a model, so quote it. Rendering it again gives the same bytes, so a later round
-        # swaps a swapped report for the record it already holds.
+        # The summary comes from a model, so quote it. A later round renders it again and gets the same bytes.
+        # It then replaces a replaced report with the same record.
         for item in explorations[:-1]:
             summary = self.output_summaries[cast("str", item["call_id"])]
             item["output"] = f"{self.EXPLORATION_RECORD}\n\n{prompt.render(exploration_summary=summary)}"

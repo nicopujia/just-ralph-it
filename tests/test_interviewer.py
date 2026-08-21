@@ -29,15 +29,15 @@ LONG_INTERVIEW = 30
 KEPT_TURNS = 11
 REPORT = "Cats are mammals."
 LATER_REPORT = "Dogs are mammals too."
-# What JRI leaves where an exploration report stood. It says that the report is gone and that the summary is all
-# that is left of it. It names no tool, because no tool reads an exploration back.
+# What JRI leaves where an exploration report was. It tells the model that the report is gone, and that only
+# the summary is left. It names no tool, because no tool can read an exploration again.
 EXPLORATION_RECORD = (
     "[This exploration report was taken out of the message to make room. Nothing holds it now, and the summary "
     "below is all that is left of it.]"
 )
 SUMMARIZED_EXPLORATION = f"{EXPLORATION_RECORD}\n\n<exploration_summary>\nMammals.\n</exploration_summary>"
-# A report weighs many times what its summary does. Two whole ones thus pass a limit that the same request
-# stands under once the older of them holds its summary alone.
+# A report is many times larger than its summary. Two whole reports go above a limit. The same request stays
+# below it when the older report becomes its summary.
 HEAVY_REPORT = "This exploration report weighs on every request that carries it. " * 200
 
 
@@ -53,7 +53,7 @@ def add_turns(interviewer: Interviewer, count: int, first: int = 0, filler: str 
         ])
 
 
-# Seed a recorded exploration, as a round of the interview leaves one, and hand back the item that holds its report.
+# Add a recorded exploration, as a round of the interview does, and return the item that holds its report.
 def add_exploration(interviewer: Interviewer, call_id: str, report: str, summary: str) -> dict[str, str]:
     output = {
         "type": "function_call_output",
@@ -250,8 +250,8 @@ def test_stops_dropping_turns_when_the_request_weighs_the_target(
     assert read_questions(interviewer.get_context()) == list(range(LONG_INTERVIEW - KEPT_TURNS, LONG_INTERVIEW))
 
 
-# Ten reports at the limit of one tool output weigh 330k tokens against a drop target of 125k, so no drop of
-# turns can bring a request that holds them down. Each report but the newest thus stands as its summary.
+# Ten reports at the size limit of a tool output are 330k tokens. The drop target is 125k tokens. A drop of
+# turns cannot make such a request small enough. Each report but the newest becomes its summary.
 def test_stands_every_exploration_but_the_newest_as_its_summary(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
     add_exploration(interviewer, "e0", REPORT, "Mammals.")
@@ -263,15 +263,15 @@ def test_stands_every_exploration_but_the_newest_as_its_summary(tmp_path: Path) 
         SUMMARIZED_EXPLORATION,
         f"<exploration_report>\n{LATER_REPORT}\n</exploration_report>",
     ]
-    # A recorded report is what the swap replaces. The call that asked for it stands as the model wrote it.
+    # JRI changes the recorded report only. The call that asked for it stays as the model wrote it.
     assert [item for item in cast("list[dict[str, str]]", context) if item.get("type") == "function_call"] == [
         {"type": "function_call", "call_id": "e0", "name": "explore", "arguments": '{"query": "cats"}'},
         {"type": "function_call", "call_id": "e1", "name": "explore", "arguments": '{"query": "cats"}'},
     ]
 
 
-# The context is built again before every round. A swap that stacked one record on the one before it would move
-# the bytes of each request, in front of a cache that holds none of them.
+# JRI makes the context again before each round. If JRI added a record to the record before it, the bytes of
+# each request would change. The cache of the provider would then hold none of them.
 def test_swaps_an_exploration_report_out_of_the_history_once(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
     add_exploration(interviewer, "e0", REPORT, "Mammals.")
@@ -282,12 +282,12 @@ def test_swaps_an_exploration_report_out_of_the_history_once(tmp_path: Path) -> 
     later = interviewer.get_context()
 
     assert read_outputs(later)[0] == SUMMARIZED_EXPLORATION
-    # The swap stands in the history, so a report it took out cannot come back in a later request.
+    # JRI replaces the report in the history, so the removed report cannot come back in a later request.
     assert read_outputs(interviewer.history) == read_outputs(later)
 
 
-# The swap comes before the drop of turns, so a request that fits once the older reports stand as summaries keeps
-# every turn of the interview. Report detail goes first, and the interview goes only after it.
+# JRI replaces the reports before it drops turns. A request that fits after the older reports become summaries
+# keeps all the turns of the interview. JRI removes report detail first, and interview turns after it.
 def test_keeps_every_turn_when_the_swapped_explorations_fit_the_budget(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -296,7 +296,7 @@ def test_keeps_every_turn_when_the_swapped_explorations_fit_the_budget(
     older = add_exploration(interviewer, "e0", HEAVY_REPORT, "Mammals.")
     add_exploration(interviewer, "e1", HEAVY_REPORT, "Dogs too.")
     report = older["output"]
-    # This budget holds the interview with the older report standing as its summary, and not with both reports whole.
+    # This limit is sufficient for the interview with the older report as its summary, but not with both reports whole.
     older["output"] = SUMMARIZED_EXPLORATION
     serve_limit(monkeypatch, measure_context(interviewer, interviewer.get_context()), Interviewer.CONTEXT_THRESHOLD)
     older["output"] = report
@@ -547,7 +547,7 @@ def test_explores_from_the_root_of_the_enclosing_repository(
     assert f"<working_directory>\n{repository.path}\n</working_directory>\n" in instructions
 
 
-# The report stands for a whole exploration, and a turn that no longer holds it holds the summary instead.
+# The report contains a whole exploration. A turn that can no longer keep the report keeps the summary.
 def test_explores_reporting_the_findings_beside_a_summary_of_them(tmp_path: Path) -> None:
     client = FakeClient(
         [],

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 # This is the round limit the agent applies.
 # Write it here too: a test that reads the constant accepts every change to the constant.
 MAX_ROUNDS = 100
-# What the agent records where the last round of a reply carries no tools.
+# What the agent records when the last round of a reply has no tools.
 EXHAUSTION_RECORD = "Response rounds were spent. No tool was available for the rest of that reply."
 
 
@@ -48,7 +48,8 @@ def test_resumes_the_tool_loop_until_the_model_replies_with_text() -> None:
     assert read_outputs(agent) == ["echo: one", "echo: two"]
 
 
-# A model that keeps calling tools spends the rounds. It then answers with what it has, instead of losing the turn.
+# A model that calls a tool in each round uses all the rounds. It then answers with the data it has, and the
+# turn does not fail.
 def test_answers_with_what_it_has_when_the_rounds_run_out() -> None:
     agent = build_agent([*repeat_calls(MAX_ROUNDS - 1), response(reply("Done."))])
 
@@ -59,8 +60,8 @@ def test_answers_with_what_it_has_when_the_rounds_run_out() -> None:
     assert history[-1] == reply("Done.")
 
 
-# The round that spends the budget is the last round, whatever the model answers with. Each further round is one
-# more request the user pays for.
+# The reply ends at the round that uses the last of the rounds, whatever the model answered. Each round after
+# it is one more request that the user pays for.
 def test_ends_the_reply_when_the_rounds_run_out_on_a_tool_call(caplog: pytest.LogCaptureFixture) -> None:
     agent = build_agent(repeat_calls(MAX_ROUNDS))
 
@@ -75,8 +76,8 @@ def test_ends_the_reply_when_the_rounds_run_out_on_a_tool_call(caplog: pytest.Lo
     assert "message_finished agent=ToolAgent" in messages
 
 
-# A structured run has no text round to end on. A model that keeps calling tools to the last round leaves the turn
-# without its result, and a failure says so. A missing result would read as a stop.
+# A structured run has no text round that ends it. A model that calls a tool in each round leaves the turn
+# with no result. JRI then fails the turn, because a result of `None` shows a stop only.
 def test_fails_a_parse_that_spends_the_rounds_without_a_result() -> None:
     agent = ToolAgent(cast("OpenAI", FakeClient([], parsed=repeat_calls(MAX_ROUNDS))))
 
@@ -86,8 +87,8 @@ def test_fails_a_parse_that_spends_the_rounds_without_a_result() -> None:
     assert agent.calls == ["again"] * MAX_ROUNDS
 
 
-# One job runs many `parse` calls, one for each segment of its work. They share one budget, so the job as a whole
-# has an end.
+# One job runs many `parse` calls, one for each segment of its work. All these calls use the same rounds, so
+# the job has an end.
 def test_shares_one_round_budget_across_the_parse_calls_of_a_job() -> None:
     parsed = [*repeat_calls(MAX_ROUNDS - 1), Answer(text="first"), Answer(text="second")]
     agent = ToolAgent(cast("OpenAI", FakeClient([], parsed=parsed)))
@@ -99,9 +100,8 @@ def test_shares_one_round_budget_across_the_parse_calls_of_a_job() -> None:
     assert cast("list[dict[str, object]]", agent.history)[-1] == {"role": "system", "content": EXHAUSTION_RECORD}
 
 
-# The tools of a round are what the model can call in it. Every round offers them until the round that spends
-# the budget, which offers none, so the model answers with what it has instead of calling a tool that no longer
-# answers.
+# Each round gives the model the tools that it can call. The last round gives no tools, so the model answers
+# with the data it has.
 def test_offers_its_tools_until_the_round_that_spends_the_budget() -> None:
     client = FakeClient([*repeat_calls(MAX_ROUNDS - 1), response(reply("Done."))])
     agent = ToolAgent(cast("OpenAI", client))
@@ -112,7 +112,8 @@ def test_offers_its_tools_until_the_round_that_spends_the_budget() -> None:
     assert client.responses.tools[-1] == []
 
 
-# A reply that spent every round leaves the next reply the whole budget again, so it starts with its tools.
+# A reply that used all its rounds does not limit the reply that follows. That reply starts with all the
+# rounds again.
 def test_refills_the_round_budget_for_each_reply() -> None:
     spent = [*repeat_calls(MAX_ROUNDS - 1), response(reply("Done."))]
     agent = build_agent([*spent, response(reply("Done again."))])

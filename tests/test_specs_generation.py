@@ -420,8 +420,8 @@ def test_stops_a_run_while_a_model_is_still_answering(
     assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
 
 
-# A stop reaches the study while it is still answering. It ends the run where it arrives, and nothing designs
-# against the part of a report that the study reached.
+# A stop can arrive while the study still answers. It ends the run at that point. No design uses the part of
+# the report that the study wrote.
 def test_stops_the_repository_study_without_calling_it_a_failure(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -431,7 +431,7 @@ def test_stops_the_repository_study_without_calling_it_a_failure(
 
     rows, result = generate(client, cancelled=cancelled)
 
-    # A study a stop cut short reads as a clean stop, not as a broken report.
+    # A study that a stop ended is a clean stop, and not a broken report.
     assert result is None
     # The design row is the one that would follow. Its absence states that the stop ended the run at the study.
     assert read_rows(rows)[-1] == ("ToolCallStarted", "explorer", "Studying your existing project")
@@ -1123,7 +1123,7 @@ def test_studies_the_project_as_it_stands_on_disk(tmp_path: Path, create_reposit
     # in the run snapshot directory, so its own reported working directory is never the real project path.
     assert directory == (tmp_path / paths.SNAPSHOT_DIR).resolve()
     assert any(str(directory / paths.NOTEBOOK_FILE) in output for output in read_tool_outputs(client))
-    # The study asks for the whole of the project, and every row it opens nests under the study row.
+    # The study examines the full project, and each row that it opens is nested below the study row.
     assert any(
         "Study this repository generally. Report its structure, architecture, established patterns" in prompt
         for prompt in read_prompts(client)

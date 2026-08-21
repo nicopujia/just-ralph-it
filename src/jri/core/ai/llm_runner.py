@@ -115,9 +115,10 @@ class LLMRunner:
                     raise self._read_failure(error) from error
                 self._wait_to_retry(error, attempt)
                 attempt += 1
-            # The provider library reads the structured answer while the stream runs, and JRI reads it after the
-            # stream where the library read none. Both reads fail on an answer that the schema does not accept, so
-            # both report it the same way. A retry cannot help, because the same request gets the same answer.
+            # The provider library reads the structured answer during the stream. JRI reads it after the
+            # stream, when the library read none. Both reads fail on an answer that the schema does not accept.
+            # Both report it in the same way. A retry does not help, because the same request gets the same
+            # answer.
             except ValidationError as error:
                 raise ModelError(f"Model response could not be read as {output_type.__name__}: {error}") from error
             else:

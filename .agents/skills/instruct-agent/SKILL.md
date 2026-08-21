@@ -24,7 +24,7 @@ Include:
 - Stopping rules: how far to explore, when to act under uncertainty, when to stop and ask. Without these, agents over-search or over-ask.
 - 2–4 diverse examples where showing beats stating. Not an edge-case dump.
 
-Leave out: system background, restated schemas, anything a one-command lookup answers. Point to a file instead of pasting it.
+Leave out: system background, restated schemas, anything a one-command lookup answers, behavior the model already defaults to ("a report at the length its findings need"). Point to a file instead of pasting it.
 
 Restating the environment is a cache — it earns its load only when the lookup is expensive: the unwritten convention, the reason behind a choice, the gotcha no config confesses.
 

@@ -93,8 +93,8 @@ class Session(BaseModel):
     interview: list[dict[str, Any]] = Field(default_factory=list)
     transcript: list[Turn] = Field(default_factory=list)
     failed_call_ids: list[str] = Field(default_factory=list)
-    # What each recorded exploration stands as once the interview outgrows the room its report takes. Without
-    # this record a restart leaves every saved report whole, and nothing can stand for one again.
+    # The summary that replaces each recorded exploration report when the interview becomes too large. Without
+    # this record, a restart keeps each saved report whole, because nothing can replace it again.
     output_summaries: dict[str, str] = Field(default_factory=dict)
     ready_graph: Graph | None = None
     # A run that reported no ambiguities built the project. JRI cannot change a built project yet.

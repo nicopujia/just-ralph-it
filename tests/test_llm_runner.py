@@ -222,8 +222,8 @@ def test_reports_a_response_that_is_not_valid_json() -> None:
         read_parsed(runner)
 
 
-# The provider library reads the structured answer itself while the stream runs. The answer it cannot read is the
-# answer the model wrote, so the reader gets the words JRI has for that, and not the words of the library.
+# The provider library reads the structured answer during the stream. An answer that it cannot read comes from
+# the model. The reader gets the words of JRI for that failure, and not the words of the library.
 def test_reports_a_response_the_library_could_not_read_while_it_streamed() -> None:
     runner = build_runner(unreadable_answer(Output, '{"answer": "ready"} Hope that helps!'))
 

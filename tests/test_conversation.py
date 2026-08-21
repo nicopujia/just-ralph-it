@@ -59,7 +59,7 @@ from tests.doubles.workspace import install_workspace
 # pattern holds it to that.
 NO_WORDING = "^$"
 RUN_STARTED = datetime(2026, 1, 1, tzinfo=UTC)
-# What the interview holds where an exploration report stood, once the summary beside it stands for the report.
+# What the interview keeps where an exploration report was, after the summary replaces that report.
 SUMMARIZED_EXPLORATION = (
     "[This exploration report was taken out of the message to make room. Nothing holds it now, and the summary "
     f"below is all that is left of it.]\n\n<exploration_summary>\n{EXPLORATION_SUMMARY}\n</exploration_summary>"
@@ -500,8 +500,8 @@ def test_restores_ralph_readiness_after_restart() -> None:
     assert restarted.is_ready_to_ralph
 
 
-# A summary is what stands for an exploration report once the interview outgrows the room the report takes. A
-# restart that lost the summaries would leave every report the session saved standing whole for good.
+# A summary replaces an exploration report when the interview becomes too large. A restart that lost the
+# summaries would keep each saved report whole for all the session that follows.
 def test_stands_a_restored_exploration_as_its_summary() -> None:
     conversation = build_conversation(
         FakeClient(
