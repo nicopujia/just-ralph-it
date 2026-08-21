@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
@@ -29,6 +30,9 @@ from tests.doubles.workspace import (
     watch_a_bystander,
     watch_a_window_go,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # The window releases the project before an eviction signals a process. Eviction waits `Hold.SIGNALLED_AFTER`
 # first, so half of that time keeps the release inside the wait.
@@ -63,6 +67,28 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
         "next_note_id": "n1",
     }
     assert list((tmp_path / paths.LOGS_DIR).iterdir()) == []
+
+
+# A directory can refuse a write, and a file can stand where JRI writes a directory. Name the workspace and the
+# reason. A reader of a Python traceback learns neither.
+@pytest.mark.parametrize(
+    ("prepare", "reason"),
+    [
+        (lambda root: (root / paths.WORKSPACE_DIR).write_text("", encoding="utf-8"), "File exists"),
+        (lambda root: root.chmod(0o500), "Permission denied"),
+    ],
+    ids=["a file stands where the workspace goes", "the project refuses a write"],
+)
+def test_reports_a_workspace_it_could_not_write(
+    tmp_path: Path, prepare: "Callable[[Path], object]", reason: str
+) -> None:
+    git.Repository.init(tmp_path)
+    prepare(tmp_path)
+
+    with pytest.raises(PersistenceError, match=f"Could not write the workspace at .*{paths.WORKSPACE_DIR}.*{reason}"):
+        Workspace(tmp_path).install(Settings.render())
+
+    tmp_path.chmod(0o700)
 
 
 def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tmp_path: Path) -> None:

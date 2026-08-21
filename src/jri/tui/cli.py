@@ -231,7 +231,7 @@ def _load_settings() -> Settings:
     load_dotenv(workspace.root / ".env")
     try:
         return Settings.load()
-    except (ValidationError, yaml.YAMLError) as error:
+    except (ValidationError, yaml.YAMLError, OSError) as error:
         _report_settings_error(error, files.shorten_path(workspace.settings_file), copy.SETTINGS_ERROR_PROJECT_USE)
 
 
@@ -240,12 +240,12 @@ def _load_settings() -> Settings:
 def _load_global_settings() -> Settings | None:
     try:
         return Settings.load_global()
-    except (ValidationError, yaml.YAMLError) as error:
+    except (ValidationError, yaml.YAMLError, OSError) as error:
         _report_settings_error(error, paths.GLOBAL_SETTINGS_FILE, copy.SETTINGS_ERROR_GLOBAL_USE)
 
 
 # The message names the file that JRI read, and says what that file is for.
-def _report_settings_error(error: ValidationError | yaml.YAMLError, settings_file: str, use: str) -> NoReturn:
+def _report_settings_error(error: ValidationError | yaml.YAMLError | OSError, settings_file: str, use: str) -> NoReturn:
     error_lines = (
         [_describe_issue(issue) for issue in error.errors()] if isinstance(error, ValidationError) else [f"- {error}"]
     )

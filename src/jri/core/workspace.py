@@ -173,12 +173,11 @@ class Workspace:
         created = not self.settings_file.exists()
         if reset is not None:
             self._clear()
-        self.directory.mkdir(exist_ok=True, parents=True)
-        if created or reset is not None:
-            self.settings_file.write_text(settings, encoding="utf-8", newline="\n")
-        Notebook(self.notebook_file, self.root.name)
-        self.logs_dir.mkdir(exist_ok=True)
-        self._ignore()
+        try:
+            self._write(settings, settings_file=created or reset is not None)
+        # The directory can refuse a write, and a file can stand where JRI writes a directory.
+        except OSError as error:
+            raise PersistenceError(f"Could not write the workspace at `{self.directory}`: {error.strerror}") from error
         # Commit a workspace this installation wrote, and one that no repository here holds yet.
         # An existing workspace can hold notes a chat wrote and settings the user changed.
         # That work belongs to the commit of the turn that made it, not to this one.
@@ -189,6 +188,15 @@ class Workspace:
             repository_created=repository_created,
             commit=self._commit(repository, reset=reset is not None) if written else None,
         )
+
+    # Write the files of a workspace. An installation that finds a settings file keeps the settings it holds.
+    def _write(self, settings: str, *, settings_file: bool) -> None:
+        self.directory.mkdir(exist_ok=True, parents=True)
+        if settings_file:
+            self.settings_file.write_text(settings, encoding="utf-8", newline="\n")
+        Notebook(self.notebook_file, self.root.name)
+        self.logs_dir.mkdir(exist_ok=True)
+        self._ignore()
 
     # Commit what the installation wrote. The project then holds its settings, notes, and ignore rules from its
     # first commit, and a clone gets the same workspace.
