@@ -17,15 +17,17 @@ Run this in a thread that did not write the change — fresh eyes are what make 
     smoke_dir="$(mktemp -d)"
     cp .env "$smoke_dir/.env"
     (cd "$smoke_dir" && uv run --project "$project" jri init)
-    tmux has-session -t jri 2>/dev/null || tmux new-session -d -s jri
-    tmux new-window -t jri -n smoke -c "$smoke_dir" "uv run --project $project jri chat"
+    smoke="jri-smoke-$$"
+    tmux new-session -d -s "$smoke" -x 120 -y 40 -c "$smoke_dir" "uv run --project $project jri chat"
     sleep 4
-    tmux send-keys -t jri:smoke "I want to build a small app for tracking books I read." Enter
+    tmux send-keys -t "$smoke" "I want to build a small app for tracking books I read." Enter
     sleep 4
-    tmux capture-pane -pt jri:smoke
-    tmux kill-window -t jri:smoke
+    tmux capture-pane -pt "$smoke"
+    tmux kill-session -t "$smoke"
     rm -rf "$smoke_dir"
     ```
+    Open a session of your own and end that one. `$$` makes the name unique, so it can never be a session someone else is working in. Never run `tmux kill-server`, and never kill a session or window you did not create in this run: the developer may be working in tmux too, killing the last session takes the server and every pane with it, and a smoke test is not worth their day. A crashed run leaves its session behind under the same `jri-smoke-*` name it opened, and those are the only ones to clear.
+
     `init` sets the workspace up and returns; `chat` is the window that reads keys. Always start JRI with `uv run --project <worktree>`—a bare `jri` runs the globally installed version, not the changed source. Very bounded example. Scope scales with the change: judge how many conversations, how long, how complex—then prompt testing subagents accordingly.
 5. Issues → judge whether they're real. Real → subagent fixes → back to 4. Else → stage 2.
 
