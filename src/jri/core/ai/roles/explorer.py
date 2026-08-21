@@ -60,7 +60,6 @@ class Explorer(Agent):
         "This request is at its size limit, and this is the last segment of the exploration. "
         "No more tool output fits in it, and no segment follows it."
     )
-    FINAL_SEGMENT_PROMPT = ai.prompts.read("explorer_final_segment")
     # How much of a report stands for it where the model wrote no summary of its own. A summary is one or two
     # lines, and this much of a report reads as that many.
     SUMMARY_LENGTH = 200
@@ -113,7 +112,7 @@ class Explorer(Agent):
         remaining = ""
         for segment in range(1, self.MAX_SEGMENTS + 1):
             # The first segment carries the query alone, which the caller wrote for a model to read whole.
-            message = self._render(query, summaries, remaining) if summaries else query
+            message = _render(query, summaries, remaining) if summaries else query
             try:
                 exploration = yield from _stamp_rows(self.parse(message, Exploration, cancelled), depth)
             # A spent budget, a refusal and an outage are conditions of the provider, and each one ends the turn
@@ -142,7 +141,8 @@ class Explorer(Agent):
             # and a segment costs a whole request.
             if not self.at_input_limit or not remaining.strip():
                 break
-            # The handoff gives the segment that follows room again, and tells it whether it is the last one.
+            # The handoff gives the segment that follows room again. Where that segment is the last one, the
+            # record of its size limit is what tells it so.
             self.at_input_limit = False
             self.final_segment = segment + 1 == self.MAX_SEGMENTS
         return Exploration(report="\n\n".join(reports), summary="\n".join(summaries), remaining="")
@@ -324,16 +324,14 @@ class Explorer(Agent):
         logger.info("shell_finished return_code=%d output_characters=%d", process.returncode, len(output))
         return output
 
-    # The handoff carries the summaries and not the reports: a segment ends where its request runs out of room,
-    # so what it hands on must be small.
-    def _render(self, query: str, summaries: list[str], remaining: str) -> str:
-        return ai.prompts.read(
-            "explorer_segment",
-            final_rule=f"\n{self.FINAL_SEGMENT_PROMPT}\n" if self.final_segment else "",
-            context=prompt.render(
-                exploration_query=query, summaries_so_far="\n".join(summaries), remaining_work=remaining
-            ),
-        )
+
+# The handoff carries the summaries and not the reports: a segment ends where its request runs out of room, so
+# what it hands on must be small.
+def _render(query: str, summaries: list[str], remaining: str) -> str:
+    return ai.prompts.read(
+        "explorer_segment",
+        context=prompt.render(exploration_query=query, summaries_so_far="\n".join(summaries), remaining_work=remaining),
+    )
 
 
 # `yield from` passes on each event as it is, and every row of a segment carries the depth of the caller of the

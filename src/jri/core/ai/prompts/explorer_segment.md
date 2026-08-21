@@ -1,4 +1,4 @@
-<!-- JRI sends this as the message of each exploration segment after the first one. -->
-Continue the exploration below, in a segment of its own.
-{final_rule}
+<!-- JRI sends this where a request stood at its size limit and the exploration goes on. -->
+Continue this exploration. Report only what you find now, because what you found before is already reported.
+
 {context}

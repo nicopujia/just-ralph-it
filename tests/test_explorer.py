@@ -71,11 +71,6 @@ FINAL_LIMIT_RECORD = (
     "This request is at its size limit, and this is the last segment of the exploration. "
     "No more tool output fits in it, and no segment follows it."
 )
-# What the message of the last segment an exploration can run tells it.
-FINAL_SEGMENT_RULE = (
-    "This is the last segment of this exploration. No segment follows it, so report what you have at the end of "
-    "it and leave `remaining` empty."
-)
 # A catalog that names another model states nothing about this one, which then explores on the room JRI falls
 # back to.
 UNNAMED_MODEL_CATALOG = {"other": {"limit": {"context": 400_000}}}
@@ -742,8 +737,8 @@ def test_fails_an_exploration_whose_first_segment_failed() -> None:
         drain(build_explorer(client=client).report("cats"))
 
 
-# An exploration cannot run forever. The last segment it can run is told that no segment follows it, and the
-# exploration ends with what that segment reports, whatever it leaves unexplored.
+# An exploration cannot run forever. It ends at the last segment it can run, with what that segment reports,
+# whatever it leaves unexplored.
 def test_ends_an_exploration_at_the_last_segment_it_can_run(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch, CRAMPED_CATALOG)
     reports = [f"Segment {number}." for number in range(1, MAX_SEGMENTS + 1)]
@@ -756,4 +751,3 @@ def test_ends_an_exploration_at_the_last_segment_it_can_run(monkeypatch: pytest.
     assert result == Exploration(
         report="\n\n".join(reports), summary="\n".join(["So far."] * MAX_SEGMENTS), remaining=""
     )
-    assert FINAL_SEGMENT_RULE in read_message(client)
