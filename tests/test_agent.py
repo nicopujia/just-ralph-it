@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 # Write it here too: a test that reads the constant accepts every change to the constant.
 MAX_ROUNDS = 100
 # What the agent records where the last round of a reply carries no tools.
-EXHAUSTION_RECORD = "Response rounds are spent. No tool is available for the rest of this reply."
+EXHAUSTION_RECORD = "Response rounds were spent. No tool was available for the rest of that reply."
 
 
 def build_agent(rounds: Iterable[Round]) -> "ToolAgent":

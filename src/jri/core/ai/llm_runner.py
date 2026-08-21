@@ -115,6 +115,11 @@ class LLMRunner:
                     raise self._read_failure(error) from error
                 self._wait_to_retry(error, attempt)
                 attempt += 1
+            # The provider library reads the structured answer while the stream runs, and JRI reads it after the
+            # stream where the library read none. Both reads fail on an answer that the schema does not accept, so
+            # both report it the same way. A retry cannot help, because the same request gets the same answer.
+            except ValidationError as error:
+                raise ModelError(f"Model response could not be read as {output_type.__name__}: {error}") from error
             else:
                 return parsed[-1]
         logger.info("parse_cancelled model=%s", self.model)
@@ -151,23 +156,7 @@ class LLMRunner:
             else:
                 return
 
-    # The provider library reads the structured answer while the stream runs, and JRI reads it after the stream
-    # where the library read none. Both reads fail on an answer that the schema does not accept, so both report it
-    # the same way. A retry cannot help, because the same request gets the same answer.
     def _parse(
-        self,
-        context: ResponseInputParam,
-        output_type: type[Result],
-        tools: Sequence[FunctionToolParam],
-        cancelled: Event,
-        parsed: list[Result | PendingToolCalls | None],
-    ) -> Generator[ReasoningDelta]:
-        try:
-            yield from self._read_answer(context, output_type, tools, cancelled, parsed)
-        except ValidationError as error:
-            raise ModelError(f"Model response could not be read as {output_type.__name__}: {error}") from error
-
-    def _read_answer(
         self,
         context: ResponseInputParam,
         output_type: type[Result],

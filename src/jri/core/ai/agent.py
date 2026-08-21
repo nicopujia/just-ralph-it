@@ -29,7 +29,7 @@ class Agent:
     # A stopped reply ends where the user stopped it. Record the stop, because the text alone reads as a full reply.
     CANCELLATION_RECORD: ClassVar[str] = "User stopped last reply. Items before this message are all that happened."
     # The last round carries no tools. Record that, because a model with no tools reads them as lost, not as spent.
-    EXHAUSTION_RECORD: ClassVar[str] = "Response rounds are spent. No tool is available for the rest of this reply."
+    EXHAUSTION_RECORD: ClassVar[str] = "Response rounds were spent. No tool was available for the rest of that reply."
 
     prompt: InitVar[str]
     initial_context: InitVar[ResponseInputParam | None] = None

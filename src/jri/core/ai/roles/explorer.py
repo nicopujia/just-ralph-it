@@ -13,7 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryFile
 from threading import Event
-from typing import Annotated, ClassVar, cast, override
+from typing import Annotated, cast, override
 
 import httpx
 from markdownify import MarkdownConverter
@@ -44,19 +44,19 @@ class Explorer(Agent):
     MAX_INPUT_SIZE = 10 * 1024 * 1024
     # An exploration runs at most this many segments. Each one costs a full request, and a query that ten of them
     # do not answer is one that no further segment answers either.
-    MAX_SEGMENTS: ClassVar[int] = 10
+    MAX_SEGMENTS = 10
     # End a segment past this share of the room the model reads. The rest of that room holds the report that the
     # segment writes, and the reasoning the model keeps while it writes it.
-    INPUT_SHARE: ClassVar[float] = 0.8
+    INPUT_SHARE = 0.8
     # The room a segment measures against when the catalog states none for the model.
-    FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
+    FALLBACK_INPUT_ROOM = 100_000
     # A segment ends where its request runs out of room. Record that, because a model with no tool reads it as a
     # tool it lost, not as a segment that ends.
-    INPUT_LIMIT_RECORD: ClassVar[str] = (
+    INPUT_LIMIT_RECORD = (
         "This request is at its size limit. No more tool output fits in this segment of the exploration."
     )
     # The last segment has no segment after it, so a record of its own says that no room follows this one either.
-    FINAL_LIMIT_RECORD: ClassVar[str] = (
+    FINAL_LIMIT_RECORD = (
         "This request is at its size limit, and this is the last segment of the exploration. "
         "No more tool output fits in it, and no segment follows it."
     )
@@ -83,13 +83,13 @@ class Explorer(Agent):
     @override
     def get_context(self) -> ResponseInputParam:
         if not self.at_input_limit:
-            size = measure_request(self.history, [item.definition for item in self.get_tools()])
+            estimate = estimate_tokens(measure_request(self.history, [item.definition for item in self.get_tools()]))
             room = get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM)
-            if estimate_tokens(size) > room * self.INPUT_SHARE:
+            if estimate > room * self.INPUT_SHARE:
                 self.at_input_limit = True
                 record = self.FINAL_LIMIT_RECORD if self.final_segment else self.INPUT_LIMIT_RECORD
                 self.history.append({"role": "system", "content": record})
-                logger.info("exploration_limit_reached tokens=%d room=%d", estimate_tokens(size), room)
+                logger.info("exploration_limit_reached tokens=%d room=%d", estimate, room)
         return self.history
 
     # A segment at its limit has nothing left to gather. Take its tools away, so the rounds it has left write the

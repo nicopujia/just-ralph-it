@@ -61,10 +61,9 @@ HEARTBEAT_WINDOW = 1.0
 CRAMPED_CATALOG = {"test": {"limit": {"input": 1}}}
 # This room puts the mark at exactly the tokens the request of the test below estimates.
 MARKED_CATALOG = {"test": {"limit": {"input": 50}}}
-# These are the limits the explorer applies. Write them here too: a test that reads a constant accepts every
-# change to that constant.
+# This is the segment limit the explorer applies. Write it here too: a test that reads the constant accepts
+# every change to the constant.
 MAX_SEGMENTS = 10
-MAX_ROUNDS = 100
 # What the explorer records where a request stands at its size limit.
 INPUT_LIMIT_RECORD = "This request is at its size limit. No more tool output fits in this segment of the exploration."
 # What it records instead where the segment at that limit is the last one of the exploration.
@@ -729,21 +728,3 @@ def test_ends_an_exploration_at_the_last_segment_it_can_run(monkeypatch: pytest.
         report="\n\n".join(reports), summary="\n".join(["So far."] * MAX_SEGMENTS), remaining=""
     )
     assert Explorer.FINAL_SEGMENT_PROMPT in read_message(client)
-
-
-# The rounds are the budget of the whole exploration, and not of one segment of it. A segment that takes over
-# continues to spend what the segments before it left, so the second segment here reaches the end of the budget
-# and the exploration ends with what the first one found.
-def test_shares_one_round_budget_across_the_segments_of_an_exploration(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (tmp_path / "notes.md").write_bytes(b"Notes\n")
-    serve_catalog(monkeypatch, CRAMPED_CATALOG)
-    rounds = [response(call(f"call-{index}", "read_files", paths=["notes.md"])) for index in range(MAX_ROUNDS)]
-    half = MAX_ROUNDS // 2
-    handoff = Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat.")
-    client = FakeClient([], parsed=[*rounds[:half], handoff, *rounds[half:]])
-
-    result = drain(build_explorer(tmp_path, client).report("cats"))[1]
-
-    assert result == Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")

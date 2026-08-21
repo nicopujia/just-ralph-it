@@ -289,10 +289,9 @@ class Interviewer(Agent):
     # weights are measured, so a swapped report never comes back, turns drop only if the request is still too
     # heavy, and every later request repeats the bytes of this one, which the provider serves from its cache.
     def _summarize_explorations(self) -> None:
-        items = [cast("dict[str, Any]", raw_item) for raw_item in self.history]
         explorations = [
             item
-            for item in items
+            for item in cast("list[dict[str, Any]]", self.history)
             if item.get("type") == "function_call_output" and item.get("call_id") in self.output_summaries
         ]
         # The summary comes from a model, so quote it. Rendering it again gives the same bytes, so a later round
