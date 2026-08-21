@@ -182,14 +182,7 @@ class Workspace:
         # An existing workspace can hold notes a chat wrote and settings the user changed.
         # That work belongs to the commit of the turn that made it, not to this one.
         written = created or repository_created or reset is not None
-        commit, refusal = None, ""
-        try:
-            commit = self._commit(repository, reset=reset is not None) if written else None
-        # A project hook can refuse this commit, and Git can fail for a reason outside JRI. JRI wrote the
-        # workspace and it is ready. Report the commit that did not occur instead of raising an error.
-        except git.Error as error:
-            logger.exception("installation_commit_failed")
-            refusal = str(error)
+        commit, refusal = self._commit(repository, reset=reset is not None) if written else (None, "")
         return Installation(
             self, created=created, repository_created=repository_created, commit=commit, refusal=refusal
         )
@@ -209,10 +202,10 @@ class Workspace:
     # Git refuses a partial commit during a merge or a cherry-pick.
     # A commit that JRI makes outside a branch stays reachable only from a detached HEAD.
     # Leave the files in the worktree in both states. The user commits them after that work.
-    def _commit(self, repository: Repository, *, reset: bool) -> str | None:
+    def _commit(self, repository: Repository, *, reset: bool) -> tuple[str | None, str]:
         if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
             logger.info("installation_uncommitted")
-            return None
+            return None, ""
         # A workspace can be below the repository root. Git reads a pathspec from that root.
         prefix = self.root.resolve().relative_to(repository.path)
         installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
@@ -222,17 +215,24 @@ class Workspace:
         removed = repository.read_staged_paths(((prefix / paths.SPECS_DIR).as_posix(),)) if reset else ()
         committed = (*installed, *removed)
         trailers = (ACCEPTANCE_TRAILER,) if reset else ()
-        # Stage intent only, because Git commits a named path only after the index knows it.
-        # Force it, because a project can ignore `.jri`. JRI keeps its workspace in Git anyway.
-        # A removed path is already tracked, so JRI does not stage it.
-        repository.stage(installed, intent_to_add=True, force=True)
-        # A second installation of an unchanged workspace has nothing to commit.
-        # Git reports that state as a failure.
-        if not repository.read_status(committed):
-            return None
-        commit = repository.commit("jri: initialize project", trailers=trailers, paths=committed)
+        try:
+            # Stage intent only, because Git commits a named path only after the index knows it.
+            # Force it, because a project can ignore `.jri`. JRI keeps its workspace in Git anyway.
+            # A removed path is already tracked, so JRI does not stage it.
+            repository.stage(installed, intent_to_add=True, force=True)
+            # A second installation of an unchanged workspace has nothing to commit.
+            # Git reports that state as a failure.
+            if not repository.read_status(committed):
+                return None, ""
+            commit = repository.commit("jri: initialize project", trailers=trailers, paths=committed)
+        # A project hook can refuse this commit, and Git can fail for a reason outside JRI.
+        # JRI wrote the workspace and it is ready.
+        # Name the commit that did not occur instead of raising an error.
+        except git.Error as error:
+            logger.exception("installation_commit_failed")
+            return None, str(error)
         logger.info("installation_committed commit=%s", commit)
-        return commit
+        return commit, ""
 
     # These are all paths that `--force` replaces, whether they exist or not. The workspace owns this list.
     @property

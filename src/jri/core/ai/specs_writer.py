@@ -28,6 +28,8 @@ class SpecsWriter(Agent):
     # Compact back to this share, and not to just below the share above. The room between the two shares holds many
     # more calls. One compaction helps the rounds that follow it, and not only the round that started it.
     LOW_SHARE: ClassVar[float] = 0.6
+    # A pass measures its request against this room when the catalog gives no limit for the model.
+    FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
     # One batched read answers with at most this share of that room. The text that a read adds stays for all the
     # pass. A written body does not stay, because compaction can remove it.
     READ_SHARE: ClassVar[float] = 0.1

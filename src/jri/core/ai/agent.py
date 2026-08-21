@@ -32,8 +32,6 @@ class Agent:
     CANCELLATION_RECORD: ClassVar[str] = "User stopped last reply. Items before this message are all that happened."
     # The last round has no tools. A model that finds no tools can think that it lost them. Record why.
     EXHAUSTION_RECORD: ClassVar[str] = "Response rounds were spent. No tool was available for the rest of that reply."
-    # An agent measures its request against this room when the catalog gives no limit for its model.
-    FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
 
     prompt: InitVar[str]
     initial_context: InitVar[ResponseInputParam | None] = None

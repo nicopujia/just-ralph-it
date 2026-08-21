@@ -46,9 +46,17 @@ def test_advances_topic_and_note_ids_independently(tmp_path: Path) -> None:
         ("Alpha\x1b[31mBeta", "Alpha [31mBeta"),
         ("Alpha\u202eBeta", "Alpha Beta"),
         ("Alpha\u2028Beta", "Alpha Beta"),
+        ("Alpha\u2029Beta", "Alpha Beta"),
         ("\n Padded \t", "Padded"),
     ],
-    ids=["a newline", "an escape", "a direction mark", "a line separator", "space at the ends"],
+    ids=[
+        "a newline",
+        "an escape",
+        "a direction mark",
+        "a line separator",
+        "a paragraph separator",
+        "space at the ends",
+    ],
 )
 def test_takes_the_characters_that_damage_a_display_out_of_a_topic_name(
     tmp_path: Path, written: str, held: str

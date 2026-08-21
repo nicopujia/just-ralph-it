@@ -10,6 +10,7 @@ import yaml
 from jri.core import paths
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
+from jri.core.repository import ACCEPTANCE_TRAILER
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Installation, Workspace
 from jri.lib import files, git
@@ -98,17 +99,39 @@ def test_reports_a_workspace_it_could_not_write(tmp_path: Path, prepare: "Callab
 # A project hook refuses a commit, and Git fails for reasons outside JRI. JRI wrote the workspace and it is
 # ready, so the installation stands and names the refusal. A reader must learn that no commit holds it.
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows holds an access list that `chmod` does not write")
-def test_names_a_commit_that_git_refused(tmp_path: Path) -> None:
+def test_names_a_commit_that_git_refused(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     git.Repository.init(tmp_path)
     hook = tmp_path / ".git" / "hooks" / "pre-commit"
     hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     hook.chmod(0o755)
 
-    installation = Workspace(tmp_path).install(Settings.render())
+    with caplog.at_level(logging.ERROR, logger="jri"):
+        installation = Workspace(tmp_path).install(Settings.render())
 
     assert installation.created
     assert installation.commit is None
     assert installation.refusal
+    assert [record.getMessage() for record in caplog.records] == ["installation_commit_failed"]
+
+
+# A second installation keeps the settings that the user changed, and it accepts a workspace that stands
+# already. Only `jri init --force` replaces a settings file.
+def test_keeps_the_settings_of_a_workspace_that_stands_already(tmp_path: Path) -> None:
+    Workspace(tmp_path).install(Settings.render())
+    (tmp_path / paths.SETTINGS_FILE).write_text("logging:\n  level: DEBUG\n", encoding="utf-8")
+
+    installation = Workspace(tmp_path).install(Settings.render())
+
+    assert not installation.created
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == "logging:\n  level: DEBUG\n"
+
+
+# Only a reset accepts the specifications it replaces, so only a reset carries the trailer that names an
+# acceptance. A first installation replaces nothing.
+def test_accepts_nothing_with_the_commit_of_a_first_installation(tmp_path: Path) -> None:
+    Workspace(tmp_path).install(Settings.render())
+
+    assert git.Repository(tmp_path).find_commit(ACCEPTANCE_TRAILER) is None
 
 
 def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tmp_path: Path) -> None:

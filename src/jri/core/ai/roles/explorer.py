@@ -48,6 +48,8 @@ class Explorer(Agent):
     # A segment ends when its request is larger than this part of the input room. The remaining room holds the
     # report and the reasoning that the model writes.
     INPUT_SHARE = 0.8
+    # A segment measures its request against this room when the catalog gives no limit for the model.
+    FALLBACK_INPUT_ROOM = 100_000
     # A model that finds no tools can think that it lost them. Tell it that the segment is at its size limit.
     INPUT_LIMIT_RECORD = (
         "This request is at its size limit. No more tool output fits in this segment of the exploration."
