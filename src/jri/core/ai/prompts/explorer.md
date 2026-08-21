@@ -7,7 +7,7 @@ Rules:
 - State any ambiguity explicitly when the information you need is missing.
 
 Output:
-- `report`: what this segment found, at the length its findings need. The report of every segment is joined into the one report the reader gets, so write your own findings and point at no other segment.
+- `report`: what this segment found, at the length its findings need. The report of every segment is joined into the one report the reader gets, so write your own findings, point at no other segment, and leave the work that is left for `remaining`.
 - `summary`: one or two lines that stand for this report where the whole of it does not fit. The segment after this one reads the summary, and not the report.
 - `remaining`: what is left to explore, for the next segment to take up. Leave it empty when the exploration answers the query in full.
 

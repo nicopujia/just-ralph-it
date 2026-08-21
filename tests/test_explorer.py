@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 from threading import Event
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import httpx
 import pytest
@@ -17,11 +17,23 @@ from jri.lib import brave, youtube
 from tests.doubles.agents import drain
 from tests.doubles.brave import RESULTS, FakeProvider, respond
 from tests.doubles.models_dot_dev import CATALOG, serve_catalog
-from tests.doubles.openai import FakeClient, call, rate_limited, reply, response, stopped_thinking, thought
+from tests.doubles.openai import (
+    FakeClient,
+    call,
+    rate_limited,
+    reply,
+    response,
+    stopped_thinking,
+    thought,
+    unreadable_answer,
+)
 from tests.doubles.process import serve_timeout
 from tests.doubles.settings import build_settings
 from tests.doubles.web import serve_chunks, serve_pages
 from tests.doubles.youtube import TRANSCRIPT, FakeApi
+
+if TYPE_CHECKING:
+    from tests.doubles.openai import Round
 
 KILOBYTE = 1024
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
@@ -658,16 +670,18 @@ def test_starts_no_further_segment_after_a_segment_that_still_had_room() -> None
     assert result == Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
 
 
-# A provider can answer a segment with text that is no exploration at all. The segments before it already
-# reported, and the exploration ends with what they found instead of losing it to that one answer.
-def test_ends_an_exploration_on_a_segment_that_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+# A provider can answer a segment with text that is no exploration at all. The provider library reads that text
+# while the stream runs, and JRI reads it after the stream where the library read none. Either way, the segments
+# before it already reported, and the exploration ends with what they found instead of losing it to that one answer.
+@pytest.mark.parametrize(
+    "unreadable",
+    [unreadable_answer(Exploration, "Not an exploration."), response(reply("Not an exploration."))],
+    ids=["mid-stream", "post-stream"],
+)
+def test_ends_an_exploration_on_a_segment_that_failed(unreadable: "Round", monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch, CRAMPED_CATALOG)
     client = FakeClient(
-        [],
-        parsed=[
-            Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."),
-            response(reply("Not an exploration.")),
-        ],
+        [], parsed=[Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."), unreadable]
     )
 
     result = drain(build_explorer(client=client).report("cats"))[1]

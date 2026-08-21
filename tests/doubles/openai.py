@@ -7,6 +7,7 @@ from typing import Any, Self, cast
 import httpx
 from openai import APIConnectionError, BadRequestError, InternalServerError, OpenAIError, RateLimitError
 from openai.types.responses import ResponseError
+from pydantic import BaseModel
 
 type Round = Iterable[SimpleNamespace]
 
@@ -129,6 +130,14 @@ def incomplete_response(reason: str | None) -> Round:
 def failed_response(message: str | None) -> Round:
     error = ResponseError(code="server_error", message=message) if message else None
     return [SimpleNamespace(type="response.failed", response=SimpleNamespace(error=error))]
+
+
+# The provider library reads the structured answer while the stream runs. Where the model wrote text that the
+# schema does not accept, the library raises inside the loop over the events, and no event follows it. Give this
+# round text that `output_type` cannot read.
+def unreadable_answer(output_type: type[BaseModel], text: str) -> Round:
+    yield _delta(text)
+    output_type.model_validate_json(text)
 
 
 def call(call_id: str, name: str, **arguments: object) -> dict[str, Any]:
