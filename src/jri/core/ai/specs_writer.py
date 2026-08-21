@@ -10,7 +10,6 @@ from jri.core.paths import FUNCTIONAL_SPECS_ROOT
 from jri.core.specs import File, Specs
 from jri.lib import git
 from jri.lib.context import estimate_tokens, measure_item, measure_request
-from jri.lib.models_dot_dev import get_input_room
 
 from .agent import Agent
 from .tool import Invocation, tool
@@ -31,7 +30,6 @@ class SpecsWriter(Agent):
     # One batched read answers with at most this share of that room. The text that a read adds stays for all the
     # pass. A written body does not stay, because compaction can remove it.
     READ_SHARE: ClassVar[float] = 0.1
-    FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
     # This text replaces a written body. It says where the file is and how to read it. The model reads its own
     # call back, and it must never read this text as the file that it wrote.
     WRITTEN_FILE_RECORD: ClassVar[str] = (
@@ -76,7 +74,7 @@ class SpecsWriter(Agent):
         return self.read_specs(paths, FUNCTIONAL_SPECS_ROOT)
 
     def read_specs(self, paths: list[str], model_root: str) -> str:
-        room = get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM)
+        room = self.input_room
         # The tool loop cuts an output that is longer than its own limit, and a cut specification reads like a
         # complete one. Refuse below that limit, because JRI must refuse before the loop cuts.
         cap = min(int(room * self.READ_SHARE), estimate_tokens(Invocation.MAX_OUTPUT_LENGTH))
@@ -88,7 +86,7 @@ class SpecsWriter(Agent):
     def _compact(self) -> None:
         tools = self.get_tools()
         size = measure_request(self.history, [item.definition for item in tools])
-        room = get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM)
+        room = self.input_room
         high = int(room * self.INPUT_SHARE)
         if estimate_tokens(size) <= high:
             return

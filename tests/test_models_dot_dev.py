@@ -157,14 +157,17 @@ def test_logs_a_catalog_read_that_failed(monkeypatch: pytest.MonkeyPatch, caplog
     with caplog.at_level(logging.ERROR, logger="jri"):
         get_input_room("openai/gpt-5.6-sol", FALLBACK)
 
-    assert [record.getMessage() for record in caplog.records] == ["catalog_read_failed model='openai/gpt-5.6-sol'"]
+    assert [record.getMessage() for record in caplog.records] == ["catalog_read_failed"]
 
 
-def test_reads_the_catalog_again_after_a_read_that_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+# An agent measures its request on each of its rounds, and each measurement reads a limit. An endpoint that
+# does not answer holds each of those reads for the timeout. Read the catalog one time, and hold a read that
+# failed as JRI holds a read that answered. Every later call then uses the fallback and waits for nothing.
+def test_holds_a_read_that_failed_and_does_not_read_the_catalog_again(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_outcome(monkeypatch, httpx.ConnectError("connection refused"), build_response(CATALOG))
 
     assert get_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
-    assert get_limit("openai/gpt-5.6-sol", FALLBACK) == CONTEXT_LIMIT
+    assert get_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
 
 
 def test_reads_the_catalog_once_for_a_model_it_answered_for(monkeypatch: pytest.MonkeyPatch) -> None:

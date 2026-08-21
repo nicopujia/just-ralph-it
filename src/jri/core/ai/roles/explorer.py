@@ -27,7 +27,6 @@ from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavai
 from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, files, prompt, youtube
 from jri.lib.context import estimate_tokens, measure_request
-from jri.lib.models_dot_dev import get_input_room
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +47,6 @@ class Explorer(Agent):
     # A segment ends when its request is larger than this part of the input room. The remaining room holds the
     # report and the reasoning that the model writes.
     INPUT_SHARE = 0.8
-    # The input room that a segment measures against when the catalog gives no limit for the model.
-    FALLBACK_INPUT_ROOM = 100_000
     # A model that finds no tools can think that it lost them. Tell it that the segment is at its size limit.
     INPUT_LIMIT_RECORD = (
         "This request is at its size limit. No more tool output fits in this segment of the exploration."
@@ -85,7 +82,7 @@ class Explorer(Agent):
     def get_context(self) -> ResponseInputParam:
         if not self.at_input_limit:
             estimate = estimate_tokens(measure_request(self.history, [item.definition for item in self.get_tools()]))
-            room = get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM)
+            room = self.input_room
             if estimate > room * self.INPUT_SHARE:
                 self.at_input_limit = True
                 record = self.FINAL_LIMIT_RECORD if self.final_segment else self.INPUT_LIMIT_RECORD
