@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from jri import __version__
-from jri.core import logs, visualization
+from jri.core import logs, paths, visualization
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.generation import Generation
@@ -109,7 +109,9 @@ def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
     print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=directory))
     if installation.commit is not None:
         print(copy.INIT_COMMITTED)
-    print(copy.INIT_NEXT_STEPS.format(settings_file=files.shorten_path(workspace.settings_file)))
+    # A settings file with no comments has no instructions to read.
+    if comments:
+        print(copy.INIT_NEXT_STEPS.format(settings_file=files.shorten_path(workspace.settings_file)))
 
 
 def _chat() -> None:
@@ -223,7 +225,7 @@ def _load_settings() -> Settings:
     try:
         return Settings.load()
     except (ValidationError, yaml.YAMLError) as error:
-        _report_settings_error(error)
+        _report_settings_error(error, files.shorten_path(workspace.settings_file), copy.SETTINGS_ERROR_PROJECT_USE)
 
 
 # A global settings file that JRI cannot read stops the installation. A default that disappears silently is worse
@@ -232,14 +234,15 @@ def _load_global_settings() -> Settings | None:
     try:
         return Settings.load_global()
     except (ValidationError, yaml.YAMLError) as error:
-        _report_settings_error(error)
+        _report_settings_error(error, paths.GLOBAL_SETTINGS_FILE, copy.SETTINGS_ERROR_GLOBAL_USE)
 
 
-def _report_settings_error(error: ValidationError | yaml.YAMLError) -> NoReturn:
+# The message names the file that JRI read, and says what that file is for.
+def _report_settings_error(error: ValidationError | yaml.YAMLError, settings_file: str, use: str) -> NoReturn:
     error_lines = (
         [_describe_issue(issue) for issue in error.errors()] if isinstance(error, ValidationError) else [f"- {error}"]
     )
-    print(copy.SETTINGS_ERROR.format(errors="\n".join(error_lines)))
+    print(copy.SETTINGS_ERROR.format(file=settings_file, errors="\n".join(error_lines), use=use))
     raise SystemExit(1) from error
 
 

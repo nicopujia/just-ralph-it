@@ -91,12 +91,14 @@ RUN_CANCELLATION_QUESTION = (
 SEND_MESSAGE = "Send message"
 SEND_MESSAGE_CONFIRMATION = "Press Enter again to stop this and send"
 SETTINGS_ERROR = """Invalid settings.
-Set or fix these settings in .jri/settings.yaml:
+Set or fix these settings in {file}:
 
 {errors}
 
-All commands, including `jri view`, use these settings.
+{use}
 """
+SETTINGS_ERROR_GLOBAL_USE = "Every new project starts from these settings."
+SETTINGS_ERROR_PROJECT_USE = "All commands, including `jri view`, use these settings."
 SHORTCUTS = "Shortcuts"
 SHOW_THINKING_BLOCKS = "Show thinking blocks"
 START_BEGAN = "The run started. It holds this terminal until it ends, and `jri status` reports it from another one."
