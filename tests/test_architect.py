@@ -42,8 +42,9 @@ def test_designs_the_architecture_files(tmp_path: Path, create_repository: Creat
     assert drain(build_architect(client, tmp_path).design(CONTEXT, Event()))[1] == ARCHITECTURE
 
 
-# JRI can put a record where a written body stood, and that record tells the model to read the file back with a
-# tool. The instructions must name the same tool, or the model reads the record as the file itself.
+# JRI can replace a written body with a record, and that record tells the model to read the file with a tool.
+# The instructions must name the same tool.
+# If they name a different tool, the model reads the record as the file itself.
 def test_names_the_tool_that_reads_an_architecture_body_back() -> None:
     assert "`read_architecture_specs`" in architect.Architect.PROMPT
     assert "`read_architecture_specs`" in architect.Architect.FINAL_PROMPT
@@ -69,8 +70,9 @@ def test_streams_the_thinking_of_a_pass_before_the_architecture_it_designed(
     assert result == ARCHITECTURE
 
 
-# An index carries one summary line per file. A pass that judges a file relevant reads its body with a tool, and
-# each tool answers from the specification root it is named for.
+# An index carries one summary line for each file.
+# A pass that finds a file relevant reads the body of that file with a tool.
+# Each tool answers from the specification root that its name gives.
 def test_reads_the_full_body_of_a_functional_specification_it_judges_relevant(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -164,8 +166,8 @@ def test_reports_functional_issues_instead_of_an_architecture(
 ) -> None:
     create_repository(tmp_path)
     issues = architect.Issues(outcome="functional_specification_issues", issues=["Undefined totals."])
-    # The model answers with text, and the run reads that text into the shape the pass asked for. An issues report
-    # reads back only where the pass asked for a shape that holds one.
+    # The model answers with text, and the run reads that text into the shape that the pass asked for.
+    # JRI reads an issues report only when the pass asked for a shape that holds one.
     client = FakeClient([], parsed=[response(reply(architect.Output(result=issues).model_dump_json()))])
 
     result = drain(build_architect(client, tmp_path).design(CONTEXT, Event()))[1]

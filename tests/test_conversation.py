@@ -55,8 +55,8 @@ from tests.doubles.specs_generation import (
 )
 from tests.doubles.workspace import install_workspace
 
-# `RunDetached` is the signal that the window left, and not a failure. It carries no wording at all, and this
-# pattern holds it to that.
+# `RunDetached` is the signal that the window left, and it is not a failure.
+# It carries no wording at all, and this pattern proves that.
 NO_WORDING = "^$"
 RUN_STARTED = datetime(2026, 1, 1, tzinfo=UTC)
 # What the interview keeps where an exploration report was, after the summary replaces that report.
@@ -202,7 +202,7 @@ def test_closes_the_row_a_blocked_run_left_open(monkeypatch: pytest.MonkeyPatch)
 def test_closes_the_rows_a_killed_run_left_open_from_the_inside_out() -> None:
     conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
     list(conversation.chat("Build a reporting CLI."))
-    # A killed runner writes no ending, and leaves open every row of the work it was in the middle of.
+    # A killed runner writes no ending, and it leaves open every row of the work that it started.
     records = (
         Header(version="0", pid=1, started=datetime.now(UTC)),
         RowOpened(
@@ -224,8 +224,8 @@ def test_closes_the_rows_a_killed_run_left_open_from_the_inside_out() -> None:
 
     events = list(conversation.ralph())
 
-    # A row that closes takes the rows under it. An outer row that closed first would leave the closing of an
-    # inner row for a row the window no longer holds.
+    # A row that closes also closes the rows under it.
+    # If the outer row closed first, JRI would close an inner row under a row that the window removed.
     assert [event for event in events if isinstance(event, ToolCallFinished)] == [
         ToolCallFinished("read", "Reading main.py", "failed", depth=1),
         ToolCallFinished("explorer", "Studying your existing project", "failed", depth=0),
@@ -425,7 +425,7 @@ def test_closes_a_stopped_call_without_closing_its_nested_row_again() -> None:
         ("explore", 0),
         ("nested", 1),
     ]
-    # The stopped call takes the rows under it. A second closing would name a row the window already removed.
+    # The stopped call closes the rows under it. A second close would name a row that the window removed.
     assert remaining == [ToolCallFinished("explore", "Explored deployment options", "stopped"), TurnFinished("stopped")]
 
 
@@ -439,8 +439,9 @@ def test_records_a_row_the_session_was_written_under() -> None:
 
     events = conversation.chat("Deploy from main.")
     next(events)
-    # A settings write shares `self.session.transcript` with the turn a live chat is still filling. A save
-    # taken here must carry the row the turn already opened, not a stale copy from before the row existed.
+    # A write of the settings shares `self.session.transcript` with the turn that a live chat still fills.
+    # A save here must carry the row that the turn opened.
+    # It must not carry an old copy from before that row existed.
     conversation.update_session(show_thinking_blocks=True)
     events.close()
 
@@ -707,8 +708,9 @@ def test_offers_no_ralphing_after_a_generated_project_reopens(monkeypatch: pytes
     assert not restarted.is_ready_to_ralph
 
 
-# A run that commits and a run that changes nothing leave the project defined by the same notes, so the
-# interviewer hears one report. It cannot act on which files the run wrote, or on whether it committed them.
+# A run that commits and a run that changes nothing leave the project with the same notes.
+# The interviewer receives one report.
+# It cannot act on the files that the run wrote, or on a commit of those files.
 def test_reports_a_generation_that_changed_nothing_to_the_interviewer(monkeypatch: pytest.MonkeyPatch) -> None:
     conversation = build_conversation(
         FakeClient([streamed_reply("Understood."), streamed_reply("Your project is defined.")])
@@ -736,8 +738,9 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
 
     list(conversation.ralph())
 
-    # The analyst wrote these words. They reach the interviewer in a block they cannot close, and never beside
-    # JRI's own wording, which they could otherwise imitate.
+    # The analyst wrote these words.
+    # They reach the interviewer in a block that they cannot close.
+    # They never come beside the wording of JRI, which they could imitate.
     assert f"<specs_generation_ambiguities>\n  - {ambiguity}\n</specs_generation_ambiguities>" in [
         item.get("content") for item in conversation.session.interview
     ]
@@ -821,7 +824,7 @@ def test_takes_up_a_run_that_started_with_no_window(monkeypatch: pytest.MonkeyPa
     conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
     list(conversation.chat("Build a reporting CLI."))
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
-    # `jri start` runs beside the conversation and never opens the session. The transcript thus holds no run,
+    # `jri start` runs beside the conversation and never opens the session. The transcript holds no run,
     # and the journal is the only record of one.
     Generation.execute(build_settings(FakeClient([])))
 
@@ -851,8 +854,8 @@ def test_writes_nothing_down_when_the_window_leaves_a_run_running(monkeypatch: p
     with pytest.raises(RunDetached, match=NO_WORDING):
         watched.extend(events)
 
-    # `RunDetached` is a `BaseException`, not an `Exception`: catching it here as a turn failure would report
-    # a run that is still going elsewhere as stopped or failed.
+    # `RunDetached` is a `BaseException`, and not an `Exception`.
+    # A catch of it here as a turn failure would report a run that still goes on elsewhere as stopped or failed.
     assert conversation.workspace.session_file.read_bytes() == started
     assert not [event for event in watched if isinstance(event, TurnFinished)]
 
@@ -924,8 +927,9 @@ def test_leaves_the_turn_of_a_runner_that_has_written_nothing_yet_open(monkeypat
     events = conversation.ralph()
     next(events)
     events.close()
-    # A runner takes its lock before it writes the first journal line, so a window can exit during that import
-    # delay. Discard the journal but keep the lock held, to reproduce a runner that is alive but has written nothing.
+    # A runner takes its lock before it writes the first journal line.
+    # A window can exit during the delay of that import.
+    # Discard the journal and keep the lock, to make a runner that is alive and has written nothing.
     Generation(conversation.workspace).discard()
 
     with hold(conversation.workspace.root / paths.GENERATION_LOCK_FILE):
@@ -941,7 +945,7 @@ def test_settles_the_turn_of_a_generation_whose_runner_is_gone(monkeypatch: pyte
     events = conversation.ralph()
     next(events)
     events.close()
-    # The runner let go of its lock and left no record. No process remains to end the turn it opened.
+    # The runner released its lock and left no record. No process remains to end the turn that it opened.
     Generation(conversation.workspace).discard()
 
     turns = build_conversation(FakeClient([])).restore()
@@ -960,8 +964,9 @@ def test_stops_a_run_carrying_the_ending_of_the_turn_it_reports_into(monkeypatch
     recorded = read_recorded_turn(conversation)
     events.close()
 
-    # `_settle_interrupted_turn` treats a turn with an ending as already closed. The stale "replied" ending
-    # must be cleared and saved before the run leaves this process, or a restart would miss the run in progress.
+    # `_settle_interrupted_turn` reads a turn with an ending as a turn that is already closed.
+    # JRI must clear the old "replied" ending and save the turn before the run leaves this process.
+    # If it does not, a restart does not find the run that goes on.
     assert recorded["work"] == "generation"
     assert recorded["ending"] is None
 
@@ -1154,8 +1159,9 @@ def test_rejects_a_session_saved_before_a_turn_recorded_its_work() -> None:
         del turn["work"]
     conversation.workspace.session_file.write_bytes(json.dumps(stored).encode())
 
-    # A turn without `work` cannot say what a retry should repeat. Reject the file instead of guessing, so an
-    # older session never resumes with a fabricated kind of work.
+    # A turn without `work` cannot say what a retry must repeat.
+    # JRI rejects the file and does not guess.
+    # An older session never starts again with a kind of work that JRI invented.
     with pytest.raises(PersistenceError, match=r"Delete it .*--force"):
         build_conversation(FakeClient([])).restore()
 
@@ -1173,7 +1179,7 @@ def test_rejects_a_session_whose_topic_the_notebook_no_longer_holds() -> None:
         Graph(topics=[Topic(id="t1", name="Acme", status="open")])
     )
 
-    # The notes went back to before the topic this conversation stands on. No turn of it can continue there.
+    # The notes went back to a time before the topic of this conversation. No turn of it can continue there.
     with pytest.raises(PersistenceError, match=r"Delete it .*--force"):
         build_conversation(FakeClient([])).restore()
 
@@ -1197,8 +1203,9 @@ def test_rejects_a_session_whose_topic_the_notebook_trashed() -> None:
 def test_rejects_a_session_file_that_is_not_utf_8() -> None:
     conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
     list(conversation.chat("Build a reporting CLI."))
-    # A byte of a message goes bad. A replacement character would put words the user never wrote in the
-    # conversation, so JRI reads the file strictly and rejects it whole.
+    # A byte of a message is not valid.
+    # A replacement character would put words in the conversation that the user never wrote.
+    # JRI reads the file strictly and rejects all of it.
     stored = conversation.workspace.session_file.read_bytes()
     conversation.workspace.session_file.write_bytes(stored.replace(b"reporting", b"repor\xffing"))
 
@@ -1421,7 +1428,7 @@ def test_retries_the_newest_of_several_prompts() -> None:
         "Build a reporting CLI.",
         "Deploy it automatically.",
     ]
-    # The project excerpt stands after the turns, so the prompt is the last item in front of it.
+    # The project excerpt comes after the turns, so the prompt is the last item before it.
     assert context[-2]["content"] == "Deploy it automatically."
 
 
@@ -1672,8 +1679,9 @@ def test_refuses_a_rewind_whose_replay_fails_inside_a_tool_that_took_the_call() 
     assert [(topic.id, topic.status) for topic in reopened.notebook.graph.topics] == [("t1", "open"), ("t2", "trashed")]
     assert [note.text for note in reopened.notebook.graph.notes] == ["Deploy from main.", "Roll back on failure."]
     assert reopened.interviewer.active_topic_id == "t1"
-    # A rewind that fails partway must leave nothing changed: the session, history, and notebook are restored
-    # in full, so a partial replay can never leave the notes half-rebuilt.
+    # A rewind that fails partway must change nothing.
+    # JRI restores the session, the history and the notebook in full.
+    # A replay that stops partway thus never leaves the notes incomplete.
     assert offer is not None
     assert [note.text for note in offer.notes] == ["Deploy from main."]
     assert not reopened.is_ready_to_ralph

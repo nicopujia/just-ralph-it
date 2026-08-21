@@ -15,8 +15,8 @@ from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
 SETTING_PATTERN = re.compile(r"(# )?[a-z_]+:( .*)?")
 
 
-# `Settings.load_global` reads the settings of whoever runs the suite. Give each test a home of its own, so that
-# no machine can put its own settings in a result here.
+# `Settings.load_global` reads the settings of the user who runs the suite. Give each test a home directory of
+# its own, so the settings of a machine cannot change a result here.
 @pytest.fixture(autouse=True)
 def isolate_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     directory = tmp_path / "home"
@@ -65,8 +65,8 @@ def test_generates_a_settings_file_that_round_trips_through_the_model(tmp_path: 
 
     settings = Settings.load()
 
-    # The values that the file writes are the values the model reads back. Each one is a default, not a constant
-    # this test must repeat.
+    # The model reads back the same values that the file writes. Each value is a default, thus this test does
+    # not repeat it as a constant.
     assert settings.model_dump() == Settings().model_dump()
 
 
@@ -344,9 +344,8 @@ def test_needs_no_subscription_login_for_another_provider(tmp_path: Path, monkey
     Settings.load().llm.validate_authentication()
 
 
-# Settings has no generic environment-variable override layer, unlike common 12-factor config tools. Only an
-# `api_key` value naming a variable is ever read from the environment, so a `JRI_`-prefixed variable here must
-# have no effect.
+# Settings has no layer that lets the environment replace a value, unlike the usual 12-factor tools. JRI reads
+# the environment only for an `api_key` value that names a variable. A `JRI_` variable here does nothing.
 def test_takes_every_setting_from_the_settings_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     values = yaml.safe_load(Settings.render())
     values["agents"]["interviewer"] |= {"model": "file-model", "reasoning_effort": "low"}
@@ -401,14 +400,15 @@ def test_documents_a_project_that_the_global_settings_started(isolate_home: Path
 
     lines = Settings.render(Settings.load_global()).splitlines()
 
-    # The file that a global setting fills is as complete and as documented as the file that the defaults fill.
+    # A global setting must not remove documentation. The file keeps the same comments as a file that the
+    # defaults fill.
     assert read_comments(lines) == read_comments(Settings.render().splitlines())
-    # A global setting sits at the margin of its own section, as a setting that the defaults fill does.
+    # JRI indents a global setting in its own section, as it indents a setting that the defaults fill.
     assert "  level: DEBUG" in lines
 
 
 def test_starts_a_project_with_an_api_key_variable_that_no_environment_sets(isolate_home: Path) -> None:
-    # `jri init` reads no .env file, thus it accepts the name of a variable that only a later `jri chat` reads.
+    # `jri init` reads no .env file, so it accepts the name of a variable that only a later `jri chat` reads.
     write_settings(isolate_home, {"brave_search": {"api_key": "MISSING_SEARCH_API_KEY"}})
 
     assert "api_key: MISSING_SEARCH_API_KEY" in Settings.render(Settings.load_global())
@@ -453,7 +453,8 @@ def test_starts_a_project_with_the_global_settings_and_no_comments(tmp_path: Pat
 
 
 def test_reports_global_settings_that_name_no_api_key_variable(isolate_home: Path) -> None:
-    # This setting needs no environment variable to be wrong. A project that starts with it cannot chat.
+    # This setting is wrong, and no environment variable can make it correct. A project that starts with it
+    # cannot chat.
     write_settings(isolate_home, {"llm": {"api_key": None}})
 
     with pytest.raises(ValidationError, match="must name the environment variable holding the API key"):

@@ -8,7 +8,8 @@ if TYPE_CHECKING:
     from tests.doubles.openai import FakeClient
 
 
-# A test that does not read the log keeps it quiet. A test of the log itself asks for the level it writes at.
+# A test that does not read the log asks for a level that writes nothing. A test of the log asks for the level
+# that it needs.
 def build_settings(
     client: "FakeClient", *, temperature: float | None = 0, search_api_key: str | None = None, level: str = "CRITICAL"
 ) -> "Settings":

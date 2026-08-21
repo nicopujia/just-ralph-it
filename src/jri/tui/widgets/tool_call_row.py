@@ -9,7 +9,7 @@ from jri.tui import copy, styles
 
 class ToolCallRow(Static):
     SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-    # Do not show elapsed time below this value. It is noise, not useful information.
+    # Do not show an elapsed time below this value. A shorter time gives the reader no useful information.
     MIN_ELAPSED_SECONDS = 3
 
     def __init__(

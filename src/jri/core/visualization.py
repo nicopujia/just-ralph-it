@@ -4,23 +4,27 @@ from . import issues
 from .notes import Graph, Topic
 
 DRAW_ERROR = f"The graph viewer loaded, but it could not draw the graph. Report it at {issues.URL}."
-# The page fetches its drawing libraries instead of carrying them. JRI requires a model-provider network connection.
-# An offline viewer alone has no value.
-# A self-contained Mermaid build adds 3.6 MB to the wheel and each `jri view` page.
-# State the fetch failure and the required user action.
+# The page fetches its drawing libraries, and it does not hold them.
+# JRI needs a network connection to the model provider, so a viewer that works offline alone has no value.
+# A Mermaid build that holds everything adds 3.6 MB to the wheel and to each `jri view` page.
+# State that the fetch failed, and state what the user must do.
 LOAD_ERROR = (
     "The graph viewer could not load what it needs from the internet. Check your connection and run `jri view` again."
 )
-# Mermaid draws 500 edges and 50,000 characters of diagram at the most, and a notebook passes both numbers while a
-# browser still draws it quickly. It also refuses in two different ways: above the character limit it puts a red box
-# in the place of the graph, and above the edge limit it stops with an error that the page reports as a JRI failure.
-# Set the limits from the time the drawing takes instead. Chrome drew 400 notes and 200 connections in 6 seconds,
-# 600 notes and 600 connections in 31, and 800 notes and 800 connections in 68. The page shows no progress, so a
-# longer wait looks like a stop. These two numbers are thus the largest notebook that draws in about half a minute.
+# Mermaid draws 500 edges and 50,000 characters of diagram at the most.
+# A notebook passes both numbers while a browser still draws it quickly.
+# Mermaid also refuses in two different ways. Above the character limit it puts a red box in the place of the
+# graph. Above the edge limit it stops with an error, and the page reports that error as a JRI failure.
+# Set the limits from the time that the drawing takes instead.
+# Chrome drew 400 notes and 200 connections in 6 seconds, 600 notes and 600 connections in 31 seconds, and
+# 800 notes and 800 connections in 68 seconds.
+# The page shows no progress, so a user reads a longer wait as a stop.
+# These two numbers are thus the largest notebook that a browser draws in about half a minute.
 MAX_CONNECTIONS = 600
 MAX_TEXT_SIZE = 100_000
-# JRI counts the same two things before it writes the page, so the user reads the size of the notebook and not one
-# of the two Mermaid refusals. Name all four numbers: the two limits alone do not say which one the notebook passed.
+# JRI counts the same two things before it writes the page.
+# The user reads the size of the notebook, and not one of the two Mermaid refusals.
+# Name all four numbers, because the two limits alone do not say which limit the notebook passed.
 SIZE_ERROR = (
     "The notebook is too large to draw. It has {connections} connections and {characters} characters of diagram, and "
     "the graph viewer draws {max_connections} connections and {max_characters} characters at the most. "
@@ -28,8 +32,8 @@ SIZE_ERROR = (
 )
 
 # The browser decodes HTML entities in a `mermaid` block before Mermaid parses it.
-# HTML escaping does not protect labels.
-# `&quot;` becomes the `"` that ends a label. Mermaid entity codes survive decoding and reach the parser as text.
+# An HTML escape does not protect a label, because `&quot;` becomes the `"` that ends the label.
+# A Mermaid entity code stays whole through that decoding, and it reaches the parser as text.
 ESCAPES = str.maketrans({
     "#": "#35;",
     "&": "#amp;",
@@ -42,8 +46,8 @@ ESCAPES = str.maketrans({
     "|": "#124;",
 })
 INDENTATION = "    " * 3
-# The template contains CSS and JavaScript braces and percentages. `%` and `format` would change them.
-# Substitute these slots literally instead.
+# The template holds CSS and JavaScript braces and percent signs. `%` and `format` would change them.
+# Replace these slots as plain text instead.
 BODY_SLOT = "<!-- body -->"
 DIAGRAM_SLOT = "<!-- diagram -->"
 DRAW_ERROR_SLOT = "<!-- draw error -->"
@@ -138,8 +142,8 @@ def render(graph: Graph) -> str:
     overview = graph.read_overview()
     lines = ["flowchart TD", f"{INDENTATION}classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px"]
     lines.extend(_draw_topic(overview, graph, graph.read_subtopics(), 1))
-    # A note sits inside the box of its topic, so containment needs no edge. Draw the connections after every box,
-    # because an edge written inside one puts both of its notes in that box.
+    # A note is inside the box of its topic, so that relation needs no edge.
+    # Draw the connections after every box, because an edge inside a box puts both of its notes in that box.
     lines.extend(
         f'{INDENTATION}{connection.source_id} -->|"{_escape(connection.label)}"| {connection.target_id}'
         for connection in graph.connections
@@ -169,7 +173,7 @@ def render(graph: Graph) -> str:
 
 def _draw_topic(topic: Topic, graph: Graph, subtopics: dict[str, list[Topic]], depth: int) -> Iterator[str]:
     margin = INDENTATION + "    " * depth
-    # Mermaid gives the title of a subgraph one line of space and cuts off the lines below it.
+    # Mermaid gives the title of a subgraph one line of space, and it removes the lines below that line.
     # Keep the name, the status and the summary on that one line.
     label = f"{_escape(topic.name)} [{topic.status}]"
     if topic.summary:

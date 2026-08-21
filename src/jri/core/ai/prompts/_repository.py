@@ -1,7 +1,8 @@
 import re
 from pathlib import Path
 
-# A line holding only this markup documents the template beside the text it explains. It never reaches the model.
+# A line that holds only this markup documents the template beside the text that it explains. It never reaches the
+# model.
 COMMENT_LINE = re.compile(r"^[ \t]*<!--.*-->[ \t]*\n?", re.MULTILINE)
 
 _directory = Path(__file__).parent

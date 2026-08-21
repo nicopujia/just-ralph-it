@@ -36,7 +36,7 @@ class Agent:
     prompt: InitVar[str]
     initial_context: InitVar[ResponseInputParam | None] = None
 
-    # The client is shared, the profile holds what the user sets, and the code sets the input size limit.
+    # Many agents use the same client. The profile holds what the user sets. The code sets the input size limit.
     client: OpenAI
     profile: AgentProfile
     max_input_size: int | None = None
@@ -120,9 +120,10 @@ class Agent:
 
         logger.info("message_finished agent=%s", type(self).__name__)
 
-    # A structured-output sibling to `respond`, for an agent that must both call tools and return a typed result.
-    # Each call starts a fresh turn from the system prompt alone, discarding any history from an earlier call.
-    # Structured streaming carries no `TextDelta`; only a tool that itself leaks one could break that, and none does.
+    # This method is the structured-output form of `respond`. An agent uses it when it must call tools and also
+    # return a typed result. Each call starts a new turn from the system prompt alone, and it discards the history
+    # of an earlier call. A structured stream carries no `TextDelta`. Only a tool that yields one could break that
+    # rule, and no tool does.
     def parse(
         self, message: str, output_type: type[Result], cancelled: Event | None = None
     ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Result | None]:
@@ -158,7 +159,7 @@ class Agent:
             if not self.remaining_rounds:
                 raise ModelError(f"Agent spent all {self.MAX_ROUNDS} response rounds without a result.")
 
-    # A history item states what happened, not what to do next. The prompt owns what the agent does with a stop.
+    # A history item states what happened, and not what to do next. The prompt says what the agent does with a stop.
     def _record_cancellation(self) -> None:
         self.history.append({"role": "system", "content": self.CANCELLATION_RECORD})
         logger.info("message_cancelled agent=%s", type(self).__name__)

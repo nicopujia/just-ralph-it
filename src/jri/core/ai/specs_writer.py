@@ -19,21 +19,21 @@ logger = logging.getLogger(__name__)
 
 
 # An agent that writes specification files into a repository, one call at a time. Each call is a response of its
-# own, so the set a pass writes is bounded by the pass, and not by what one answer can hold.
+# own, so the pass sets the limit on the files that it writes, and one answer does not.
 @dataclass
 class SpecsWriter(Agent):
-    # Compact past this share of the room the model reads. The rest of that room holds the answer that the
-    # request asks for, and the reasoning the model keeps while it writes.
+    # Compact after the request uses this share of the input room. The rest of that room holds the answer that the
+    # request asks for, and the reasoning that the model keeps while it writes.
     INPUT_SHARE: ClassVar[float] = 0.8
-    # Compact back to this share, and not to just under the mark above. The gap holds many more calls, so one
-    # compaction serves the rounds that follow it as well as the round that started it.
+    # Compact back to this share, and not to just below the share above. The room between the two shares holds many
+    # more calls. One compaction helps the rounds that follow it, and not only the round that started it.
     LOW_SHARE: ClassVar[float] = 0.6
-    # One batched read answers with at most this share of that room. What a read brings in stays for the whole
-    # pass, unlike a written body, which compaction can take back out.
+    # One batched read answers with at most this share of that room. The text that a read adds stays for all the
+    # pass. A written body does not stay, because compaction can remove it.
     READ_SHARE: ClassVar[float] = 0.1
     FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
-    # This stands where a written body stood. It says where the file is and how to read it, because the model
-    # reads its own call back and must never read this as the file it wrote.
+    # This text replaces a written body. It says where the file is and how to read it. The model reads its own
+    # call back, and it must never read this text as the file that it wrote.
     WRITTEN_FILE_RECORD: ClassVar[str] = (
         "[This body was taken out of the message to make room. The project holds the file as you wrote it, "
         "in full. Call `{tool}` with `{path}` to read it back.]"
@@ -77,14 +77,14 @@ class SpecsWriter(Agent):
 
     def read_specs(self, paths: list[str], model_root: str) -> str:
         room = get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM)
-        # The tool loop cuts an output past its own limit, and a cut specification reads like a complete one.
-        # Refuse under that limit, so the refusal happens before any cut can.
+        # The tool loop cuts an output that is longer than its own limit, and a cut specification reads like a
+        # complete one. Refuse below that limit, because JRI must refuse before the loop cuts.
         cap = min(int(room * self.READ_SHARE), estimate_tokens(Invocation.MAX_OUTPUT_LENGTH))
         return Specs.read_selected(self.repository, model_root, paths, cap)
 
-    # A written body stays in the request in full while the request fits. Past the mark, take the oldest bodies
-    # out, oldest first, until the request is under the lower mark. A body never comes back within a pass, so
-    # every later request repeats the bytes of this one, which the provider serves from its cache.
+    # A written body stays in the request in full while the request fits. When the request is too large, take the
+    # oldest bodies out, oldest first, until the request is below the lower share. A body never comes back in a
+    # pass, so every later request repeats the bytes of this one, which the provider serves from its cache.
     def _compact(self) -> None:
         tools = self.get_tools()
         size = measure_request(self.history, [item.definition for item in tools])

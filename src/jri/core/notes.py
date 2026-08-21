@@ -14,8 +14,10 @@ type TopicId = Annotated[str, Field(pattern=r"^t\d+$")]
 type NoteId = Annotated[str, Field(pattern=r"^n\d+$")]
 
 OVERVIEW_TOPIC_ID = "t1"
-# The root, a topic, and a subtopic. Every ancestor of the active topic is pinned on each request, so one more level
-# is one more always-sent body. Placement also becomes a guess the deeper the tree goes.
+# The three levels are the root, a topic, and a subtopic.
+# JRI pins every ancestor of the active topic on each request.
+# One more level sends one more body with each request.
+# A deeper tree also makes the correct topic for a note more difficult to find.
 MAX_DEPTH = 3
 
 logger = logging.getLogger(__name__)
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 class Topic(BaseModel):
     id: TopicId
-    # Placement lives in this field, and the file expresses it as nesting.
+    # This field holds the position of the topic. The file shows that position as nesting.
     parent_id: TopicId | None = None
     name: str
     summary: str | None = None
@@ -75,8 +77,9 @@ class Graph(BaseModel):
             subtree |= frontier
         return subtree
 
-    # A topic reads as trashed when it or any topic above it is. Only the topic the user discarded carries the status,
-    # so restoring it gives the subtree back as it stood.
+    # A topic is trashed when it or a topic above it has that status.
+    # Only the topic that the user discarded holds the status.
+    # When the user restores that topic, JRI gives the whole subtree back.
     def read_trashed_ids(self) -> set[str]:
         by_id = {topic.id: topic for topic in self.topics}
         trashed: set[str] = set()
@@ -180,8 +183,8 @@ class Notebook:
         topic_ids = {topic.id for topic in self.graph.topics}
         if not set(query.topic_ids or []) <= topic_ids:
             raise ValueError(f"Unknown topic `{min(set(query.topic_ids or []) - topic_ids)}`.")
-        # A named topic reads with everything under it. Naming a trashed topic still reads it, which is how the model
-        # sees what it would restore.
+        # JRI reads a named topic with all the topics below it.
+        # JRI also reads a named topic that is trashed, because the model must see what it would restore.
         allowed_topics = (
             self.graph.read_subtree_ids(query.topic_ids) if query.topic_ids else topic_ids - self.trashed_topic_ids
         )
@@ -311,7 +314,7 @@ class Notebook:
         logger.info("move_finished note_ids=%r topic_id=%s", note_ids, topic_id)
         return note_ids
 
-    # The conversation a note came from still stands, and a rewind writes the note again.
+    # The conversation that made a note stays, and a rewind writes the note again.
     def delete(self, note_ids: list[str]) -> list[str]:
         if not note_ids or len(note_ids) != len(set(note_ids)):
             raise ValueError("Provide one or more unique note IDs.")
@@ -327,7 +330,7 @@ class Notebook:
         logger.info("delete_finished note_ids=%r", note_ids)
         return note_ids
 
-    # A trashed topic waits under its status for the user to restore it.
+    # A trashed topic keeps its status until the user restores it.
     def trash(self, topic_ids: list[str]) -> list[str]:
         if not topic_ids or len(topic_ids) != len(set(topic_ids)):
             raise ValueError("Provide one or more unique topic IDs.")
@@ -384,7 +387,8 @@ class Notebook:
     def restore(self, graph: Graph, *, reuse_note_ids: bool = False) -> None:
         # Copy the graph deeply. A caller must not change the restored notebook through its checkpoint copy.
         restored = graph.model_copy(deep=True)
-        # Do not reuse a note ID. Keep the highest allocated ID after restore unless the caller replays removed notes.
+        # Do not use a note ID again.
+        # Keep the highest ID that JRI gave, unless the caller writes the removed notes again.
         if not reuse_note_ids and int(restored.next_note_id[1:]) < int(self.graph.next_note_id[1:]):
             restored.next_note_id = self.graph.next_note_id
         self._save(restored)
@@ -392,8 +396,8 @@ class Notebook:
     def render(self, topic_id: TopicId) -> str:
         return self._dump(self.graph, topic_id)
 
-    # A trashed topic is discarded user thinking.
-    # Do not include it, its subtree, their notes, or their edges in a document for another model.
+    # A trashed topic holds thinking that the user discarded.
+    # Do not put it, its subtree, their notes, or their connections in a document for another model.
     @classmethod
     def exclude_trashed(cls, document: bytes) -> str:
         if not document:
@@ -440,7 +444,7 @@ class Notebook:
 
     def _load(self) -> Graph:
         if not self.path.exists():
-            # The project has no name of its own yet, so it starts with the name of the directory it lives in.
+            # The project has no name of its own yet, so it starts with the name of its directory.
             graph = Graph(topics=[Topic(id=OVERVIEW_TOPIC_ID, name=self.project_name, status="open")])
             self._write(graph)
             logger.debug("file_created")
@@ -456,7 +460,7 @@ class Notebook:
         else:
             return graph
 
-    # The document is the root topic, so its own fields stand at the top and its children nest under it.
+    # The document is the root topic. Its own fields are at the top, and its children nest below them.
     @staticmethod
     def _parse(data: dict[str, Any]) -> Graph:
         topics: list[dict[str, Any]] = []
@@ -496,12 +500,14 @@ class Notebook:
             logger.exception("file_write_failed path=%r", self.path)
             raise PersistenceError(f"Could not save the notebook file `{self.path}`: {error.strerror}") from error
 
-    # A pinned document is the whole document with parts taken out: the notes of the topics off the active branch,
-    # every trashed subtree, the connections that reach none of the rendered notes, and the note ID allocator.
+    # A pinned document is the whole document, but JRI removes some parts from it.
+    # It removes the notes of the topics that are not on the active branch, and every trashed subtree.
+    # It also removes the connections that reach no rendered note, and the next note ID.
     @staticmethod
     def _dump(graph: Graph, topic_id: TopicId | None = None) -> str:
-        # A trashed topic stops the walk, so it and the topics above the active one that stand under it render
-        # nothing. Take them out of the pinned set, which then names the topics whose notes the document holds.
+        # The walk stops at a trashed topic, so that topic renders nothing.
+        # The ancestors of the active topic that are below it render nothing either.
+        # Take them out of the pinned set. The set then names the topics whose notes the document holds.
         pinned = None if topic_id is None else graph.read_ancestor_ids(topic_id) - graph.read_trashed_ids()
         rendered = {note.id for note in graph.notes if pinned is None or note.topic_id in pinned}
         data = Notebook._build_topic(graph.read_overview(), graph, graph.read_subtopics(), pinned)
@@ -518,11 +524,11 @@ class Notebook:
     def _build_topic(
         topic: Topic, graph: Graph, subtopics: dict[str, list[Topic]], pinned: set[str] | None
     ) -> dict[str, Any]:
-        # Placement is what the nesting states, so the field that carries it says nothing further here.
+        # The nesting shows the position of the topic. The field that holds the position adds nothing here.
         data: dict[str, Any] = topic.model_dump(exclude_none=True, exclude={"parent_id"})
         if pinned is None or topic.id in pinned:
             data["notes"] = {note.id: note.text for note in graph.notes if note.topic_id == topic.id}
-        # Stopping at a trashed topic takes its subtree with it.
+        # The walk stops at a trashed topic, and the document holds no topic below it.
         children = [
             Notebook._build_topic(child, graph, subtopics, pinned)
             for child in subtopics.get(topic.id, [])

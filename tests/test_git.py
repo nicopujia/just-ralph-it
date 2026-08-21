@@ -63,13 +63,13 @@ diff --git a/README.md b/README.md
 -# Project
 +# Renamed
 """
-# `init` writes config, then HEAD, under separate locks. A kill between the two writes can leave either lock
-# standing while only the other file is still missing.
+# `init` writes config, then HEAD, and it locks each of the two files separately.
+# A kill between the two writes can leave one lock in place while only the other file is still missing.
 KILLED_INITS = (("config.lock", ("config", "HEAD")), ("HEAD.lock", ("HEAD",)))
-# Git ignores SIGPIPE so a broken output pipe does not end it. Sending it here would not kill Git, so it is left
-# out of the signals this test can use to end one.
-# A Git that a signal ends writes nothing before it goes. JRI supplies this wording in place of that silence,
-# so a failure the user reads always says something.
+# Git ignores SIGPIPE, and a broken output pipe does not end it.
+# That signal would not kill Git here, so this list of signals leaves it out.
+# A Git that a signal ends writes nothing before it stops.
+# JRI gives this wording in place of that empty output, so each failure that the user reads says something.
 SILENT_FAILURE = r"Git command failed\."
 HANDLED_SIGNALS_A_COMMIT_DIES_OF = ("HUP", "INT", "QUIT", "TERM")
 
@@ -270,7 +270,8 @@ def test_keeps_the_lock_a_running_command_holds_when_a_signal_ends_its_own_git(
     try:
         assert is_the_second_command_running(tmp_path)
         assert read_git_locks(tmp_path) == (tmp_path / ".git/HEAD.lock",)
-        # A standing lock must still block a fresh command attempt, not just be left behind after the first one.
+        # A lock that is still there must also stop a new command.
+        # It is not sufficient that the first command leaves it there.
         with pytest.raises(git.Error, match=r"HEAD\.lock"):
             repository.commit("second", paths=("README.md",))
     finally:
@@ -284,8 +285,9 @@ def test_keeps_the_index_lock_another_command_took_when_a_signal_ends_its_own_gi
 ) -> None:
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
-    # `past` stands after the commit gave the index lock back, so the lock that the second command takes there is
-    # its own. Git removes its own locks at a signal it handles, thus what stands after belongs to that command.
+    # `past` runs after the commit gave the index lock back.
+    # The lock that the second command takes there is its own.
+    # Git removes its own locks at a signal that it handles, so a lock that stays belongs to that command.
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + SIGNAL_THE_GIT.format(name=name)
 
     with open_a_window(tmp_path, "past", window), pytest.raises(git.Error, match=SILENT_FAILURE):
@@ -341,17 +343,18 @@ def test_reports_the_locks_over_the_files_a_command_of_its_own_writes(
 ) -> None:
     repository = create_repository(tmp_path)
     branch = tmp_path / ".git" / f"{run_git(tmp_path, 'symbolic-ref', 'HEAD')}.lock"
-    # A commit moves HEAD and the branch it stands on, and each write of the index locks the index. A lock over
-    # `config` belongs to no command of JRI, so it must stay out of the report.
+    # A commit moves HEAD and the branch that HEAD points at, and each write of the index locks the index.
+    # No command of JRI locks `config`, so the report must not name a lock on that file.
     for lock in (tmp_path / ".git/index.lock", tmp_path / ".git/HEAD.lock", branch, tmp_path / ".git/config.lock"):
         lock.touch()
 
     assert repository.locks.blocking == (tmp_path / ".git/index.lock", tmp_path / ".git/HEAD.lock", branch)
 
 
-# Git answers with the common directory as a path from the directory the command ran in. A repository opened at a
-# subdirectory must join that answer onto that same directory. Joined onto the top level, it points above the
-# repository, and the branch lock that stops a commit stands at a path nothing looks at.
+# Git gives the common directory as a path from the directory where the command ran.
+# A repository that JRI opens at a subdirectory must join that answer to that same directory.
+# Joined to the top level, the path points above the repository.
+# JRI would then look for the branch lock that stops a commit at a path that holds nothing.
 def test_reports_the_locks_of_a_repository_it_opened_at_a_subdirectory(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -393,8 +396,8 @@ def test_frees_the_locks_the_git_it_started_died_holding(
         repository.commit("second", paths=("README.md",))
 
     assert read_git_locks(tmp_path) == ()
-    # Freeing the lock must not corrupt the repository: the killed commit must not have partly landed,
-    # and a new commit must still succeed.
+    # JRI frees the lock, and the repository must stay correct.
+    # The killed commit must write no part of itself, and a new commit must still succeed.
     assert run_git(tmp_path, "log", "--format=%s") == "initial"
     assert repository.commit("second", paths=("README.md",))
     assert run_git(tmp_path, "log", "--format=%s").splitlines() == ["second", "initial"]
@@ -411,8 +414,9 @@ def test_leaves_the_refs_a_commit_died_inside_its_transaction_holding(
     with open_a_window(tmp_path, "branch", KILL_THE_GIT), pytest.raises(git.Error, match=SILENT_FAILURE):
         repository.commit("second", paths=("README.md",))
 
-    # Git moves HEAD and the branch ref inside one transaction. A stopped process cannot show whether that
-    # transaction is still live elsewhere, so JRI must leave both locks for a person to resolve.
+    # Git moves HEAD and the branch ref in one transaction.
+    # A stopped process cannot show if that transaction still runs in another process.
+    # JRI must thus leave both locks, and a person must resolve them.
     assert read_git_locks(tmp_path) == (tmp_path / ".git/HEAD.lock", branch)
     assert run_git(tmp_path, "log", "--format=%s") == "initial"
     with pytest.raises(git.Error, match=r"HEAD\.lock|cannot lock ref"):
@@ -514,8 +518,9 @@ def test_frees_the_index_lock_the_restore_it_started_died_holding(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path)
-    # Git runs the smudge side over what it is about to write back into the worktree, and only for a path whose
-    # bytes it must replace. The edit below makes README.md that path.
+    # Git runs the smudge side on what it writes back into the worktree.
+    # It runs that side only for a path whose bytes it must replace.
+    # The edit below makes README.md that path.
     (tmp_path / "README.md").write_bytes(b"# Edited\n")
 
     with (
@@ -535,8 +540,9 @@ def test_frees_the_index_lock_the_unstaging_it_started_died_holding(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path)
-    # An unstaging refreshes the index while it holds the index lock. Only a file that the index cannot date
-    # makes that refresh read the worktree back, which is where the kill below must land.
+    # The command that unstages a file refreshes the index while it holds the index lock.
+    # Only a file that the index cannot date makes that refresh read the worktree again.
+    # The kill below must occur in that read.
     stale_the_filtered_path(tmp_path)
 
     with (
@@ -574,8 +580,8 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_read(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path)
-    # Make Git distrust the cached stat for the file. Only then does `read_status` re-run the clean filter,
-    # which is where the kill below must land.
+    # Make Git distrust the cached stat of the file.
+    # Only then does `read_status` run the clean filter again, and the kill below must occur in that filter.
     stale_the_filtered_path(tmp_path)
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
 
@@ -596,8 +602,8 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_commit_of_no_
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
     repository.stage(("README.md",))
-    # A commit with no named paths never adds `--`, so JRI does not count itself as the index-lock owner.
-    # Getting this wrong would delete another process's real lock instead of leaving it standing.
+    # A commit that names no path never adds `--`, so JRI does not read itself as the holder of the index lock.
+    # A JRI that read it wrongly would delete the real lock of another process, and not leave it in place.
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
 
     with open_a_window(tmp_path, "index", window), pytest.raises(git.Error, match=SILENT_FAILURE):
@@ -614,8 +620,9 @@ def test_leaves_the_index_alone_where_a_read_would_only_be_refreshing_it(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path)
-    # Set an old mtime so Git cannot trust its cached stat and wants to refresh the index. This proves
-    # `--no-optional-locks` stops that opportunistic write, not just an index that was already clean.
+    # Set an old mtime, so Git cannot trust its cached stat and wants to refresh the index.
+    # `--no-optional-locks` must stop that write.
+    # An index that was already clean would also stop it, and would prove nothing.
     os.utime(repository.path / "README.md", (0, 0))
     index = repository.path / ".git/index"
     before = index.stat()
@@ -802,8 +809,8 @@ def test_reads_the_paths_the_index_holds_as_links(
     repository = create_repository(tmp_path / "repo")
     (repository.path / "notes.md").write_bytes(b"README.md")
     blob = run_git(repository.path, "hash-object", "-w", "--", "notes.md")
-    # Fake a symlink-mode index entry instead of creating a real symlink, which needs privilege that not every
-    # system, such as Windows without it, grants.
+    # Make an index entry with the symlink mode, and do not make a real symlink.
+    # A real symlink needs a privilege, and not every system gives it. Windows is one such system.
     run_git(repository.path, "update-index", "--add", "--cacheinfo", f"120000,{blob},notes.md")
 
     assert repository.read_staged_paths(linked=True) == ("notes.md",)
@@ -1078,8 +1085,9 @@ def test_snapshots_the_working_tree_when_no_revision_is_given(
         assert b"+uncommitted edit" in snapshot.diff(None)
 
 
-# `git ls-files` output is read with `-z`, NUL-separated, so a real file name that embeds a newline stays one
-# entry. A naive newline split would misread its tail as a second, unrelated path the copy cannot find.
+# JRI reads the output of `git ls-files` with `-z`, which separates the names with NUL.
+# A real file name that holds a newline stays one entry.
+# A split on the newline would read the end of that name as a second path, and the copy cannot find it.
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows holds no file whose name carries a newline")
 def test_snapshots_a_file_whose_name_holds_a_newline(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")

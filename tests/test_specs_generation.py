@@ -42,8 +42,8 @@ type Result = specs_generation.Ambiguities | specs_generation.Unchanged | str | 
 type Row = ToolCallStarted | ToolCallFinished
 
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
-# A null byte makes Git treat the file as binary, and `git apply` cannot diff a binary file. A resumed draft
-# carrying one must be refused before Git ever sees it.
+# A null byte makes Git read the file as binary, and `git apply` cannot diff a binary file. JRI must refuse a
+# resumed draft that holds a null byte before Git reads it.
 NULL_BODY_DRAFT = (
     "diff --git a/.jri/specs/functional/null.md b/.jri/specs/functional/null.md\n"
     "new file mode 100644\n"
@@ -53,8 +53,8 @@ NULL_BODY_DRAFT = (
     "+# Null\x00byte\n"
 )
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
-# `CON` is a reserved Windows device name. JRI blocks it on every platform, not only Windows, so a project stays
-# portable if it is ever checked out there.
+# `CON` is a reserved device name on Windows. JRI refuses it on every platform, and not only on Windows. A user
+# can check the project out on Windows later.
 REDRAFTED_DEVICE_NAME_DRAFT = """\
 diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
 new file mode 100644
@@ -69,8 +69,8 @@ diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
  # Console
 +The console reports totals.
 """
-# A draft is validated as one whole patch. One invalid entry refuses the whole draft, including its valid
-# changes, so a run resumes from the accepted baseline instead of keeping the good part.
+# JRI validates a draft as one full patch. One invalid entry refuses the full draft with its valid changes. A run
+# starts again from the accepted baseline, and it does not keep the valid part.
 FOREIGN_FILE_DRAFT = """\
 diff --git a/.jri/specs/functional/exports.md b/.jri/specs/functional/exports.md
 new file mode 100644
@@ -118,8 +118,8 @@ def commit_specs() -> None:
     assert isinstance(commit, str)
 
 
-# One pass answers over several rounds: one round for each call that writes files, and a last round that returns
-# what stays outside them. A pass that writes nothing goes straight to that last round.
+# One pass answers in more than one round. It uses one round for each call that writes files, and a last
+# round that returns what the calls leave out. A pass that writes nothing goes directly to that last round.
 def written_specs(
     files: Mapping[str, str] = FUNCTIONAL_FILES, deleted: Sequence[str] = (), unresolved: Sequence[str] = ()
 ) -> list[object]:
@@ -136,7 +136,8 @@ def designed_architecture(files: Mapping[str, str] = ARCHITECTURE_FILES, deleted
     ]
 
 
-# The last cycle asks for an architecture alone, so its pass answers with that shape and not with the union above.
+# The last cycle asks only for an architecture. Its pass answers with that shape, and not with the union
+# above.
 def drafted_architecture(files: Mapping[str, str] = ARCHITECTURE_FILES, deleted: Sequence[str] = ()) -> list[object]:
     return [
         *write_files("architecture", files),
@@ -157,8 +158,8 @@ def build_thinking_call(rounds: list[object], text: str) -> list[object]:
     return [*calls, [thought(text), *response(reply(cast("BaseModel", result).model_dump_json()))]]
 
 
-# A pass takes a round for each call it makes, and every round of it carries the same messages. Name each of
-# those messages once, so a reader of this list reads what was said and not how many rounds said it.
+# A pass uses one round for each call that it makes, and every round holds the same messages. Give each message
+# one time, so a reader of this list sees what the pass said and not the number of rounds.
 def read_prompts(client: FakeClient) -> list[str]:
     return list(
         dict.fromkeys(
@@ -232,7 +233,7 @@ def test_asks_for_the_details_a_pass_could_not_settle_from_the_notebook(
     assert not (tmp_path / paths.SPECS_DIR).exists()
 
 
-# The draft is what makes the answers continue this work instead of starting it again.
+# The draft lets the answers continue this work. Without the draft, the work starts again.
 def test_keeps_the_specifications_a_pass_wrote_before_it_asked(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -338,13 +339,14 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     prompts = read_prompts(client)
     assert any("Ship a web app." in prompt for prompt in prompts)
     assert not any("nonsense" in prompt for prompt in prompts)
-    # An unparsable accepted notebook names no baseline to compare with, so the run continues without a diff
-    # instead of showing one built against the unreadable "nonsense" bytes or against nothing.
+    # JRI cannot read this accepted notebook, so it has no baseline to compare with. The run continues with no
+    # diff, and it shows no diff against the unreadable "nonsense" bytes or against nothing.
     assert not any("<notebook_diff_from_accepted_baseline>" in prompt for prompt in prompts)
 
 
-# `git apply` refuses an empty patch, so an unchanged generation must return before it ever tries to commit. It
-# cannot create and then remove an acceptance record, which would leave a window a killed run could get stuck in.
+# `git apply` refuses an empty patch. A generation that changes nothing must return before it commits. It
+# must not make an acceptance record and then remove it, because a run that stops between the two steps leaves
+# the project blocked.
 def test_reports_a_generation_that_changed_nothing(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -387,7 +389,8 @@ def test_stops_a_run_without_touching_the_project(
     assert rows[-1] == stop_at
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
-    # Cancellation must still exit the worktree context manager; otherwise a temporary worktree survives the run.
+    # A stop must also leave the worktree context manager. If it does not, a temporary worktree stays after the
+    # run.
     assert not run_git(tmp_path, "diff", "--cached")
     assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
 
@@ -433,7 +436,7 @@ def test_stops_the_repository_study_without_calling_it_a_failure(
 
     # A study that a stop ended is a clean stop, and not a broken report.
     assert result is None
-    # The design row is the one that would follow. Its absence states that the stop ended the run at the study.
+    # The design row is the row that follows the study. It is not here, so the stop ended the run at the study.
     assert read_rows(rows)[-1] == ("ToolCallStarted", "explorer", "Studying your existing project")
 
 
@@ -488,8 +491,8 @@ def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repo
         ("ToolCallStarted", "commit", "Saving the specifications to your project"),
         ("ToolCallFinished", "commit", "Saved the specifications to your project"),
     ]
-    # Every started row but `commit` must map to one model request; a mismatch would mean a call the model made
-    # with no row shown, or a row shown for no call.
+    # Each started row, but not `commit`, must agree with one model request. Different numbers show a call that
+    # the model made with no row, or a row with no call.
     assert len([row for row in rows if isinstance(row, ToolCallStarted) and row.call_id != "commit"]) == len(
         client.responses.inputs
     )
@@ -551,8 +554,8 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
     with pytest.raises(RepositoryStateError, match=r"stray\.md"):
         block_the_project_once_the_design_lands()
 
-    # The generator itself does not close a row on a raised error. A higher layer resolves open rows once
-    # `TurnFinished` arrives, so this row is left open here by design, not by omission.
+    # The generator does not close a row when an error occurs. A higher layer closes the open rows when
+    # `TurnFinished` arrives. This row stays open here on purpose.
     assert read_rows(rows)[-2:] == [
         ("ToolCallFinished", "architecture-1", "Designed the project architecture"),
         ("ToolCallStarted", "commit", "Saving the specifications to your project"),
@@ -634,12 +637,13 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
     assert "functional/behavior.md" in revision
     assert summarize("functional/behavior.md") in revision
     assert "<architect_feedback>\n  - Undefined totals.\n  - Unclear export." in revision
-    # A round names the draft the architect rejected, and leaves its bodies out. The analyst reads the ones it wants.
+    # A round names the draft that the architect refused, and it leaves the bodies out. The analyst reads the
+    # bodies that it wants.
     assert FUNCTIONAL_FILES["functional/behavior.md"] not in revision
 
 
-# `Specs.write` touches only the files a round returns. A file the model does not resend keeps its prior content
-# and stays out of the next commit's diff, so a round need not restate every accepted file to leave it alone.
+# `Specs.write` changes only the files that a round returns. A file that the model does not send again keeps its
+# content, and it stays out of the diff of the next commit. A round does not send every accepted file again.
 def test_keeps_the_accepted_specification_a_round_left_out(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -698,8 +702,8 @@ def test_removes_the_specification_a_pass_deleted_beside_the_files_it_wrote(
     assert not (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").exists()
 
 
-# A pass that removes a file and asks a question changed the project as much as one that wrote a file. Save that
-# work in the draft, and then put the question to the user.
+# A pass that removes a file and asks a question changes the project as much as a pass that writes a file. JRI
+# saves that work in the draft, and it then asks the question to the user.
 def test_keeps_the_specification_a_pass_deleted_before_it_asked(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -754,8 +758,8 @@ def test_removes_the_architecture_a_design_deleted_beside_the_files_it_wrote(
     assert not (tmp_path / paths.ARCHITECTURE_SPECS_DIR / "layers.md").exists()
 
 
-# A later round's prompt carries every current file, not only the one the architect flagged, so the model can
-# leave a file untouched while still seeing its content.
+# The prompt of a later round holds every current file, and not only the file that the architect named. The model
+# can read the content of a file and still not change it.
 def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
@@ -828,8 +832,8 @@ def test_keeps_the_draft_a_run_that_reached_no_commit_wrote(
     assert not (tmp_path / paths.SPECS_DIR).exists()
 
 
-# A pass that sends the functional specifications back still wrote what it settled. The run saves that work, so
-# the cycle that answers the issues designs on top of it instead of writing it again.
+# A pass that sends the functional specifications back still wrote what it settled. The run saves that work. The
+# cycle that answers the issues then designs on that work, and it does not write the work again.
 def test_keeps_the_architecture_a_pass_wrote_before_it_turned_back(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -943,8 +947,9 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
         ],
     )
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
-    # Re-committing behavior.md with the acceptance trailer moves the baseline the stopped draft's patch was built
-    # against, so the patch can no longer apply — the same as if a user edited a specification between runs.
+    # This commit of behavior.md with the acceptance trailer moves the baseline. JRI built the patch of the
+    # stopped draft against the baseline before it, so the patch no longer applies. A user who edits a
+    # specification between two runs makes the same failure.
     (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# Totals\nThe project reports totals.\n")
     run_git(tmp_path, "add", "--force", paths.FUNCTIONAL_SPECS_DIR)
     run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
@@ -1054,8 +1059,8 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
 
     rows, result = generate(client)
 
-    # The instructions that take every remaining decision reach the last cycle, and only it. Every earlier cycle
-    # keeps the instructions that let it send the functional specifications back instead.
+    # Only the last cycle gets the instructions that take every decision that stays. Each earlier cycle keeps the
+    # instructions that let it send the functional specifications back.
     last = str(cast("list[dict[str, object]]", client.responses.inputs[-1])[0]["content"])
     assert last.startswith(architect.Architect.FINAL_PROMPT)
     assert sum(item.startswith(architect.Architect.FINAL_PROMPT) for item in read_prompts(client)) == 1
@@ -1119,8 +1124,9 @@ def test_studies_the_project_as_it_stands_on_disk(tmp_path: Path, create_reposit
 
     instructions = read_explorer_prompt(client)
     directory = Path(instructions.split("<working_directory>\n")[1].split("\n</working_directory>")[0])
-    # The explorer works in a disposable copy of the repository, not the project directory itself. That copy stands
-    # in the run snapshot directory, so its own reported working directory is never the real project path.
+    # The explorer works in a copy of the repository that JRI can remove, and not in the project directory. JRI
+    # puts that copy in the snapshot directory of the run. The working directory that the explorer reports is
+    # never the real path of the project.
     assert directory == (tmp_path / paths.SNAPSHOT_DIR).resolve()
     assert any(str(directory / paths.NOTEBOOK_FILE) in output for output in read_tool_outputs(client))
     # The study examines the full project, and each row that it opens is nested below the study row.
@@ -1141,7 +1147,8 @@ def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: C
         generate(client)
 
 
-# A pass carries the files it settled and the questions it could not. Carrying neither is a pass that did nothing.
+# A pass gives the files that it settled and the questions that it could not settle. A pass that gives neither
+# does nothing.
 def test_refuses_an_analyst_that_writes_no_file_and_asks_nothing(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -1181,8 +1188,8 @@ def test_refuses_an_architect_that_deletes_every_architecture_specification(
         generate(client)
 
 
-# A write that leaves its root writes nothing, and the model hears why while it can still write the file. The
-# pass that ends without writing one is the pass the run refuses.
+# A write outside its root writes no file, and the model reads the reason while it can still write the file. The
+# run refuses the pass that ends and writes no file.
 def test_refuses_functional_specifications_that_leave_their_root(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:

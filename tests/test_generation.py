@@ -50,14 +50,14 @@ from tests.doubles.specs_generation import (
 )
 from tests.doubles.workspace import hold_workspace, install_workspace
 
-# A large age, well past WRITTEN_WITHIN, so a call that has been open
-# a while cannot be mistaken for one that just opened.
+# This age is much larger than WRITTEN_WITHIN. A call open for this long
+# cannot look like a call that opened now.
 AGED = 360.0
-# A run holds its reasoning for one poll. A poll this long lasts more than
-# the run, thus only the flush before the ending can write a held batch.
+# A run keeps its reasoning for one poll. A poll this long is longer than the
+# run, so only the last write before the ending puts a kept batch in the journal.
 BATCHES_FOR = 60.0
 CONCLUDES_WITHIN = 60.0
-# A crash writes its cause last, under more output than JRI keeps.
+# A crash writes its cause last, after more output than JRI keeps.
 CRASHING_RUNNER = f"""
 import sys
 
@@ -67,17 +67,17 @@ sys.stderr.write("\\nthe runner fell over")
 sys.exit(1)
 """
 DRAFT = b"the work the run before this one saved\n"
-# A process ends the moment the signal reaches it. Only a machine under load uses any of this time.
+# A process ends when the signal reaches it. Only a machine under load uses any of this time.
 ENDS_WITHIN = 5.0
-# This is the largest number a run reads as a process, and no process on this machine wears it. A halt aimed at
-# it reaches nothing, thus the lock behind it stays held.
+# This is the largest number a run reads as a process, and no process on this machine has it.
+# A halt sent to this number reaches nothing, and the lock stays held.
 GONE_PID = 2147483647
-# This is the variable that names the window a runner belongs to. The test writes it out, so a change of the name
-# shows here as a failure.
+# This variable names the window that a runner belongs to. The test writes the name in full,
+# so a change of the name makes this test fail.
 HOLDER_VARIABLE = "JRI_HOLDER"
 LIVE_JOURNAL = b"what the run that holds the lock wrote\n"
 LIVE_LOG = b"what the run that holds the lock could not journal\n"
-# This stands in for a runner that writes down the window it was told it belongs to.
+# This is a double for a runner. It writes the name of the window that it belongs to.
 MARKING_RUNNER = f"""
 import os
 from pathlib import Path
@@ -87,14 +87,14 @@ written = journal.with_name("written")
 written.write_bytes(os.environ.get({HOLDER_VARIABLE!r}, "").encode() + b"\\n")
 written.replace(journal)
 """
-# `RunDetached` is the signal that the window left, and not a failure. It carries no wording at all, and this
-# pattern holds it to that.
+# `RunDetached` reports that the window ended, and it is not a failure. It holds no message text,
+# and this pattern makes sure that the text stays empty.
 NO_WORDING = "^$"
 POLL = 0.01
 RUNNER_JOURNAL = b"what the run that started now wrote\n"
-# This stands in for a runner that starts and writes its journal. It writes
-# under another name and renames, thus a reader that waits for the journal
-# never reads a file that is still incomplete.
+# This is a double for a runner that starts and writes its journal. It writes
+# a file with a different name and then renames it. A reader that waits for
+# the journal never reads a file that is still incomplete.
 RUNNER = f"""
 from pathlib import Path
 
@@ -117,13 +117,13 @@ time.sleep(60)
 SETTINGS = "llm:\n  provider: http://127.0.0.1:9/v1\n  api_key: JRI_TEST_API_KEY\nlogging:\n  level: CRITICAL\n"
 STARTS_WITHIN = 60.0
 STOPS_AFTER = 0.5
-# This is one more than the largest number a run can read as a process. A record of it names no process, thus a
-# halt has nothing to end.
+# This number is one more than the largest number a run reads as a process.
+# A record of this number names no process, so a halt has nothing to end.
 TOO_LARGE_PID = 2147483648
-# These are the two numbers below the first real process. Neither names a runner, and a signal sent to either one
-# leaves the run it was aimed at alone and ends the session around it instead: 0 means the group of the caller,
-# and 1 means every process the user owns. A runner inside a container writes 1 into the lock file it shares with
-# the host, so a halt run on the host reads one of these from a record JRI really wrote.
+# These are the two numbers below the first real process, and neither one names a runner. A signal to 0 reaches
+# the process group of the caller, and a signal to 1 reaches every process the user owns. Such a signal leaves
+# the run and ends the session around it. A runner inside a container writes 1 into the lock file that it shares
+# with the host. A halt on the host reads one of these numbers from a record that JRI wrote.
 SESSION_WIDE_PIDS = (0, 1)
 WRITTEN_WITHIN = 30.0
 
@@ -151,7 +151,7 @@ def read_journal(generation: Generation) -> list[dict[str, object]]:
     return [json.loads(line) for line in generation.journal_file.read_text(encoding="utf-8").splitlines()]
 
 
-# A folded run answers with the return of its follower, and a `for` loop drops that return.
+# A folded run answers with the return value of its follower, and a `for` loop discards that value.
 def read_answer(events: Generator[object, None, object]) -> object:
     try:
         while True:
@@ -160,8 +160,8 @@ def read_answer(events: Generator[object, None, object]) -> object:
         return ending.value
 
 
-# This is the full life of a runner, in a thread of this process. It takes the same lock, writes the same journal,
-# and hears a stop through the same file. The body runs while that run is under way, and the run ends with it.
+# This runs a complete runner in a thread of this process. It takes the same lock, writes the same journal, and
+# reads a stop from the same file. The body runs while that run goes, and the run ends with the body.
 @contextmanager
 def start_a_run(generation: Generation) -> "Iterator[None]":
     generation.workspace.open_generation_dir()
@@ -191,8 +191,8 @@ def write_row(started: object, *, call_id: str = "commit", label: str = "Saving"
     })
 
 
-# This mimics the Windows failure a real open handle causes, so the
-# guard against it runs on every platform, not only Windows.
+# This makes the same failure that an open file handle causes on Windows.
+# The guard against that failure runs on every platform, and not only on Windows.
 def refuse_removing_an_open_file(monkeypatch: pytest.MonkeyPatch) -> None:
     handles: list[IO[bytes]] = []
     open_file, unlink = Path.open, Path.unlink
@@ -309,15 +309,15 @@ def test_reads_back_what_a_run_answered(
     monkeypatch.setattr("jri.core.generation.specs_generation.generate", workflow)
 
     with start_a_run(generation):
-        # The run is under way now. A stop asked for before it started is a stop the run removes, not one it hears.
+        # The run is going now. A run deletes a stop asked for before it started, so it never reads that stop.
         cancelled.set()
         answer = read_answer(generation.follow(cancelled))
 
     assert answer == expected
 
 
-# A runner writes its ending and only then frees its lock. The follower that meets that free lock still has the
-# ending in front of it, unread.
+# A runner writes its ending, and only then it frees its lock.
+# The follower that finds the free lock has not read that ending yet.
 def test_reads_back_the_ending_a_run_wrote_before_it_freed_its_lock(tmp_path: Path) -> None:
     generation = write_journal(tmp_path, write_header(), write_row(datetime.now(UTC).isoformat()))
     generation.lock = ConcludingLock(
@@ -371,7 +371,8 @@ def test_names_a_provider_a_run_could_not_reach(tmp_path: Path, monkeypatch: pyt
         list(generation.follow())
 
 
-# A run can fail with a class that no clause names. That failure is an ending too, and the journal must get it.
+# A run can fail with an exception class that no clause names.
+# That failure is also an ending, and the journal must record it.
 def test_names_an_unexpected_failure_a_run_ended_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def generate_erring(_settings: object, _cancelled: object = None) -> Iterator[object]:
         yield STARTED_ROW
@@ -651,8 +652,8 @@ def test_refuses_a_runner_while_one_holds_the_lock(tmp_path: Path) -> None:
     assert generation.journal_file.read_bytes() == LIVE_JOURNAL
 
 
-# A window owns the conversation that a run reports to. A run started beside that window would report to a
-# conversation that asked for nothing.
+# A window owns the conversation that a run reports to.
+# A run started beside that window reports to a conversation that asked for nothing.
 def test_refuses_a_runner_beside_the_window_that_has_the_project(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
 
@@ -665,7 +666,7 @@ def test_refuses_a_runner_beside_the_window_that_has_the_project(tmp_path: Path)
     assert not generation.workspace.generation_dir.exists()
 
 
-# This is the runner of that window: it names the window it belongs to, and the window let it start.
+# This runner belongs to the window that has the project. It names that window, and that window started it.
 def test_runs_a_runner_the_window_that_has_the_project_named_itself_to(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -679,14 +680,14 @@ def test_runs_a_runner_the_window_that_has_the_project_named_itself_to(
     assert read_journal(generation)[-1]["ending"] == "committed"
 
 
-# A cancel file left by the run before this one would stop this run the instant it begins.
+# The run before this one can leave a cancel file. That file stops this run as soon as it begins.
 def test_forgets_the_stop_a_folded_run_left_before_it_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def generate_watching_for_a_stop(
         _settings: object, cancelled: threading.Event | None = None
     ) -> Generator[object, None, str | None]:
         yield STARTED_ROW
         assert cancelled is not None
-        # A stop that stands in the project reaches the run inside this wait.
+        # A stop file already in the project reaches the run during this wait.
         return None if cancelled.wait(STOPS_AFTER) else COMMIT
 
     generation = build_generation(tmp_path)
@@ -700,22 +701,22 @@ def test_forgets_the_stop_a_folded_run_left_before_it_runs(tmp_path: Path, monke
     assert not generation.cancel_file.exists()
 
 
-# A run without a window says how it went through the status of its process. Each ending it could do nothing
-# about is a failed process.
+# A run without a window reports its result through the exit status of its process.
+# Each ending that the run cannot control is a failed process.
 @pytest.mark.parametrize("ending", ["exhausted", "refused", "unavailable", "blocked", "failed"])
 def test_states_that_the_run_could_not_do_the_work(ending: str) -> None:
     assert Conclusion.model_validate({"kind": "conclusion", "ending": ending}).failure
 
 
-# A stopped run did what it was told to do, and a run that found something to clarify did its work and asks a
-# question about it. Neither is a failed process.
+# A stopped run did what the user asked. A run that found something to clarify did its work,
+# and it asks a question about that work. Neither run is a failed process.
 @pytest.mark.parametrize("ending", ["committed", "unchanged", "ambiguities", "stopped"])
 def test_states_that_the_run_did_the_work(ending: str) -> None:
     assert not Conclusion.model_validate({"kind": "conclusion", "ending": ending}).failure
 
 
-# A run without a window has no journal left to read by the time its caller could read one. The conclusion it
-# answers with is the only thing that says how it went.
+# A run without a window keeps no journal for its caller to read afterwards.
+# The conclusion that the run answers with is the only report of its result.
 def test_answers_with_the_conclusion_the_run_wrote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     build_generation(tmp_path)
     monkeypatch.setattr("jri.core.generation.specs_generation.generate", generate_refused)
@@ -743,7 +744,8 @@ def test_forgets_what_a_folded_run_left_before_it_starts_the_next(
     assert not worktree.exists()
 
 
-# A window spawns its runner while it holds the project. The runner reads this name to say which window let it run.
+# A window spawns its runner while it holds the project.
+# The runner reads this variable to name the window that started it.
 def test_names_the_window_that_spawned_a_runner_to_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation = build_generation(tmp_path)
     monkeypatch.setattr("jri.core.generation.RUNNER_COMMAND", ("-c", MARKING_RUNNER))
@@ -782,7 +784,7 @@ def test_reports_a_runner_that_could_not_start(tmp_path: Path, monkeypatch: pyte
         generation.spawn()
 
 
-# A crash names itself at the end of what it wrote. Report that end, and not the noise before it.
+# A crash writes its cause at the end of its output. JRI reports that end, and not the earlier output.
 def test_reports_the_last_of_what_a_runner_that_crashed_wrote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation = build_generation(tmp_path)
     monkeypatch.setattr("jri.core.generation.RUNNER_COMMAND", ("-c", CRASHING_RUNNER))
@@ -829,8 +831,8 @@ def test_ends_no_run_when_none_is_going(tmp_path: Path) -> None:
     assert not generation.workspace.generation_dir.exists()
 
 
-# A runner leads a session of its own, and Git and the provider run in the group of that session. A halt that
-# ends the runner alone would leave those processes behind.
+# A runner leads a session of its own, and Git and the provider run in the group of that session.
+# A halt that ends only the runner leaves those processes running.
 @pytest.mark.skipif(sys.platform == "win32", reason="a process group and a `SIGKILL` are POSIX")
 def test_ends_the_run_that_is_going_and_the_processes_it_started(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
@@ -846,8 +848,8 @@ def test_ends_the_run_that_is_going_and_the_processes_it_started(tmp_path: Path)
         assert watch_a_process_go(started), "a process the run started is still running"
 
 
-# A halt looks exactly like the machine dying, and a machine that dies removes nothing. The recovery for a run
-# that never ended reads these files back.
+# A halt looks the same as a machine that stops, and such a machine removes nothing.
+# The recovery for a run that never ended reads these files again.
 @pytest.mark.skipif(sys.platform == "win32", reason="a `SIGKILL` is POSIX")
 def test_keeps_everything_the_run_it_ended_left(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
@@ -867,8 +869,8 @@ def test_keeps_everything_the_run_it_ended_left(tmp_path: Path) -> None:
     assert worktree.exists()
 
 
-# A record that JRI did not write names no process, whether it says nothing at all or says a number no process
-# on this machine can wear.
+# A record that JRI did not write names no process. Such a record is empty,
+# or it holds a number that no process on this machine can have.
 @pytest.mark.parametrize("record", ["", str(TOO_LARGE_PID)], ids=["silent", "too large"])
 def test_refuses_to_end_a_run_that_does_not_name_a_process(tmp_path: Path, record: str) -> None:
     generation = build_generation(tmp_path)
@@ -878,11 +880,11 @@ def test_refuses_to_end_a_run_that_does_not_name_a_process(tmp_path: Path, recor
         generation.halt()
 
 
-# A halt reads the lock file to learn which process to end. A record of 0 or 1 asks the kernel for the group of the
-# caller or for every process the user owns, so honouring it ends the whole login session. Turn such a record down
-# while it is still a record.
-# Stand a double in for the signal. A gate that writes this refusal wrongly would otherwise really ask the kernel
-# to end every process the runner owns, and take the run of the suite down with it.
+# A halt reads the lock file to find the process to end. A record of 0 names the process group of the caller, and
+# a record of 1 names every process the user owns. A halt that obeys such a record ends the full login session.
+# The halt must refuse the record before it signals anything.
+# The test puts a double in place of the signal. A guard that writes this refusal wrongly lets the halt ask
+# the kernel to end every process the runner owns. That also ends the run of this test suite.
 @pytest.mark.parametrize("pid", SESSION_WIDE_PIDS, ids=["own group", "init"])
 def test_refuses_to_end_a_run_that_names_a_session_wide_target(
     tmp_path: Path, pid: int, monkeypatch: pytest.MonkeyPatch
@@ -901,8 +903,8 @@ def test_refuses_to_end_a_run_that_names_a_session_wide_target(
     assert not signalled
 
 
-# A run that no signal from here can aim at is still a run. A report that called it gone would send a supervisor
-# to start a second one beside it.
+# A run that this process cannot signal is still a run.
+# A report that says the run is gone makes a supervisor start a second run beside it.
 @pytest.mark.parametrize("pid", SESSION_WIDE_PIDS, ids=["own group", "init"])
 def test_reports_a_run_that_no_signal_can_aim_at(tmp_path: Path, pid: int) -> None:
     generation = build_generation(tmp_path)
@@ -931,7 +933,7 @@ def test_reports_the_run_that_is_going_and_the_step_it_reached(tmp_path: Path, m
     monkeypatch.setattr("jri.core.generation.specs_generation.generate", generate_stopped)
 
     with start_a_run(generation):
-        # The header lands first, and the row of the step the run is in after that.
+        # The run writes the header first, and then the row of the step it is in.
         while STARTED_ROW.label.encode() not in generation.journal_file.read_bytes():
             time.sleep(POLL)
         status = generation.read_status()
@@ -945,8 +947,8 @@ def test_reports_the_run_that_is_going_and_the_step_it_reached(tmp_path: Path, m
     assert 0 <= (datetime.now(UTC) - status.started).total_seconds() < WRITTEN_WITHIN
 
 
-# A runner takes its lock before it writes its first journal line. A report of that moment says a run is alive and
-# gives it no start time.
+# A runner takes its lock before it writes the first line of its journal.
+# A report at that time says the run is alive, and it gives no start time.
 def test_reports_a_run_that_took_its_lock_before_it_wrote_a_journal(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
@@ -962,8 +964,8 @@ def test_reports_a_run_that_took_its_lock_before_it_wrote_a_journal(tmp_path: Pa
     assert not status.recorded
 
 
-# A header that carries a start time which is not a time is not a header JRI wrote. A report reads what it can
-# and says the run is alive, rather than falling over on the one command a broken project is read with.
+# JRI did not write a header whose start time is not a time. A report reads the fields it can read, and it says
+# the run is alive. It must not fail, because this command is the one command that reads a broken project.
 def test_reports_a_run_whose_header_holds_no_time(tmp_path: Path) -> None:
     generation = write_journal(tmp_path, json.dumps({"version": "0", "pid": 1, "started": "now"}))
 
@@ -974,7 +976,7 @@ def test_reports_a_run_whose_header_holds_no_time(tmp_path: Path) -> None:
     assert status.pid is not None
 
 
-# A row that closed is a step the run finished with. The step it is in is the row it left open.
+# A closed row is a step that the run completed. The row that stays open is the step the run is in.
 def test_reports_the_row_a_run_left_open_as_its_step(tmp_path: Path) -> None:
     started = datetime.now(UTC).isoformat()
     generation = write_journal(
@@ -1021,8 +1023,8 @@ def test_reports_a_run_whose_process_is_gone_as_unfinished(tmp_path: Path) -> No
     assert status.started is None
 
 
-# A halt leaves the stop file of the run it ended behind. That file beside a process that is gone asks for
-# nothing, because no run is there to hear it.
+# A halt leaves the stop file of the run that it ended. That file asks for nothing when the process is gone,
+# because no run is there to read it.
 def test_reports_no_stop_beside_a_run_whose_process_is_gone(tmp_path: Path) -> None:
     generation = write_journal(tmp_path, write_header(), json.dumps({"kind": "conclusion", "ending": "stopped"}))
     generation.cancel_file.touch()
@@ -1054,8 +1056,8 @@ def test_reports_the_window_that_has_the_project(tmp_path: Path) -> None:
     assert status.holder == window.pid
 
 
-# A report is a pure read. A project with no run stays a project with no run, and the directory of a run that
-# never ran must not appear.
+# A report only reads. A project with no run stays a project with no run,
+# and the directory of a run that never started must not appear.
 def test_writes_nothing_into_a_project_with_no_run(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
 
@@ -1068,7 +1070,7 @@ def test_writes_nothing_into_a_project_with_no_run(tmp_path: Path) -> None:
     assert not generation.workspace.generation_dir.exists()
 
 
-# A killed run leaves the line it was writing without its end. A report says what the lines before it hold.
+# A killed run leaves its last line incomplete. A report gives the content of the lines before it.
 def test_reports_what_a_journal_with_a_partial_last_line_holds(tmp_path: Path) -> None:
     generation = write_journal(
         tmp_path, write_header(), json.dumps({"kind": "conclusion", "ending": "committed", "commit": COMMIT})
@@ -1088,9 +1090,10 @@ def test_keeps_running_when_the_process_that_started_it_dies(
     install_workspace(tmp_path)
     (tmp_path / paths.SETTINGS_FILE).write_text(SETTINGS, encoding="utf-8")
     monkeypatch.setenv("JRI_TEST_API_KEY", "unused")
-    # Detach HEAD. This is the one test that runs the real generation
-    # workflow, not a double, so make it fail fast and offline on a git
-    # precondition rather than a network call this test has no credentials for.
+    # This is the only test that runs the real generation workflow, and not a
+    # double. A detached HEAD makes the workflow fail quickly and offline on a
+    # Git condition. Without it, the workflow makes a network call, and this
+    # test has no credentials for that call.
     run_git(tmp_path, "checkout", "--detach", "-q")
     generation = Generation(Workspace(tmp_path))
     ready = tmp_path.parent / "started"
@@ -1105,14 +1108,14 @@ def test_keeps_running_when_the_process_that_started_it_dies(
         list(generation.follow())
 
 
-# Confirm the runner left the starter's session, not just its process
-# group. A signal that reaches the starter's session, such as a
-# terminal hangup, could otherwise still end the runner too.
+# This confirms that the runner left the session of the starter, and not
+# only its process group. A signal that reaches the session of the starter,
+# such as a terminal hangup, can also end the runner.
 #
-# Read the header the moment the runner writes it, rather than waiting
-# for the window to report the run started. A session belongs to a
-# process only while that process runs, and the run below fails fast on
-# the detached HEAD, so the window's report can arrive after the runner
+# The test reads the header as soon as the runner writes it. It does not
+# wait for the window to report that the run started. A session belongs to
+# a process only while that process runs. The run below fails quickly on the
+# detached HEAD, so the report of the window can arrive after the runner
 # it names is already gone.
 def _watch_the_window_start_the_run(generation: Generation, starter: "subprocess.Popen[bytes]") -> None:
     deadline = time.monotonic() + STARTS_WITHIN

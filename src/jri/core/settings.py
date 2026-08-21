@@ -15,7 +15,8 @@ from . import paths
 from .workspace import Workspace
 
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-# Use the JRI reasoning-effort values, not the provider library list. The provider decides if a model supports a value.
+# Use the JRI reasoning-effort values, and not the list of the provider library.
+# The provider decides whether a model supports a value.
 # This type documents the values. It does not promise support.
 type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
@@ -186,8 +187,8 @@ class Settings(BaseModel):
         unknown = str(path[-1])
         matches = difflib.get_close_matches(unknown, candidates, n=1)
         if not matches:
-            # A short abbreviation can fail the similarity match. Suggest the abbreviation only if it matches one
-            # setting prefix.
+            # The similarity match can fail on a short abbreviation.
+            # Suggest the abbreviation only when it matches one setting prefix.
             prefixed = [name for name in candidates if name.startswith(unknown)]
             matches = prefixed if len(prefixed) == 1 else []
         return ".".join([*map(str, path[:-1]), *matches]) if matches else None
@@ -203,7 +204,7 @@ class Settings(BaseModel):
         return self
 
     # Only a command that loads the settings of a project reads these variables. `jri init` writes a settings file
-    # before the project has an .env file, thus it validates the settings and stops there.
+    # before the project has an .env file, so it validates the settings and stops there.
     def validate_api_key_variables(self) -> None:
         # The subscription has its own login. JRI does not read a key variable for it.
         subscription = self.llm.provider == "openai-subscription"
@@ -266,7 +267,7 @@ def _render_settings(
         if unset and not comments:
             continue
         if unset:
-            # A section can suggest its own value. The agents suggest a different temperature each.
+            # A section can suggest its own value. Each agent suggests a different temperature.
             value = examples.get(name, field.examples[0] if field.examples else None)
         setting = yaml.safe_dump({name: value}, sort_keys=False, allow_unicode=True, width=10**9).strip()
         entries.append((comment, [f"{indent}# {setting}" if unset else f"{indent}{setting}"]))
@@ -278,8 +279,8 @@ def _render_settings(
     return lines[1:] if lines and not lines[0] else lines
 
 
-# The global settings can name some settings of a section only. Each setting that they do not name keeps its
-# default value.
+# The global settings can name only some of the settings of a section. Each setting that they do not name keeps
+# its default value.
 def _merge(defaults: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
     merged = {**defaults}
     for key, value in values.items():

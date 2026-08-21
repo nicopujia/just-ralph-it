@@ -3,8 +3,8 @@ from pathlib import Path
 from jri.core.repository import Repository
 from tests.conftest import CreateRepository, RunGit
 
-# The credit that every commit JRI makes must carry. The test writes it out, so a change to the shipped name or
-# address shows here as a failure.
+# Every commit that JRI makes must give this credit. The test writes the credit out, so a change to the
+# shipped name or address makes this test fail.
 CO_AUTHOR = "ralphpujia <ralph@pujia.ar>"
 
 

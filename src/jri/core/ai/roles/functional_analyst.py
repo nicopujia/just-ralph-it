@@ -31,10 +31,10 @@ class FunctionalAnalyst(SpecsWriter):
     EXISTING_PROMPT = ai.prompts.read("functional_analyst_existing")
     FEEDBACK_PROMPT = ai.prompts.read("functional_analyst_feedback")
 
-    # Send each set of rules only with the input it speaks about. A run with no accepted baseline has no notebook diff,
-    # a first pass has no specification index, and a pass with no feedback has no round to answer.
-    # Each set speaks about what this pass receives, so it goes in the slot the template keeps for it, above the
-    # output and constraint rules. A rule that arrives after those sections reads as an afterthought to both.
+    # Send each set of rules only with the input that it is about. A run with no accepted baseline has no notebook
+    # diff. A first pass has no specification index. A pass with no feedback has no round to answer.
+    # Each set is about what this pass receives. Put it in the slot that the template keeps for it, above the
+    # output rules and the constraint rules. A rule after those two sections reads as an addition to both.
     def __init__(
         self, settings: Settings, repository: git.Repository, *, changed: bool, existing: bool, feedback: bool
     ) -> None:

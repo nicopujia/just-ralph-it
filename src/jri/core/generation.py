@@ -34,13 +34,14 @@ from .workspace import MAX_PID, Hold, Workspace
 
 # Start the runner as `jri start` without a console script. `pip install --user` can omit that script from `PATH`.
 RUNNER_COMMAND = ("-m", "jri", "start")
-# This variable names the window that spawned the runner. A window spawns its runner while it holds the project,
-# so the runner needs a way to say which window started it.
-# A run started by hand beside a window would report to a conversation that did not ask for it.
+# This variable names the window that spawned the runner. A window spawns its runner while it holds the project.
+# The runner needs a way to name the window that started it.
+# A run that a user starts by hand would report to a conversation that did not ask for it.
 HOLDER_VARIABLE = "JRI_HOLDER"
-# A signal to 0 or to 1 reaches more than one run: `kill` reads 0 as the group of the caller, and `killpg(1)` as
-# every process the user owns. A runner in a container records the process it wears in its own namespace, which is
-# 1, in the lock file it shares with the host. Report such a run, and refuse to signal it.
+# A signal to 0 or to 1 reaches more than one run. `kill` reads 0 as the group of the caller.
+# `killpg(1)` reaches every process that the user owns.
+# A runner in a container writes the process it has in its own namespace, which is 1, in the lock file.
+# The container and the host share that lock file. Report such a run, and refuse to signal it.
 MIN_SIGNALLED_PID = 2
 
 logger = logging.getLogger(__name__)
@@ -56,9 +57,9 @@ class Header(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# This is model reasoning streamed under its row. The journal has no `TextDelta` record.
+# The model streams this reasoning under its row. The journal has no `TextDelta` record.
 # Analyst JSON and explorer reports are answers to JRI. Only the interviewer sends turn replies.
-# Another process parses this journal, so refusal details must persist with the returned bytes.
+# Another process reads this journal, so JRI keeps the refusal detail with the bytes that the run returns.
 class Thought(BaseModel):
     kind: Literal["thought"]
     text: str
@@ -66,9 +67,9 @@ class Thought(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# This records a row and the start time of its call. Use the shared wall clock, not a process-local monotonic clock.
-# The time must have a zone.
-# A naive time cannot be compared with aware `now`, so reject it as a record JRI did not write.
+# This records a row and the start time of its call. Use the shared wall clock, and not a monotonic clock.
+# A monotonic clock counts inside one process only. The time must have a zone.
+# JRI cannot compare a naive time with the aware `now`, so it rejects such a time as a record it did not write.
 class RowOpened(BaseModel):
     kind: Literal["row_opened"]
     call_id: str
@@ -105,8 +106,9 @@ class Conclusion(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # This states whether the run could do the work it was asked for. A stopped run did what it was told to do,
-    # and a run that found something to clarify did its work and asks a question about it.
+    # This states whether the run could do the work that the user asked for.
+    # A stopped run did what the user told it to do.
+    # A run that found something to clarify did its work, and asks a question about that work.
     @property
     def failure(self) -> bool:
         return self.ending in {"exhausted", "refused", "unavailable", "blocked", "failed"}
@@ -115,10 +117,10 @@ class Conclusion(BaseModel):
 class Record(RootModel[Thought | RowOpened | RowClosed | Conclusion]): ...
 
 
-# This states what stands in the project now: the window that holds it, the run that is alive, and the record that
-# no window folded yet. A reading fills every field, so no field has a default that a report could hide behind.
-# `recorded` is a journal that stands here, `ending` is the ending of a run that no window folded yet, and `draft`
-# is saved work that a start continues and a halt can lose.
+# This states the project state now: the window that holds the project, the run that is alive, and the record that
+# no window removed yet. Each read fills every field, so no field has a default that could hide a missing value.
+# `recorded` says that a journal is present. `ending` is the ending of a run that no window removed yet.
+# `draft` is saved work that a start continues and a halt can lose.
 class Status(BaseModel):
     holder: int | None
     pid: int | None
@@ -148,24 +150,25 @@ class Generation:
 
     def __init__(self, workspace: Workspace) -> None:
         self.workspace = workspace
-        # These are the only files owned by a run.
-        # The directory ignore rule and draft belong to the workspace and `Specs`.
+        # A run owns only these files.
+        # The directory ignore rule and the draft belong to the workspace and to `Specs`.
         # They outlive a run.
         self.journal_file = workspace.root / paths.JOURNAL_FILE
         self.cancel_file = workspace.root / paths.CANCEL_FILE
         self.runner_log_file = workspace.root / paths.RUNNER_LOG_FILE
         self.lock = Lock(workspace.root / paths.GENERATION_LOCK_FILE)
 
-    # This method defines the runner lifetime. The lock states that it is alive, the journal states what it did,
-    # and the cancel file is its only input.
-    # Answer with the conclusion the run wrote. A run without a window reports through its caller, and the
-    # journal is gone by the time that caller could read it.
+    # This method defines the runner lifetime. The lock states that the runner is alive.
+    # The journal states what the runner did, and the cancel file is its only input.
+    # Answer with the conclusion that the run wrote. A run without a window reports through its caller.
+    # JRI removes the journal before that caller can read it.
     @classmethod
     def execute(cls, settings: Settings, began: "Callable[[], None] | None" = None) -> Conclusion:
         generation = cls(Workspace.find())
-        # Refuse before anything writes a file, so a refused start leaves the project as it found it.
+        # Refuse before JRI writes a file, so a refused start does not change the project.
         # A window that holds the project spawns its own runner, and that runner names its window in the environment.
-        # Read the hold directly. Opening it would make the workspace directory that this refusal must not make.
+        # Read the hold directly, because JRI would make the workspace directory when it opens the hold.
+        # This refusal must not make that directory.
         holder = Hold(generation.workspace).find_holder()
         if holder is not None and os.environ.get(HOLDER_VARIABLE) != str(holder):
             raise PersistenceError(
@@ -173,16 +176,16 @@ class Generation:
                 "that a generation reports to, so nothing started. Start the generation from that window."
             )
         # Open the directory through the workspace.
-        # Its Git ignore rule exists before the lock file and first journal line.
+        # The workspace writes its Git ignore rule before the lock file and the first journal line.
         generation.workspace.open_generation_dir()
         if not generation.lock.take(str(os.getpid())):
             raise PersistenceError("A generation is already running in this project.")
-        # The lock is this process, so no runner and no follower holds these files. Remove what an already folded run
-        # left behind. A stale cancel file would stop this run at once.
-        # Do not call `discard`, which waits for the lock that this process holds.
+        # This process holds the lock, so no runner and no follower holds these files.
+        # Remove the files that a run which already ended left. A stale cancel file would stop this run immediately.
+        # Do not call `discard`, because it waits for the lock that this process holds.
         generation._remove_records()
-        # The run holds its caller from here to its ending. Tell that caller it began, after every refusal it
-        # could meet and never before one.
+        # The run holds its caller from here to its ending. Tell that caller that the run began.
+        # Tell it after every possible refusal, and never before one.
         if began is not None:
             began()
         stopping = threading.Event()
@@ -197,18 +200,19 @@ class Generation:
             stopping.set()
             generation.lock.release()
 
-    # This states whether a run has an unfolded record. A live run and a run without a watcher have the same disk state.
-    # Follow both runs. The follower distinguishes them.
+    # This states whether a run left a record that no window removed yet.
+    # A live run and a run without a watcher write the same state to disk.
+    # Follow both runs, because only the follower can identify which run it reads.
     @property
     def exists(self) -> bool:
         return self.journal_file.exists()
 
     # This states whether a runner is alive, even before it writes a journal line.
-    # The operating system releases its lock at exit.
-    # Check that the lock file exists first.
-    # Taking a missing lock would create a generation directory while checking it.
-    # An unreadable lock does not mean no runner exists.
-    # Report the unreadable directory as project state, not a window traceback.
+    # The operating system releases the lock of a runner when that runner exits.
+    # Check first that the lock file exists.
+    # JRI would make a generation directory when it takes a lock that is not there.
+    # An unreadable lock does not prove that no runner is alive.
+    # Report the unreadable directory as project state, and not as a window traceback.
     @property
     def is_running(self) -> bool:
         if not self.lock.path.exists():
@@ -221,8 +225,8 @@ class Generation:
                 f"Could not read the generation in `{self.workspace.generation_dir}`: {error}"
             ) from error
 
-    # Record the workflow result in the journal. Classify failures only here.
-    # The process that folds the journal then derives the same turn ending from the exception class.
+    # Record the workflow result in the journal. Classify a failure only here.
+    # The process that reads the journal then gets the same turn ending from the exception class.
     @staticmethod
     def record(
         settings: Settings, cancelled: threading.Event
@@ -257,14 +261,15 @@ class Generation:
     def spawn(self) -> None:
         self.workspace.open_generation_dir()
         try:
-            # A held lock means that a run is active. Do not remove its files or start another run beside it.
+            # A held lock means that a run is active. Do not remove its files, and do not start a second run.
             if self.lock.is_held():
                 raise PersistenceError("A generation is already running in this project.")
-            # Remove every file left by an already folded run, including the cancel file.
+            # Remove every file that a run which already ended left, the cancel file included.
             # A stale cancel file would stop the new run before it starts.
             self.discard()
-            # The runner writes its log through `logs.configure`. This file receives only escaped output:
-            # import failures, library standard error, and tracebacks.
+            # The runner writes its log through `logs.configure`.
+            # This file gets only the output that escapes that log: import failures, library standard error,
+            # and tracebacks.
             with self.runner_log_file.open("wb") as errors:
                 process = subprocess.Popen(
                     [sys.executable, *RUNNER_COMMAND],
@@ -276,14 +281,16 @@ class Generation:
                     stderr=errors,
                     **_detach(),
                 )
-        # An unwritable run directory is project state, not a runner crash. No run started, so nothing requires cleanup.
+        # An unwritable run directory is project state, and not a runner crash.
+        # No run started, so JRI must remove nothing.
         except (LockError, OSError) as error:
             logger.exception("generation_spawn_failed root=%r", self.workspace.root)
             raise PersistenceError(
                 f"Could not start the generation in `{self.workspace.generation_dir}`: {error}"
             ) from error
         logger.info("generation_spawned pid=%d", process.pid)
-        # Wait for the child instead of assuming that it started. Otherwise, report a failed runner as active.
+        # Wait for the child, and do not assume that it started.
+        # A window would otherwise report a failed runner as an active one.
         # The first poll of a missing journal would look like a process that already exited.
         deadline = time.monotonic() + self.STARTS_WITHIN
         while not self.exists:
@@ -301,9 +308,9 @@ class Generation:
         self.cancel_file.touch()
         return True
 
-    # End the run now. A halt must look exactly like the machine dying, so remove nothing.
-    # The recovery for a dead run already exists, and the work of the current iteration can go.
-    # A free lock, not a sent signal, proves that the operating system ended the process.
+    # End the run now. A halt must look exactly like a machine that loses power, so remove no file.
+    # JRI already recovers from a dead run, and it can lose the work of the current iteration.
+    # A free lock proves that the operating system ended the process. A sent signal does not prove it.
     def halt(self) -> bool:
         if not self.is_running:
             return False
@@ -314,7 +321,7 @@ class Generation:
                 f"Something holds `{self.lock.path}` without saying what it is, so JRI will not end it. "
                 "Find the process that holds it and end it yourself, then try again."
             )
-        # A run this process cannot aim at is still a run. Name why it stands, rather than signal past it.
+        # A run that this process cannot signal is still a run. Report why JRI stops, and signal no other process.
         if pid < MIN_SIGNALLED_PID:
             raise PersistenceError(
                 f"The generation records process {pid}, which names no single process to end. A run inside a "
@@ -331,13 +338,13 @@ class Generation:
             time.sleep(self.POLL)
         return True
 
-    # This reads what stands in the project. It creates nothing and it folds nothing, so a project with no run
-    # stays a project with no run. Read each file only after it is found.
+    # This reads the state of the project. It makes no file and it removes no file.
+    # A project with no run stays a project with no run. Read each file only after JRI finds it.
     def read_status(self) -> Status:
         running = self.is_running
         header: Header | None = None
         conclusion: Conclusion | None = None
-        # Keep each row that opened until its close arrives. The last one left is the step the run is in.
+        # Keep each row that opened until its close arrives. The last row that stays open is the current step.
         opened: dict[str, RowOpened] = {}
         for record in self._read_records():
             match record:
@@ -362,8 +369,8 @@ class Generation:
             draft=self.workspace.draft_file.exists(),
         )
 
-    # Yield every run record in journal order, from its first line, even when watching starts late.
-    # Stop requests write the cancel file. Only the other process can end itself after it reads this file.
+    # Yield every run record in journal order, from its first line, even when JRI starts to watch late.
+    # A stop request writes the cancel file. Only the other process can end itself, after it reads that file.
     def follow(
         self, cancelled: threading.Event | None = None, detached: threading.Event | None = None
     ) -> Generator["specs_generation.Progress", None, "specs_generation.SpecsResult | None"]:
@@ -377,17 +384,17 @@ class Generation:
         self.discard()
         if conclusion is not None:
             return _answer(conclusion)
-        # The lock was released without an ending. Its process exited and cannot finish the run.
+        # The runner released the lock and wrote no ending. Its process exited and cannot finish the run.
         raise Error("The generation stopped before it finished, and its process is gone. Try again.")
 
-    # Remove only files written by this run, and remove them by name.
+    # Remove only the files that this run wrote, and remove them by name.
     # Do not remove the lock, `.gitignore`, or `draft.patch`.
-    # A free lock and the project hold prove no runner or second follower uses these files.
-    # Wait after the ending because the runner can write it before exit.
-    # A new run would otherwise attach to this record.
-    # Keep the record when the lock remains held.
-    # The directory cannot distinguish it from a record left by a dead window.
-    # This case requires a runner slower than the post-write wait, such as a stopped process or hung file system.
+    # A free lock and the project hold prove that no runner and no second follower uses these files.
+    # Wait after the ending, because the runner can write that ending before it exits.
+    # A new run would otherwise continue this record.
+    # Keep the record while the lock stays held.
+    # The directory cannot show whether a dead window left that record.
+    # Only a runner slower than this wait causes that case, such as a stopped process or a filesystem that hangs.
     def discard(self) -> None:
         deadline = time.monotonic() + self.FREED_WITHIN
         while self.lock.is_held():
@@ -406,14 +413,15 @@ class Generation:
                 logger.exception("generation_record_removal_failed path=%r", path)
         self._drop_worktrees()
 
-    # A killed run leaves the directories it worked in. A run that ends removes its own, so every directory that
-    # stands here now was left by a run that cannot come back for it.
+    # A killed run leaves the directories it worked in. A run that ends removes its own directories.
+    # Every directory that is here now belongs to a run that cannot use it again.
     def _drop_worktrees(self) -> None:
         for directory in (paths.WORKTREE_DIR, paths.SNAPSHOT_DIR, paths.PRE_IMAGE_DIR):
             files.remove_directory(self.workspace.root / directory)
 
-    # Yield each run record and its ending when present. Close the reader before return or failure.
-    # A suspended reader keeps the journal open. Windows cannot remove a file that this process still has open.
+    # Yield each run record, and its ending when the journal has one.
+    # Close the reader before this method returns and before it fails.
+    # A suspended reader keeps the journal open. Windows cannot remove a file that this process still holds open.
     def _watch(
         self, cancelled: threading.Event | None, detached: threading.Event | None
     ) -> Generator["specs_generation.Progress", None, Conclusion | None]:
@@ -421,13 +429,13 @@ class Generation:
         thought = ""
         with closing(self._read()) as records:
             for record in records:
-                # Send the requested stop before checking whether the window left.
-                # Closing the window immediately after a request still stops the run.
+                # Send the requested stop before JRI checks whether the window left.
+                # A user who closes the window immediately after a request still stops the run.
                 if cancelled is not None and cancelled.is_set() and not requested:
                     self.cancel_file.touch()
                     requested = True
                     logger.info("generation_stop_requested")
-                # The window is gone, but it does not own the run. Do not fold or unlink anything.
+                # The window is gone, but it does not own the run. Remove no file.
                 # The journal is the record, and the next window reads it from the start.
                 if detached is not None and detached.is_set():
                     logger.info("generation_detached")
@@ -442,7 +450,7 @@ class Generation:
                     return record
                 if record is not None:
                     yield _replay(record)
-        # The reader yields `None` before it ends. The loop above therefore flushes every pending thought.
+        # The reader yields `None` before it ends. The loop above then flushes every pending thought.
         return None
 
     # Yield each new journal line and `None` for every pass with no new line. Read only complete lines.
@@ -460,11 +468,12 @@ class Generation:
                     number += 1
                 if last:
                     return
-                # A pass with no record is still an update. A model call can produce no records for minutes.
-                # Otherwise, the reader cannot process a stop until the call ends.
+                # A pass with no record is still an update. A model call can write no record for minutes.
+                # The reader could otherwise not process a stop until the call ends.
                 yield None
-                # Read once more before ending. The runner writes its ending before it releases the lock.
-                # A lock released after the prior read can have an ending in the file.
+                # Read one more time before this reader ends.
+                # The runner writes its ending before it releases the lock.
+                # The file can hold an ending when the runner released the lock after the prior read.
                 last = not self.lock.is_held()
                 if not last:
                     time.sleep(self.POLL)
@@ -475,19 +484,20 @@ class Generation:
         record = self.lock.holder
         return int(record) if record.isdigit() and int(record) <= MAX_PID else None
 
-    # Yield every complete record that stands in the journal now, the header included.
-    # Ignore a line that JRI cannot read. A killed append leaves a partial last line, and a report says what it can.
+    # Yield every complete record that the journal holds now, the header included.
+    # Ignore a line that JRI cannot read. A killed append leaves a partial last line, and a report shows only
+    # the records that JRI can read.
     def _read_records(self) -> Generator[Header | Thought | RowOpened | RowClosed | Conclusion]:
         if not self.exists:
             return
         try:
             lines = self.journal_file.read_bytes().split(b"\n")
-        # Another window can fold this journal while this read runs. A journal that went away reports nothing.
+        # Another window can remove this journal while this read runs. A journal that is gone reports nothing.
         except OSError:
             logger.exception("generation_journal_unreadable path=%r", self.journal_file)
             return
         for number, line in enumerate(lines):
-            # A journal ends with a newline, so the split leaves an empty last line. That line is no record at all.
+            # A journal ends with a newline, so the split leaves an empty last line. That line is not a record.
             if not line:
                 continue
             try:
@@ -504,7 +514,7 @@ class Generation:
 
 
 # Rebuild the workflow result from the recorded ending. Return every failure as its original workflow exception class.
-# The turn ending is then derived in its normal place.
+# JRI then gets the turn ending in its normal place.
 def _answer(conclusion: Conclusion) -> "specs_generation.SpecsResult | None":
     match conclusion.ending:
         case "committed":
@@ -529,16 +539,16 @@ def _answer(conclusion: Conclusion) -> "specs_generation.SpecsResult | None":
 
 def _append(journal: IO[bytes], record: BaseModel, *, sync: bool = False) -> None:
     journal.write(record.model_dump_json().encode() + b"\n")
-    # Flush every record so a reader sees it. Sync only the opening and ending, which a crash must not lose.
-    # Syncing 12,000 records took 6.6 s instead of 0.02 s.
-    # Readers tolerate a partial last line and treat a lost tail as interruption.
+    # Flush every record so a reader sees it. Sync only the opening and the ending, which a crash must not lose.
+    # A sync of 12,000 records took 6.6 s instead of 0.02 s.
+    # A reader accepts a partial last line, and reads a lost end of the file as an interruption.
     journal.flush()
     if sync:
         os.fsync(journal.fileno())
 
 
-# Configure Popen detachment for each platform. CPython ignores `start_new_session` on Windows.
-# Windows flags are the only way to place the runner outside the window console.
+# Tell `Popen` how to detach the runner on each platform. CPython ignores `start_new_session` on Windows.
+# Only the Windows flags can put the runner outside the console of the window.
 def _detach() -> dict[str, Any]:
     if sys.platform == "win32":
         return {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
@@ -569,11 +579,12 @@ def _describe(event: "specs_generation.Progress") -> Thought | RowOpened | RowCl
             )
 
 
-# Kill the group of a runner that leads one, and only the process of a runner that does not.
-# A runner that a window spawned starts its own session (`start_new_session`), so its process group ID is its PID,
-# and that group holds the Git and provider processes it started.
-# A runner started by hand shares the group of its terminal, and that group holds processes that are not JRI.
-# A process that already ended needs no signal, and the lock check after this call decides the answer.
+# Kill the process group of a runner that leads a group. Kill only the process of a runner that leads no group.
+# A runner that a window spawned starts its own session (`start_new_session`), so its process group ID is its pid.
+# That group holds the Git and provider processes that the runner started.
+# A runner that a user starts by hand shares the group of its terminal.
+# That group holds processes that are not JRI.
+# A process that already ended needs no signal, and the lock check after this call gives the answer.
 def _kill(pid: int) -> None:
     if sys.platform != "win32":
         with suppress(OSError):
@@ -582,7 +593,7 @@ def _kill(pid: int) -> None:
             else:
                 os.kill(pid, signal.SIGKILL)
         return
-    # Windows cannot signal a process group. `taskkill` ends the tree below this process.
+    # Windows cannot signal a process group. `taskkill` ends this process and every process below it.
     executable = shutil.which("taskkill")
     if executable is not None:
         subprocess.run([executable, "/F", "/T", "/PID", str(pid)], check=False, capture_output=True)
@@ -602,7 +613,7 @@ def _read_line(line: bytes, number: int) -> Thought | RowOpened | RowClosed | Co
 
 
 # A thought never reaches this function. The journal reader combines consecutive thoughts into one delta.
-# The live recording uses the same combination.
+# The live recording combines them in the same way.
 def _replay(record: RowOpened | RowClosed) -> "specs_generation.Progress":
     match record:
         case RowOpened():
@@ -627,10 +638,11 @@ def _write_thought(journal: IO[bytes], batch: str) -> str:
     return ""
 
 
-# Write the complete record of one run. The header proves that it started, and the conclusion proves that it ended.
-# A journal without a conclusion has a dead process.
-# Pull events one at a time because `for` discards a generator return.
-# Truncate the journal under this process lock. No other run is writing, and a folded journal is never read again.
+# Write the complete record of one run. The header proves that the run started.
+# The conclusion proves that the run ended. A journal without a conclusion belongs to a dead process.
+# Read the events one at a time, because a `for` loop discards the return value of a generator.
+# Truncate the journal while this process holds the lock. No other run writes it, and nobody reads a journal
+# that a window already removed.
 def _write_journal(path: Path, events: Generator["specs_generation.Progress", None, Conclusion]) -> Conclusion:
     logger.info("generation_started pid=%d", os.getpid())
     with path.open("wb") as journal:
@@ -644,9 +656,9 @@ def _write_journal(path: Path, events: Generator["specs_generation.Progress", No
                 conclusion = cast("Conclusion", ending.value)
                 break
             record = _describe(event)
-            # A model streams its reasoning one word at a time. Hold those deltas for the time the reader polls with.
-            # The reader joins every thought that one pass finds, so a batch gives it the same text in the same order,
-            # in one line instead of hundreds.
+            # A model streams its reasoning one word at a time. Hold those deltas for the poll interval of the reader.
+            # The reader joins every thought that one pass finds.
+            # A batch gives the reader the same text in the same order, in one line instead of hundreds.
             if isinstance(record, Thought):
                 batch += record.text
                 if time.monotonic() - written >= Generation.POLL:

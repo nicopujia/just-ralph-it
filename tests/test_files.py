@@ -11,12 +11,14 @@ from tests.conftest import CreateLink
 # A lone surrogate is the shortest string that UTF-8 cannot encode.
 UNENCODABLE_CONTENT = "\ud800"
 READABLE_BY_EVERYONE = 0o644
-# The stop the test sends carries this wording, so a test can tell it from a stop that the write itself raised.
+# The stop that the test sends carries this wording.
+# A test can identify it, and not read it as a stop that the write raised.
 STOP_AT_THE_REPLACE = "the user pressed Ctrl-C at the replace"
 
 
-# Ctrl-C ends a run at the next instruction, and it is not an `Exception`. This stands in for the interpreter at the
-# last step of the write, where the temporary file holds the whole of the new contents.
+# Ctrl-C ends a run at the next instruction, and it is not an `Exception`.
+# This function replaces the interpreter at the last step of the write.
+# At that step the temporary file holds all the new contents.
 def kill_the_run_before_replacing(*_: object, **__: object) -> Never:
     raise KeyboardInterrupt(STOP_AT_THE_REPLACE)
 
@@ -48,8 +50,9 @@ def test_empties_a_file_whose_new_contents_are_empty(tmp_path: Path) -> None:
     assert target.read_bytes() == b""
 
 
-# The write goes through a temporary file that lets only its owner read it. A file JRI creates fresh must not keep
-# that mode: the user reads and shares the notes, the specifications and the patches JRI writes.
+# JRI writes to a temporary file, and only the owner of that file can read it.
+# A file that JRI makes new must not keep that mode.
+# The user reads and shares the notes, the specifications and the patches that JRI writes.
 @pytest.mark.skipif(
     sys.platform == "win32", reason="a mode is POSIX; `chmod` on Windows sets the read-only flag and nothing else"
 )
@@ -118,8 +121,9 @@ def test_keeps_the_previous_contents_when_the_write_fails(tmp_path: Path) -> Non
     assert target.read_text(encoding="utf-8") == "first"
 
 
-# The user stops the run, and the run leaves the project as it found it. A temporary file that stays behind is a
-# file the user did not write and has to find and remove.
+# The user stops the run, and the run leaves the project as it was.
+# A temporary file that stays is a file that the user did not write.
+# The user must then find that file and remove it.
 def test_leaves_no_temporary_file_behind_when_a_stop_ends_the_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -145,8 +149,9 @@ def test_removes_a_directory_and_all_data_below_it(tmp_path: Path) -> None:
     assert not directory.exists()
 
 
-# Git writes each loose object read-only, and every worktree a run opens holds them. Windows refuses to remove
-# such a file, so a removal that does not clear the attribute leaves the whole worktree standing there.
+# Git writes each loose object read-only, and every worktree that a run opens holds such objects.
+# Windows refuses to remove a read-only file.
+# JRI must clear that attribute, or the whole worktree stays on the disk.
 def test_removes_a_directory_that_holds_a_file_nothing_may_write(tmp_path: Path) -> None:
     directory = tmp_path / "worktree"
     (directory / "objects").mkdir(parents=True)

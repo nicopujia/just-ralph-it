@@ -42,15 +42,17 @@ from .workspace import Workspace
 if TYPE_CHECKING:
     from openai.types.responses import ResponseInputItemParam
 
-# This records the last work of a turn. A retry performs this work again.
+# This records the last work of a turn. A retry does this work again.
 type Work = Literal["message", "generation", "reply"]
 # This records how a turn ended. No `TurnFinished` event has the `interrupted` ending.
-# This ending occurs when the holding process exits before it can end the turn. No component remains to yield the event.
+# JRI writes this ending when the process that holds the turn exits before it can end the turn.
+# No component is left to yield the event.
 type TurnEnding = Ending | Literal["interrupted"]
 
-# These endings leave the opened work incomplete and can progress on retry.
-# Keep this policy with the ending definition, not a view. A refusal is excluded because the provider repeats it.
-# A retry would promise a second wait for the same answer.
+# These endings leave the work incomplete, and a retry can continue that work.
+# Keep this rule with the ending definition, and not in a view.
+# This set holds no refusal, because the provider gives the same refusal again.
+# A retry would only make the user wait a second time for the same answer.
 RETRYABLE_ENDINGS = frozenset[TurnEnding]({"empty", "failed", "unavailable", "exhausted", "interrupted"})
 
 
@@ -58,7 +60,7 @@ class Item(BaseModel):
     type: Literal["assistant", "reasoning", "tool"]
     text: str = ""
     symbol: str = DEFAULT_SYMBOL
-    # No outcome means the row was still open when the session was saved.
+    # No outcome means that the row was still open when JRI saved the session.
     outcome: Outcome | None = None
     detail: str = ""
 
@@ -69,12 +71,12 @@ class Turn(BaseModel):
     message: str
     items: list[Item]
     # A failed run and a failed message leave the interview in the same state.
-    # The session does not store this distinction.
-    # A turn declares its work. Restart an older session instead of retrying it without this record.
+    # The session does not record which of the two failed.
+    # A turn declares its work. Restart an older session that has no such record, and do not retry it.
     work: Work
-    # No ending means the turn was still open when the session was saved. Save a turn before it finishes.
-    # This field records its current result, not its normal result.
-    # A reply claim would make the next window wait for one.
+    # No ending means that the turn was still open when JRI saved the session. JRI saves a turn before it ends.
+    # This field records the current result of the turn, and not its usual result.
+    # A recorded reply would make the next window wait for a reply that never comes.
     ending: TurnEnding | None = None
     detail: str = ""
 
@@ -101,7 +103,7 @@ class Session(BaseModel):
     # A rewind does not undo that build, so this record outlives the turns that a rewind drops.
     generated_project: bool = False
     show_thinking_blocks: bool = False
-    # No theme means the window follows the system appearance. A theme is the one the user selected.
+    # No theme means that the window follows the system appearance. A theme is the theme that the user selected.
     theme: str | None = None
 
     model_config = ConfigDict(extra="forbid")
@@ -143,9 +145,10 @@ class Conversation:
     def retried_work(self) -> Work:
         return self.session.transcript[-1].work
 
-    # This states whether the conversation must settle a run. The unfolded journal is the only fact it needs.
+    # This states whether the conversation must settle a run.
+    # The journal that no window removed is the only fact it needs.
     # A run that a window did not start writes that journal and nothing else, so the transcript cannot report it.
-    # The window that finds the journal attaches to the run, whichever process asked for it.
+    # The window that finds the journal follows the run, whichever process asked for that run.
     @property
     def pending_generation(self) -> bool:
         return Generation(self.workspace).exists
@@ -166,7 +169,7 @@ class Conversation:
             yield from self.ralph(cancelled, detached)
             return
         # A generation report opens a turn like a prompt. Send the turn again from its opening item.
-        # Truncating at the last prompt would remove the report and make the model answer for an unknown run.
+        # A cut at the last prompt would remove the report, and the model would then answer for an unknown run.
         opening = max(
             index
             for index, item in enumerate(self.interviewer.history)
@@ -180,8 +183,8 @@ class Conversation:
         else:
             self.interviewer.history = self.interviewer.history[:opening]
             events = self.interviewer.send_message(cast("str", item["content"]), cancelled)
-        # The turn repeats its prior work.
-        # Retry failures therefore repeat the work instead of sending an opening report as a message.
+        # The turn repeats the work it did before.
+        # A retry that fails repeats that work, and does not send an opening report as a message.
         turn = Turn(message=self.session.transcript[-1].message, items=[], work=work)
         self.session.transcript[-1] = turn
         yield from self._report_turn(events, turn, checkpoint, cancelled)
@@ -195,8 +198,9 @@ class Conversation:
         history_index = prompts[checkpoint_index]
         kept = [cast("dict[str, Any]", item) for item in self.interviewer.history[:history_index]]
         tools = {tool.name: tool for tool in self.interviewer.tools}
-        # Replaying the calls below rebuilds the notes. A rewind depends on whether the replay creates the notes again.
-        # Do not depend on whether JRI still has the tool name. Check this before any rollback.
+        # The calls below rebuild the notes when JRI replays them.
+        # A rewind depends on whether that replay makes the notes again, and not on whether JRI still has the
+        # tool name. Check this before JRI rolls anything back.
         unreplayable = next(
             (
                 item["name"]
@@ -215,15 +219,15 @@ class Conversation:
                 "call, or keep going from here."
             )
 
-        # Save all state that the replay will change.
-        # A turn retires its offer, so save the graph stamped in the session.
+        # Save every value that the replay changes.
+        # A turn retires its offer, so save the graph that the session records.
         session = self.session
         history = self.interviewer.history
         graph = self.notebook.graph.model_copy(deep=True)
         active_topic_id = self.interviewer.active_topic_id
 
         self.interviewer.history = history[:history_index]
-        # The kept calls are replayed below. They must find the note IDs that their original calls used.
+        # JRI replays the kept calls below. They must find the note IDs that their original calls used.
         self.notebook.restore(self.session.initial_graph, reuse_note_ids=True)
         self.interviewer.active_topic_id = self.notebook.initial_topic.id
         self.session = self.session.model_copy(update={"ready_graph": None})
@@ -241,7 +245,8 @@ class Conversation:
             raise
 
         del self.session.transcript[checkpoint_index:]
-        # A rewind restores notes from before the dropped turns. A draft based on those notes is no longer valid.
+        # A rewind restores the notes from before the dropped turns.
+        # A draft that JRI made from those notes is no longer valid.
         # The next run writes from the specifications that the project holds.
         self.workspace.drop_draft()
         self._save_interview()
@@ -259,10 +264,11 @@ class Conversation:
         opened.detail = ""
         # Save the turn before the run leaves this process. A new window can then identify the work to resume.
         self.update_session(transcript=self.session.transcript)
-        # Keep the running record in its journal until it folds. The session holds the turn state from before the run.
-        # A `^t` during the run cannot save a partial run.
-        # Folding the same journal twice adds the same rows to its turn.
-        # This prevents a window that exits during folding from adding rows to the prior fold.
+        # Keep the record of the run in its journal until a window reads that journal into the turn.
+        # The session holds the turn state from before the run, so a `^t` during the run cannot save a partial run.
+        # A second read of the same journal would add the same rows to its turn again.
+        # JRI thus works on a copy of the turn. A window that exits during the read then adds no row to the turn
+        # that the session holds.
         turn = opened.model_copy(deep=True)
         yield from self._report_turn(self._generate_specs(cancelled, detached, turn), turn, checkpoint, cancelled)
 
@@ -273,8 +279,9 @@ class Conversation:
         trashed = self.notebook.trashed_topic_ids
         try:
             self.session = Session.model_validate_json(self.workspace.session_file.read_bytes())
-            # The session names the topic the interview was on. Look that topic up, and let the `LookupError` of a
-            # notebook that no longer holds it report the session as unusable, beside every other unreadable part.
+            # The session names the topic that the interview was on. Read that topic from the notebook.
+            # A notebook that no longer holds the topic raises `LookupError`. That error reports the session as
+            # unusable, with every other part that JRI cannot read.
             topics = {topic.id: topic for topic in self.notebook.graph.topics if topic.id not in trashed}
             topics[self.session.active_topic_id]
             history = self._read_interview()
@@ -319,13 +326,13 @@ class Conversation:
         return [self.interviewer.history[0], *cast("ResponseInputParam", self.session.interview[1:])]
 
     # An open turn in the session has no window. This window starts while one JRI holds the project.
-    # Unless its run outlived the old window, no process can end the turn.
-    # Record it as interrupted so the user can retry it.
+    # Only a run that outlived the old window can end that turn.
+    # Record the turn as interrupted, so that the user can retry it.
     def _settle_interrupted_turn(self) -> None:
         if not self.session.transcript or self.session.transcript[-1].ending is not None:
             return
         # The journal is not the only record. A runner takes its lock before it writes the first journal line.
-        # A window can exit during this import delay. The runner can still be working with an empty run directory.
+        # A window can exit during that import delay. The runner can still work while the run directory is empty.
         if self.pending_generation or Generation(self.workspace).is_running:
             return
         self.session.transcript[-1].ending = "interrupted"
@@ -357,19 +364,20 @@ class Conversation:
         generation = Generation(self.workspace)
         if not generation.exists:
             generation.spawn()
-        # A leaving window stops watching only. `RunDetached` is not a failure, so `_report_turn` does not end the turn.
+        # A window that closes stops its watch of the run, and it stops nothing else.
+        # `RunDetached` is not a failure, so `_report_turn` does not end the turn.
         # The window that resumes the run ends the turn.
         result = yield from generation.follow(cancelled, detached)
         # A stopped run has no conclusion to report.
         # It consumed no offer, and the model receives no empty run report.
-        # Report the stop, thus the turn ends on it whoever asked for it.
+        # Report the stop, so that the turn ends on that stop, whichever process asked for it.
         if result is None:
             raise RunStopped
 
-        # A history item is permanent. It states what happened, not what to do next.
-        # The prompt owns actions that persist.
-        # A commit and an unchanged project are one result to the interviewer: the notes need no more work.
-        # Which files the run wrote, and whether it committed them, are facts the interviewer cannot act on.
+        # A history item is permanent. It states what happened, and not what to do next.
+        # The prompt holds the actions that persist.
+        # A commit and an unchanged project are one result to the interviewer, because the notes need no more work.
+        # The interviewer cannot use the files that the run wrote, or the fact that the run committed them.
         if isinstance(result, str | specs_generation.Unchanged):
             self.interviewer.generated_project = True
             workflow_result = prompts.read("specs_generation_done")
@@ -377,9 +385,10 @@ class Conversation:
             workflow_result = prompt.render(specs_generation_ambiguities=result.ambiguities)
         report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
         self.interviewer.history.append(report)
-        # After the report, the run is complete.
-        # A retry repeats the reply, not the run that the project already committed.
-        # The same save moves run rows from the journal to the session. No row is absent from both records.
+        # The run is complete after the report.
+        # A retry repeats the reply, and not the run that the project already committed.
+        # The same save moves the run rows from the journal to the session, so one of the two records always
+        # holds each row.
         turn.work = "reply"
         self.session.transcript[-1] = turn
         # A run that reports consumes its offered notes, regardless of its conclusion.
@@ -389,8 +398,9 @@ class Conversation:
         )
         yield from self.interviewer.respond(cancelled)
 
-    # This is the only place that saves and ends a turn. Both views read this record instead of deriving their own.
-    # The restored conversation is therefore the conversation that the user saw.
+    # This is the only place that saves and ends a turn. Both views read this record, and they make no record
+    # of their own.
+    # The restored conversation is the conversation that the user saw.
     def _report_turn(
         self, events: Generator[AgentEvent], turn: Turn, checkpoint: Checkpoint, cancelled: Event | None
     ) -> Generator[TurnEvent]:
@@ -398,7 +408,7 @@ class Conversation:
         open_rows: list[tuple[ToolCallStarted, Item | None]] = []
         open_text: Item | None = None
         failure: Exception | None = None
-        # The run reports the stop it heard. A stop asked for outside this window never sets the event of this window.
+        # The run reports the stop that it read. A stop from outside this window never sets the event of this window.
         stopped = False
         try:
             for event in events:
@@ -408,14 +418,14 @@ class Conversation:
         except RunStopped:
             stopped = True
         except Exception as error:
-            # Keep what the user already saw. Roll back changes made behind it.
+            # Keep what the user already saw, and roll back the changes that the user did not see.
             self._roll_back(checkpoint)
             self.logger.exception("turn_failed")
             failure = error
         finally:
             events.close()
 
-        # A turn that sends no run hears a stop through the event of this window alone.
+        # A turn that starts no run reads a stop from the event of this window only.
         stopped = stopped or (cancelled is not None and cancelled.is_set())
         replied = any(item.type == "assistant" for item in turn.items[start:])
         if isinstance(failure, UsageLimitError):
@@ -435,8 +445,8 @@ class Conversation:
         else:
             ending = "empty"
 
-        # Close each row that remains open when the turn ends with a real event.
-        # The recording and renderer then use their existing completed-call path.
+        # Close each row that is still open when the turn ends, and close it with a real event.
+        # The recording and the renderer then use the path that they already have for a completed call.
         for row, item in reversed(open_rows):
             closing = ToolCallFinished(row.call_id, row.label, "stopped" if stopped else "failed", depth=row.depth)
             if item is not None:
@@ -457,10 +467,11 @@ class Conversation:
         self.interviewer.active_topic_id = checkpoint.active_topic_id
         self.interviewer.offered_ralphing = False
 
-    # Write down the interview where it now stands. A turn and a rewind both leave it at rest.
-    # An offer is the notes that caused it. Stamp it with the notebook that the interview rests on.
-    # Notes connected after the offer are part of the offer. A turn without an offer does not clear an earlier stamp.
-    # The offer belongs to the turn that made it, so retire it with the same save.
+    # Write the interview as it is now. A turn and a rewind both leave the interview complete.
+    # An offer is the notes that caused it, so record the offer with the notebook that the interview holds.
+    # The notes that a user connects after the offer are part of the offer.
+    # A turn without an offer does not clear an earlier record.
+    # The offer belongs to the turn that made it, so retire the offer with the same save.
     def _save_interview(self) -> None:
         offer: dict[str, Graph] = (
             {"ready_graph": self.notebook.graph.model_copy(deep=True)} if self.interviewer.offered_ralphing else {}
@@ -474,10 +485,10 @@ class Conversation:
         )
 
 
-# A non-replayed tool creates nothing again, regardless of its arguments. Its arguments cannot affect a note.
-# A replayed tool must still accept the call.
-# `invoke` renders invalid arguments for a model that a rewind does not have.
-# JRI does not record which missing tool type it has. Treat either type as notes at stake.
+# A tool that JRI does not replay makes nothing again, whatever its arguments are.
+# Its arguments cannot change a note. A tool that JRI replays must still accept the call.
+# Invalid arguments make `invoke` write a message for a model to read. A rewind has no model that reads it.
+# JRI does not record which type a missing tool has, so treat both types as a risk to the notes.
 def _can_replay(tool: Tool | None, arguments: str) -> bool:
     if tool is None:
         return False
@@ -496,16 +507,17 @@ def _close_row(item: Item, event: ToolCallFinished) -> None:
     item.detail = event.detail
 
 
-# This is the item that accepts current deltas, or `None` before a new item starts.
-# A row opening ends prior text at every depth. A row closing ends no text.
-# A tool call between thoughts creates two live blocks and two restored items.
-# A nested row still creates this screen boundary.
+# This is the item that accepts the current deltas, or `None` before a new item starts.
+# A row that opens ends the text before it, at every depth. A row that closes ends no text.
+# A tool call between two thoughts makes two live blocks and two restored items.
+# A nested row also makes this boundary on the screen.
 def _record_event(
     turn: Turn, open_text: Item | None, open_rows: list[tuple[ToolCallStarted, Item | None]], event: AgentEvent
 ) -> Item | None:
     match event:
         case ToolCallStarted():
-            # Save a row where it opens. Save a delta streamed under it after the row, as the screen shows it.
+            # Save a row at the place where it opens.
+            # Save a delta that streams under that row after the row, because the screen shows them in that order.
             item = Item(type="tool", text=event.label, symbol=event.symbol) if not event.depth else None
             if item is not None:
                 turn.items.append(item)
@@ -516,7 +528,7 @@ def _record_event(
                 if row.call_id == event.call_id:
                     if item is not None:
                         _close_row(item, event)
-                    # Every row opened after a row is nested under it. Closing that row closes all nested rows.
+                    # Every row that opens after a row is nested under it. JRI closes the nested rows with it.
                     del open_rows[index:]
                     break
             return open_text

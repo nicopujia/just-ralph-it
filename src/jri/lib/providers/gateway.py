@@ -9,9 +9,9 @@ BASE_URL = "https://ai-gateway.vercel.sh/v1"
 
 
 class Client(OpenAI):
-    # Some providers cache the start of a request by themselves, but Anthropic caches nothing until the request
-    # marks what to keep. This field makes the gateway put those marks in. Only a gateway in front of a model
-    # reads the field: an endpoint that serves the model itself refuses a request that carries it.
+    # Some providers cache the start of a request by themselves. Anthropic caches nothing until the request marks
+    # the part to keep. This field tells the gateway to add those marks. Only a gateway that sends the request to
+    # a model reads this field. An endpoint that serves the model refuses a request that holds this field.
     PROMPT_CACHING: ClassVar[dict[str, str]] = {"caching": "auto"}
 
     @override

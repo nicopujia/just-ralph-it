@@ -14,9 +14,9 @@ from jri.lib.lock import Lock
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-# This is a window that holds the project and then lets it go, as the operating system does for the lock of a
-# window it ended. It records a pid of the caller's choosing, so a test can watch whom a takeover signals while
-# the project is on its way to coming free.
+# This is a window that holds the project and then releases it. The operating system releases the lock of a
+# window that it ended in the same way. This window records a pid that the caller chooses, so a test can see
+# which process an eviction signals while the project comes free.
 BRIEF_HOLDER = """
 import os, sys, time
 from pathlib import Path
@@ -28,17 +28,17 @@ assert Lock(root / paths.LOCK_FILE).take(record)
 ready.write_text(str(os.getpid()) + "\\n")
 time.sleep(held_for)
 """
-# This is a process that never took the project. It stands for whatever wears the number of a holder after the
-# operating system hands that number on. It ticks, thus a reader can see a process that is alive and not only a
-# process that is not yet dead. A process cannot outrun a signal, because the kernel ends it before the next
-# instruction it would run.
+# This is a process that never took the project. It replaces any process that gets the number of a holder after
+# the operating system gives that number away. It writes a tick at each interval. A reader can then see a process
+# that is alive, and not only a process that is not yet dead. A process cannot continue past a signal, because
+# the kernel ends it before the next instruction it would run.
 BYSTANDER = """
 import os, sys, time
 from pathlib import Path
 
 beat = Path(sys.argv[3])
-# The first tick lands before the pid does, so a reader holding the pid
-# has a beat to count on from the moment it has it.
+# The first tick comes before the pid, so a reader that holds the pid
+# already has a tick to count from.
 beat.write_bytes(b".")
 Path(sys.argv[2]).write_text(str(os.getpid()) + "\\n")
 while True:
@@ -46,11 +46,12 @@ while True:
         ticks.write(b".")
     time.sleep(0.005)
 """
-# A holder stays alive while its test reads the project. A parallel run loads the machine, thus this window
-# must outlive the slowest test by a large margin. Each holder ends when its test ends.
+# A holder stays alive while its test reads the project. A parallel run loads the machine. This time
+# must be much longer than the slowest test. Each holder ends when its test ends.
 HELD_FOR = 300
-# This is a window that holds the project for the full test. `deaf` makes it turn each `SIGTERM` down and write one
-# byte for it, thus a test can see how many times an eviction asked a window that does not answer to go.
+# This is a window that holds the project for the full test. `deaf` makes the window refuse each `SIGTERM` and
+# write one byte for it. A test can then count how many times an eviction asked a window that does not answer
+# to go.
 HOLDER = f"""
 import os, signal, sys, time
 from pathlib import Path
@@ -66,8 +67,8 @@ if deaf:
             asked.write(b".")
 
     signal.signal(signal.SIGTERM, turn_down)
-# A record of JRI's names the process that wrote it, and one of
-# anything else stands for a holder JRI has no way of being.
+# A record of JRI's names the process that wrote it. A record of
+# anything else names a holder that JRI cannot be.
 taken = Lock(root / paths.LOCK_FILE).take(record) if record else Workspace(root).open_hold().take()
 assert taken
 ready.write_text(str(os.getpid()) + "\\n")
@@ -76,9 +77,9 @@ time.sleep({HELD_FOR})
 POLL = 0.01
 # A signal reaches a sleeping window at once. Only a machine under load uses any of this time.
 REQUESTS_WITHIN = 5.0
-# This is a window that takes the lock and records its own pid later. It holds the claim across that delay. The lock
-# file still names the window before it while the delay runs. Only a reader that waits for the claim gets the pid
-# of the window that holds the project now.
+# This is a window that takes the lock and records its own pid later. It holds the claim across that delay. While
+# the delay runs, the lock file still names the window before it. Only a reader that waits for the claim gets the
+# pid of the window that holds the project now.
 SLOW_HOLDER = f"""
 import os, sys, time
 from pathlib import Path
@@ -94,21 +95,22 @@ time.sleep(delay)
 descriptor = os.open(root / paths.LOCK_FILE, os.O_RDWR)
 os.lseek(descriptor, LOCKED_BYTES, os.SEEK_SET)
 written = os.write(descriptor, str(os.getpid()).encode())
-# End the file at this pid, as `Lock` does. A shorter pid over a longer one leaves the digits of the window before
-# it, and the reader then reads a number that names no process.
+# End the file at this pid, as `Lock` does. A shorter pid over a longer one leaves the digits of the window
+# before it. The reader then reads a number that names no process.
 os.ftruncate(descriptor, LOCKED_BYTES + written)
 os.close(descriptor)
 claim.release()
 time.sleep({HELD_FOR})
 """
 STARTS_WITHIN = 30
-# Two ticks at two hundred each second, with room for a machine under load.
+# The bystander writes two hundred ticks each second, so two ticks take one hundredth of a second. This time
+# leaves room for a machine under load.
 TICKS_WITHIN = 5.0
 
 
-# These are the two steps of the command, in the order of the command: it opens a reset first, and the install over an
-# existing workspace uses what the reset gives. `jri init --force` asks the user a question between the two steps.
-# That question belongs to the window, and nothing here stands in for it.
+# This runs the two steps of the command, in the order of the command. It opens a reset first, and the install
+# over an existing workspace then uses what the reset gives. `jri init --force` asks the user a question between
+# the two steps. That question belongs to the window, and nothing here replaces it.
 def install_workspace(path: Path, *, force: bool = False) -> Installation:
     workspace = Workspace(path)
     settings = Settings.render()
@@ -118,8 +120,8 @@ def install_workspace(path: Path, *, force: bool = False) -> Installation:
         return workspace.install(settings, reset=reset)
 
 
-# This is a JRI that holds the project from a process of its own. A lock that the operating system frees says nothing
-# about a holder inside this process.
+# This is a JRI that holds the project from a process of its own. A lock that the operating system frees says
+# nothing about a holder inside this process.
 @contextmanager
 def hold_workspace(root: Path, *, record: str = "", deaf: bool = False) -> "Iterator[Process]":
     requests = _requests(root)
@@ -148,8 +150,8 @@ def run_a_bystander(root: Path) -> "Iterator[Process]":
         yield bystander
 
 
-# This tells whether the bystander still runs. It waits for two new ticks instead of one look at the process. A
-# process cannot tick past a signal that it was sent. Two ticks after this call show that no signal reached it.
+# This tells whether the bystander still runs. It waits for two new ticks, and does not read the process one
+# time. A process cannot write a tick after a signal reaches it. Two new ticks show that no signal reached it.
 def watch_a_bystander(root: Path, bystander: "Process") -> bool:
     beat = _beat(root)
     ticks = beat.stat().st_size
@@ -162,8 +164,8 @@ def watch_a_bystander(root: Path, bystander: "Process") -> bool:
     return True
 
 
-# This counts the requests to let the project go that reached a deaf window. It waits for the first one, because a
-# request that a loaded machine has not delivered yet is not a request that never went out.
+# This counts the requests to let the project go that reached a deaf window. It waits for the first request,
+# because a loaded machine can delay a request that JRI did send.
 def read_requests_to_go(root: Path) -> int:
     requests = _requests(root)
     deadline = time.monotonic() + REQUESTS_WITHIN
@@ -173,9 +175,10 @@ def read_requests_to_go(root: Path) -> int:
     return asked
 
 
-# End a window and wait for the project to come free. The operating system, not the window, frees the lock of a
-# process it ended, and Windows can take a moment over it. A read of the project the instant the process dies
-# calls that moment a live window. `Hold.evict` waits for the same release rather than reading the lock one time.
+# This ends a window and waits for the project to come free. The operating system frees the lock of a process
+# that it ended, and the window does not. Windows can need a moment for it. A read of the project at the instant
+# the process dies reports a live window. `Hold.evict` waits for the same release, and does not read the lock
+# one time.
 def end_a_window(root: Path, window: "Process") -> None:
     window.kill()
     window.wait()
@@ -185,9 +188,9 @@ def end_a_window(root: Path, window: "Process") -> None:
         time.sleep(POLL)
 
 
-# `Hold.evict` returns as soon as the project comes free, and the operating system frees the lock of a window it
-# ended while that window is still on its way out. A read of the process at that moment finds a window that is going
-# and reports a window that stands. Wait for the end itself, as `end_a_window` waits for the release.
+# `Hold.evict` returns as soon as the project comes free. The operating system frees the lock of a window that it
+# ended while that window still ends. A read of the process at that moment finds a window that still ends, and
+# reports a window that holds the project. Wait for the full end, as `end_a_window` waits for the release.
 def watch_a_window_go(window: "Process") -> bool:
     try:
         window.wait(Hold.FREED_WITHIN)
@@ -198,9 +201,10 @@ def watch_a_window_go(window: "Process") -> bool:
 
 @dataclass(frozen=True)
 class Process:
-    # A virtual environment on Windows starts the interpreter behind a launcher of its own. The number a spawn gives
-    # back then names that launcher and not the process that runs the code. This pid is the one the process wrote
-    # about itself. The operating system keeps the lock for that process, and a signal out of the record would end it.
+    # A virtual environment on Windows starts the interpreter behind a launcher of its own. The number that a
+    # spawn gives back then names that launcher, and not the process that runs the code. This pid is the number
+    # that the process wrote about itself. The operating system keeps the lock for that process, and a signal to
+    # the pid in the record ends it.
     pid: int
     spawn: subprocess.Popen[bytes]
 
@@ -215,21 +219,21 @@ class Process:
 
 
 def _beat(root: Path) -> Path:
-    # This stays outside the project, thus a workspace holds only what the code under test put there.
+    # This stays outside the project, so a workspace holds only what the code under test put there.
     return root.parent / f"{root.name}.ticks"
 
 
 def _requests(root: Path) -> Path:
-    # This stays outside the project, thus a workspace holds only what the code under test put there.
+    # This stays outside the project, so a workspace holds only what the code under test put there.
     return root.parent / f"{root.name}.requests"
 
 
 def _read_pid(marker: Path) -> int:
-    # The pid lands after the process did what it was started to do. A marker that is still empty means a process
-    # that never got there. A marker is made a moment before it is written, thus this waits for a number in it and not
-    # for the file.
-    # A write of a pid is not one step. A reader can meet the first digits of it and read a number that names another
-    # process. Each writer ends its pid with a line break, thus a number without one is a number still arriving.
+    # The process writes its pid after it did the work that the test started it for. A marker that is still empty means
+    # a process that never got there. The process makes the marker a moment before it writes to it. So this
+    # waits for a number in the marker, and not for the file.
+    # A write of a pid is not one step. A reader can find the first digits of it and read a number that names
+    # another process. Each writer ends its pid with a line break, so a number without one still arrives.
     deadline = time.monotonic() + STARTS_WITHIN
     while not (pid := marker.read_text(encoding="utf-8") if marker.exists() else "").endswith("\n"):
         assert time.monotonic() < deadline, f"nothing wrote a pid to {marker}"
@@ -239,11 +243,11 @@ def _read_pid(marker: Path) -> int:
 
 @contextmanager
 def _run(source: str, root: Path, marker: str, arguments: "Sequence[str]") -> "Iterator[Process]":
-    # This stays outside the project, thus the window holds only what a test reads back out of it. The name uses the
+    # This stays outside the project, so the window holds only what a test reads back out of it. The name uses the
     # role and not the root, because a test runs a window and a bystander over the same root.
     ready = root.parent / f"{root.name}.{marker}"
-    # A process before this one in the same test left this marker. It belongs to the harness and not to the code under
-    # test.
+    # A process before this one in the same test left this marker. It belongs to the harness, and not to the code
+    # under test.
     ready.unlink(missing_ok=True)
     spawn = subprocess.Popen([sys.executable, "-c", source, str(root), str(ready), *arguments])
     try:

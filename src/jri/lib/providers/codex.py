@@ -101,7 +101,7 @@ class Auth(httpx.Auth):
         with self.lock, self._lock_login():
             current = self._read()
             tokens = current.get("tokens")
-            # A refresh token cannot be used again. Validate the login data before you save the new token.
+            # OpenAI accepts each refresh token one time only. Validate the login data before you save the new token.
             if not isinstance(tokens, dict):
                 raise AuthError("The Codex login is invalid. Run `codex login` again.")
             tokens = cast("dict[str, Any]", tokens)

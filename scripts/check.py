@@ -9,9 +9,9 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 BUILD_DIR = ".dist"
-# A contract test connects to its reference endpoint. Do not run it after every change. An airplane,
-# hotel Wi-Fi, or DNS failure must not appear as broken code. The release gate runs the test because a
-# release changes an unchecked wire format into a format that every user can run.
+# A contract test connects to its reference endpoint. Do not run it after every change. A flight, hotel
+# Wi-Fi, or a DNS failure must not show as broken code. The release gate runs the test, because a release
+# makes an unchecked wire format into a format that every user runs.
 CONTRACT_MARKER = "contract"
 CONTRACT_COMMAND = ("run", "--locked", "pytest", "-q", "-m", CONTRACT_MARKER)
 UV_COMMANDS = (
@@ -28,18 +28,18 @@ UV_COMMANDS = (
         "-m",
         f"not {CONTRACT_MARKER}",
         # A test waits for a subprocess, a Git command, or a file much longer than it calculates. One worker
-        # for each core reads that wait as free time and fills it. More workers than cores only add load,
-        # which makes a test that waits for a deadline miss it.
+        # for each core uses that wait time for other tests. More workers than cores only add load, which
+        # makes a test that waits for a deadline miss the deadline.
         "-n",
         "auto",
         "--cov=src/jri/core",
         "--cov=src/jri/lib",
         "--cov-report=term-missing",
-        # This floor finds tests that went away. It does not say what the tests that stay are worth: this suite
-        # covered 99% of the code while it let one injected bug in three go through. Set the number from the loss
+        # This floor finds tests that went away. It does not say what the tests that stay are worth. This suite
+        # covered 99% of the code, but it did not find one injected bug in three. Set the number from the loss
         # it must find, and keep it under the platform that covers least. Windows covers 97.8%, because it skips
-        # 49 tests that need a shell or a signal it has not. The suite without `tests/test_specs.py`, its largest
-        # module, covers 95.1%. This floor thus finds a loss larger than that one module.
+        # 49 tests that need a shell or a signal it does not have. Without `tests/test_specs.py`, its largest
+        # module, the suite covers 95.1%. This floor finds a loss larger than that one module.
         "--cov-fail-under=95",
     ),
 )
@@ -58,9 +58,10 @@ CLASS_GROUPS = ("constant", "nested type", "magic method", "method", "private me
 # Each package can import these packages and itself.
 LAYERS = {"lib": frozenset[str](), "core": frozenset({"lib"}), "tui": frozenset({"core", "lib"})}
 # This depth names a module in a package, such as `jri.core.ai.tool`, which the roles beside it import. It does
-# not name a module below that one, such as `jri.core.ai.roles.interviewer`, which stays behind its package.
+# not name a module below that one, such as `jri.core.ai.roles.interviewer`, which stays inside its package.
 MAX_IMPORT_DEPTH = 4
-# This package can be reused outside JRI. Its modules declare exports instead of making every name reachable.
+# Another project can reuse this package. Its modules declare their exports, and they do not make every name
+# reachable.
 PUBLIC_API_PACKAGE = "lib"
 TEST_SUPPORT_MODULES = frozenset({"__init__.py", "conftest.py"})
 # `uv version` reads pyproject.toml and the lockfile. This list names every other file that contains the
@@ -189,8 +190,8 @@ def check_import_depth(*roots: Path) -> None:
 
 
 # This names the test module of every module that a test must cover. `scripts/mutate.py` reads the same answer,
-# so a mutant runs the tests that really import the module it lives in. Two rules would drift apart, and the
-# second one would report a hole in a test file that never imports the module the hole is in.
+# so a mutant runs the tests that really import its module. Two separate rules would become different with
+# time. The second rule would then report a hole in a test file that never imports the module of that hole.
 def assign_test_modules(package: Path) -> dict[Path, str | None]:
     modules = [
         path
@@ -199,8 +200,8 @@ def assign_test_modules(package: Path) -> dict[Path, str | None]:
         and path.relative_to(package).parts[0] != "tui"
         and any(isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) for node in _walk(path))
     ]
-    # Give a module the nearest name that no other module took. The shallowest module keeps the plain name, so
-    # two modules that share a stem ask for two files and one test cannot report both of them as covered.
+    # Give a module the nearest name that no other module took. The shallowest module keeps the plain name.
+    # Two modules that share a stem ask for two files, and one test cannot report both as covered.
     claimed: set[str] = set()
     assigned: dict[Path, str | None] = {}
     for path in sorted(modules, key=lambda module: (len(module.relative_to(package).parts), module)):
@@ -230,9 +231,9 @@ def check_test_layout(package: Path, tests: Path) -> None:
         raise RuntimeError("Tests laid out wrongly:\n" + "\n".join(misplaced + untested))
 
 
-# A bare `pytest.raises(SomeError)` accepts every message. Two tests here used one, and each hid a hole. One let
-# the most common model failure ship with wording that nothing held in place. The other stayed green although the
-# code spent a one-time credential before it raised. The wording of an error is a result, so a test names it.
+# A bare `pytest.raises(SomeError)` accepts every message. Two tests here used one, and each hid a hole. The
+# first let the most common model failure ship with wording that no test held. The second passed although the
+# code spent a one-time credential before it raised. The wording of an error is a result, and a test names it.
 def check_error_wording(*roots: Path) -> None:
     loose = [
         f"{path}:{node.lineno}: pytest.raises names no wording"
@@ -251,7 +252,7 @@ def check_error_wording(*roots: Path) -> None:
 
 
 # A test that imports the value it expects compares the module with itself. Such a test cannot fail. One of them
-# stayed green after the shipped notice became a single character, and 1008 other tests stayed green with it.
+# passed after the shipped notice became a single character, and 1008 other tests passed with it.
 def check_expected_values(*roots: Path) -> None:
     borrowed = [
         line for root in roots for path in sorted(root.rglob("*.py")) for line in _find_borrowed_expectations(path)
@@ -263,9 +264,10 @@ def check_expected_values(*roots: Path) -> None:
         )
 
 
-# A test asserts the result, and not the way the result was reached. The prompt in `inputs` is a result, so a test
-# reads it. The remaining options of the request are not, and neither is the order of the calls. A test that reads
-# them fails after a rewrite that keeps the result, and misses a change of the result that keeps the request.
+# A test asserts the result, and not the way the code reached the result. The prompt in `inputs` is a result,
+# so a test reads it. The other options of the request are not results, and the order of the calls is not one
+# either. A test that reads them fails after a rewrite that keeps the result. It also misses a change of the
+# result that keeps the request.
 def check_black_box(*roots: Path) -> None:
     peeking = [line for root in roots for path in sorted(root.rglob("*.py")) for line in _find_request_reads(path)]
     if peeking:
@@ -300,8 +302,9 @@ def check_docstrings(*roots: Path) -> None:
         )
 
 
-# A model reads an indented line as a code block and a wide gap as a column. Both say something the prompt
-# does not mean. This is authoring style, so a check reports it where a formatter would, not a test.
+# A model reads an indented line as a code block and a wide gap as a column. Both show a meaning that the
+# prompt does not have. This is authoring style. A check reports it where a formatter would, and not a
+# test.
 def check_prompt_style(prompts: Path) -> None:
     stray = [
         f"{path}:{number}: {line!r}"
@@ -352,8 +355,8 @@ def _find_private_constants(body: list[ast.stmt], path: Path) -> Iterator[str]:
 
 def _find_borrowed_expectations(path: Path) -> Iterator[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    # Only a name that the module under test gave this file can hold the expectation hostage. A constant that the
-    # test file writes itself is the written-out value that this rule asks for.
+    # Only a name that the module under test gave this file can make the expectation follow the module.
+    # A constant that the test file writes itself is the written-out value that this rule asks for.
     imported = {
         alias.asname or alias.name
         for node in ast.walk(tree)
@@ -402,8 +405,8 @@ def _name_test_modules(relative: Path) -> Iterator[str]:
         yield f"test_{'_'.join([*packages[start:], stem])}.py"
 
 
-# A bare name and a chain of attributes on one, such as `notice` or `logs.NOTICE`, name the value they end at. A
-# subscript or a call at the root builds a new value, so the expectation is not the imported one.
+# A bare name and a chain of attributes on one, such as `notice` or `logs.NOTICE`, name the value at their end.
+# A subscript or a call at the root makes a new value. The expectation is then not the imported value.
 def _name_root(node: ast.expr) -> str | None:
     while isinstance(node, ast.Attribute):
         node = node.value

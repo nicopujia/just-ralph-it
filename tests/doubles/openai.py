@@ -21,8 +21,8 @@ def response(*outputs: dict[str, Any], input_tokens: int | None = None, cached_t
         SimpleNamespace(type="response.output_item.done", output_index=index, item=_Item(output))
         for index, output in enumerate(outputs)
     ]
-    # A provider reports what a call spent one time, on the event that completes it. Some providers report nothing.
-    # The part of the input that came from the cache stands in the details of the input.
+    # A provider reports the cost of a call one time, on the event that completes the call. Some providers report
+    # nothing. The details of the input hold the part of the input that came from the cache.
     usage = (
         None
         if input_tokens is None
@@ -55,14 +55,14 @@ def interrupted_reply(text: str) -> Round:
     raise rate_limited()
 
 
-# The provider drops the call after the model starts to think out loud. The reader already sees that text.
+# The provider drops the call after the model starts to send its reasoning. The reader already sees that text.
 def interrupted_thinking(text: str) -> Round:
     yield thought(text)
     raise rate_limited()
 
 
-# The user presses stop while a response still streams. Nothing follows the event that the run reads the stop on.
-# A run that pulls one more event is a run that still waits for a response that it must abandon.
+# The user presses stop while a response still streams. No event follows the event where the run reads the stop.
+# A run that reads one more event still waits for a response that it must abandon.
 def stopped_stream(cancelled: Event) -> Round:
     yield _delta("{")
     cancelled.set()
@@ -70,7 +70,8 @@ def stopped_stream(cancelled: Event) -> Round:
     raise AssertionError("A stopped stream must be closed rather than read to its end.")
 
 
-# The user presses stop while the model still thinks out loud. A structured call spends its minutes in that stage.
+# The user presses stop while the model still sends its reasoning. A structured call spends most of its time
+# in that stage.
 def stopped_thinking(cancelled: Event) -> Round:
     yield thought("Weighing ")
     cancelled.set()
@@ -90,8 +91,8 @@ def rate_limited(
     return RateLimitError(f"Error code: 429 - {{'error': {body!r}}}", response=response, body=body)
 
 
-# The provider library raises this error for every transport failure. It chains the account of the transport behind
-# the error. This double chains the cause in the same way, because JRI reads `__cause__` for the actual reason.
+# The provider library raises this error for every transport failure. It chains the error of the transport behind
+# it. This double chains the cause in the same way, because JRI reads `__cause__` for the true reason.
 def disconnection(cause: Exception | None = None) -> APIConnectionError:
     error = APIConnectionError(request=REQUEST)
     error.__cause__ = cause
@@ -100,8 +101,8 @@ def disconnection(cause: Exception | None = None) -> APIConnectionError:
 
 def rejection(message: str = "Unknown model.") -> BadRequestError:
     response = httpx.Response(400, request=REQUEST)
-    # The library gives the exception the object under `error`, and not the full body. A provider writes there what
-    # it refused and why.
+    # The library puts the object under `error` in the exception, and not the full body. A provider writes there
+    # what it refused, and why.
     return BadRequestError(
         f"Error code: 400 - {{'error': {{'message': {message!r}}}}}",
         response=response,
@@ -109,8 +110,8 @@ def rejection(message: str = "Unknown model.") -> BadRequestError:
     )
 
 
-# A gateway stands between JRI and the provider, and answers for itself. Its body has no shape that the provider
-# library knows.
+# A gateway is between JRI and the provider, and it answers for itself. The provider library does not know the
+# shape of its body.
 def bad_gateway(body: str) -> InternalServerError:
     response = httpx.Response(502, request=REQUEST)
     return InternalServerError(body, response=response, body=body)
@@ -125,8 +126,9 @@ def incomplete_response(reason: str | None) -> Round:
     return [SimpleNamespace(type="response.incomplete", response=SimpleNamespace(incomplete_details=details))]
 
 
-# The library gives a failed response an error object, and not a message. JRI takes what it shows the user from it.
-# The object also holds a code for the class of the failure. A provider can report a failure with no object at all.
+# The library gives a failed response an error object, and not a message. JRI reads the text for the user from
+# that object. The object also holds a code for the class of the failure. A provider can report a failure with no
+# object at all.
 def failed_response(message: str | None) -> Round:
     error = ResponseError(code="server_error", message=message) if message else None
     return [SimpleNamespace(type="response.failed", response=SimpleNamespace(error=error))]
@@ -144,7 +146,7 @@ def call(call_id: str, name: str, **arguments: object) -> dict[str, Any]:
     return {"type": "function_call", "call_id": call_id, "name": name, "arguments": json.dumps(arguments)}
 
 
-# What a run said back to the model with the answer of each tool call it made.
+# This reads what a run sent back to the model as the answer to each tool call that it made.
 def read_tool_outputs(client: "FakeClient") -> list[str]:
     answered: list[str] = []
     for context in client.responses.inputs:
@@ -166,8 +168,8 @@ def reply(text: str) -> dict[str, Any]:
 class FakeClient:
     def __init__(self, rounds: Iterable[Round | OpenAIError], *, parsed: Iterable[object] = ()) -> None:
         self.responses = _Responses(rounds, parsed)
-        # A real client makes the address in the settings into the address that it sends to. A failure names that
-        # address.
+        # A real client builds the address that it sends to from the address in the settings. A failure message
+        # names that address.
         self.base_url = httpx.URL(f"{BASE_URL}/")
 
 
@@ -180,8 +182,8 @@ class _Responses:
         self.rounds = iter(rounds)
         self.parsed = iter(parsed)
         self.inputs: list[object] = []
-        # The tools that each request gave to the model. These tools tell the model what it can do, and the
-        # prompt in `inputs` tells it what to do. A test reads them.
+        # This holds the tools that each request gave to the model. The tools tell the model what it can do, and
+        # the prompt in `inputs` tells the model what to do. A test reads both.
         self.tools: list[list[str]] = []
         self.options: list[dict[str, object]] = []
 

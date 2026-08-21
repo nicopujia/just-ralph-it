@@ -35,8 +35,8 @@ def test_advances_topic_and_note_ids_independently(tmp_path: Path) -> None:
     assert notebook.add_topic("Fifth", "t1", "What fifth covers.").id == "t5"
 
 
-# JRI only appends a topic, so a gap between topic IDs can come from a hand-edited file. A count of the topics
-# would allocate an ID that a later topic already holds.
+# JRI only adds a topic at the end, so a gap between topic IDs comes from a file that a user edited. If JRI
+# counts the topics, it gives a new topic an ID that a later topic already holds.
 def test_allocates_a_topic_id_after_the_highest_one_in_the_file(tmp_path: Path) -> None:
     path = tmp_path / "notebook.yaml"
     path.write_text(
@@ -49,8 +49,8 @@ def test_allocates_a_topic_id_after_the_highest_one_in_the_file(tmp_path: Path) 
     assert Notebook(path, "Acme").add_topic("Security", "t1", "What security covers.").id == "t4"
 
 
-# Each shape below breaks one rule, and each rule has wording of its own. A shape refused for another rule than the
-# one it breaks says the rule it breaks is gone, so every case names the wording that must refuse it.
+# Each shape below breaks one rule, and each rule has its own wording. If JRI refuses a shape for a different
+# rule, the rule that the shape breaks is no longer there. Each case names the wording that must refuse it.
 @pytest.mark.parametrize(
     ("data", "wording"),
     [
@@ -254,8 +254,8 @@ def test_restores_notebook_changes_after_restart(tmp_path: Path) -> None:
     assert Notebook(notebook.path, "Acme").graph.connections == []
 
 
-# The file stores each note under its topic in the order the graph holds them, so a load that sorts the IDs as
-# text puts `n10` before `n2` and the next save rewrites the user's notebook in that order.
+# The file keeps each note under its topic, in the order of the graph. A load that sorts the IDs as text puts
+# `n10` before `n2`. The next save then writes the notebook of the user in that wrong order.
 def test_keeps_notes_in_the_order_they_were_added_after_a_restart(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     added = [note.id for note in notebook.add([f"Note {index}" for index in range(12)], "t1")]
@@ -385,7 +385,8 @@ def test_reports_a_notebook_document_that_cannot_be_read() -> None:
         Notebook.exclude_trashed(b"nonsense")
 
 
-# A hand-edited file can trash the overview topic. Every topic then reads as trashed, and what stays is no graph.
+# A user who edits the file can trash the overview topic. JRI then reads every topic as trashed, and no graph
+# stays.
 def test_reports_a_document_that_holds_nothing_once_its_trashed_topics_go() -> None:
     document = b"id: t1\nname: Acme\nstatus: trashed\nnotes: {n1: First}\nconnections: []\nnext_note_id: n2\n"
 
@@ -764,7 +765,8 @@ def test_hides_a_topic_under_a_trashed_one_and_gives_it_back_with_it(tmp_path: P
 
     notebook.update_topic(delivery.id, "open")
 
-    # The topic discarded on its own kept its own status, so restoring the one above it leaves that one discarded.
+    # JRI trashed the lower topic on its own, and that topic keeps its own status. It thus stays trashed when
+    # JRI opens the topic above it.
     assert [note.id for note in notebook.read(ReadQuery())[0]] == ["n1", "n2"]
 
 
@@ -831,8 +833,8 @@ def test_refuses_to_stand_a_topic_under_a_trashed_one(tmp_path: Path) -> None:
     assert reopened.parent_id == "t1"
 
 
-# A pinned connection can name a note the document does not show, because a topic keeps its edges to the rest of the
-# project. It must not name a note of a topic that the document leaves out altogether.
+# A pinned connection can name a note that the document does not show, because a topic keeps its edges to the
+# rest of the project. But it must not name a note of a topic that the document leaves out.
 def test_renders_nothing_of_a_topic_under_a_trashed_one(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
     discarded = notebook.add_topic("Discarded", "t1", "What was dropped.")
