@@ -15,7 +15,7 @@ CLI_FORCE_HELP = (
     "the logs, the generated specifications, and what the last Just Ralph It run left behind."
 )
 CLI_HALT_HELP = "Kill the Just Ralph It run at once."
-CLI_INIT_HELP = "Set the project up with the default JRI settings."
+CLI_INIT_HELP = "Set the project up with the settings in {file}, or with the default JRI settings."
 CLI_JSON_HELP = "Print the report as JSON."
 CLI_NO_COMMENTS_HELP = "Write the settings file with no comments and only the settings that have a value."
 CLI_START_HELP = "Start a Just Ralph It run and wait here until it ends."

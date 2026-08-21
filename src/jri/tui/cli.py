@@ -40,7 +40,8 @@ def main() -> None:
     parser.add_argument("-v", "--version", action="version", version=__version__, help=copy.CLI_VERSION_HELP)
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    init_parser = subparsers.add_parser("init", help=copy.CLI_INIT_HELP, description=copy.CLI_INIT_HELP)
+    init_help = copy.CLI_INIT_HELP.format(file=paths.GLOBAL_SETTINGS_FILE)
+    init_parser = subparsers.add_parser("init", help=init_help, description=init_help)
     init_parser.add_argument("--force", action="store_true", help=copy.CLI_FORCE_HELP)
     init_parser.add_argument("--yes", action="store_true", help=copy.CLI_YES_HELP)
     init_parser.add_argument("--no-comments", action="store_true", help=copy.CLI_NO_COMMENTS_HELP)
