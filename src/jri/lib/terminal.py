@@ -11,7 +11,7 @@ POLL = 0.25
 
 
 # Call `end` one time in a separate thread when the terminal that started
-# this process hangs up. The remote terminal is closed. Output cannot go
+# this process hangs up. The remote terminal has closed. Output cannot go
 # there, and input cannot come from it. The process cannot report its
 # state or receive a request to stop.
 #
@@ -53,8 +53,8 @@ def _list_descriptors() -> Iterator[int]:
 def _wait_for_hangup(end: Callable[[], None]) -> None:
     # Windows does not have `select.poll`, `POLLHUP`, or `POLLERR`. This
     # check prevents an `AttributeError`. Windows `select.select` works
-    # only with sockets. Returning is safe because a console-window close
-    # sends an event that stops its process.
+    # only with sockets. A return here is safe, because a console-window
+    # close sends an event that stops its process.
     if sys.platform == "win32":
         return
     descriptors = tuple(_list_descriptors())

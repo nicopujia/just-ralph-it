@@ -5,19 +5,35 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import cast
+from threading import Event
+from typing import TYPE_CHECKING, cast
 
 import httpx
 import pytest
 
-from jri.core.ai import Explorer, Invocation, Tool
+from jri.core.ai import Exploration, Explorer, Invocation, ReasoningDelta, Tool, ToolCallFinished, ToolCallStarted
+from jri.core.exceptions import ModelError, UsageLimitError
 from jri.lib import brave, youtube
+from tests.doubles.agents import drain
 from tests.doubles.brave import RESULTS, FakeProvider, respond
-from tests.doubles.openai import FakeClient
+from tests.doubles.models_dot_dev import CATALOG, serve_catalog
+from tests.doubles.openai import (
+    FakeClient,
+    call,
+    rate_limited,
+    reply,
+    response,
+    stopped_thinking,
+    thought,
+    unreadable_answer,
+)
 from tests.doubles.process import serve_timeout
 from tests.doubles.settings import build_settings
 from tests.doubles.web import serve_chunks, serve_pages
 from tests.doubles.youtube import TRANSCRIPT, FakeApi
+
+if TYPE_CHECKING:
+    from tests.doubles.openai import Round
 
 KILOBYTE = 1024
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
@@ -34,16 +50,40 @@ time.sleep(60)
 HEARTBEAT_SCRIPT = """\
 import time
 from pathlib import Path
+from threading import Event
 
 while True:
     Path("alive.txt").write_text("alive")
     time.sleep(0.01)
 """
 HEARTBEAT_WINDOW = 1.0
+# An input room this small is below each request. The first round of a segment is already at the limit.
+CRAMPED_CATALOG = {"test": {"limit": {"input": 1}}}
+# This input room puts the limit at exactly the tokens of the request in the test below.
+MARKED_CATALOG = {"test": {"limit": {"input": 50}}}
+# This is the segment limit the explorer applies. Write it here too: a test that reads the constant accepts
+# every change to the constant.
+MAX_SEGMENTS = 10
+# What the explorer records when a request is at its size limit.
+INPUT_LIMIT_RECORD = "This request is at its size limit. No more tool output fits in this segment of the exploration."
+# What it records instead when the segment at that limit is the last segment of the exploration.
+FINAL_LIMIT_RECORD = (
+    "This request is at its size limit, and this is the last segment of the exploration. "
+    "No more tool output fits in it, and no segment follows it."
+)
+# A catalog that names a different model gives no limit for this model. The explorer then uses the fallback
+# input room.
+UNNAMED_MODEL_CATALOG = {"other": {"limit": {"context": 400_000}}}
+# This much of a report replaces the report when the model writes no summary. Write it here too: a test that
+# reads the constant accepts every change to the constant.
+SUMMARY_LENGTH = 200
+# A report longer than that limit. It contains no line break, so a cut of it cannot close a block.
+LONG_REPORT = "Cats are mammals. " * 20
 
 
-# `run_shell` starts a login shell, and a login shell reads the profile of whoever runs the suite. Give each test a
-# home of its own, so no machine can add its own words to the output these tests compare.
+# `run_shell` starts a login shell, and a login shell reads the profile of the user that runs the suite.
+# Give each test a home of its own.
+# No machine can then add its own words to the output that these tests compare.
 @pytest.fixture(autouse=True)
 def isolate_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
@@ -52,16 +92,23 @@ def isolate_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("USERPROFILE", str(home))
 
 
-def build_explorer(directory: Path | None = None) -> Explorer:
-    return Explorer(build_settings(FakeClient([])), directory or Path.cwd())
+def build_explorer(directory: Path | None = None, client: FakeClient | None = None) -> Explorer:
+    return Explorer(build_settings(client or FakeClient([])), directory or Path.cwd())
+
+
+# The message of a segment. `parse` starts each segment from the system prompt only, so the message comes
+# after it.
+def read_message(client: FakeClient) -> str:
+    return str(cast("list[dict[str, str]]", client.responses.inputs[-1])[1]["content"])
 
 
 def find_read_files(explorer: Explorer) -> Tool:
     return next(capability for capability in explorer.tools if capability.name == "read_files")
 
 
-# A crafted directory name could fake the prompt's own section headers and talk the model into granting
-# `run_shell` unrestricted power. The block around it must survive that.
+# A directory name can imitate the section headers of the prompt.
+# The model could then read that name as an order that gives `run_shell` unlimited power.
+# The block around the name must stop this.
 @pytest.mark.skipif(sys.platform == "win32", reason="a name holding a line break or a backtick is one Windows refuses")
 def test_quotes_a_working_directory_named_like_a_section_of_the_prompt(tmp_path: Path) -> None:
     # A path cannot hold a closing tag, which holds a separator. An opening tag also identifies a block.
@@ -154,8 +201,9 @@ def test_reads_an_image_as_an_image_input(tmp_path: Path) -> None:
     }
 
 
-# Pick an image bigger than `Invocation.MAX_OUTPUT_LENGTH` so this proves images skip that text-truncation budget,
-# not merely that a small image fits under it.
+# Use an image larger than `Invocation.MAX_OUTPUT_LENGTH`.
+# The test then proves that JRI does not cut an image to the limit that it applies to text.
+# A small image would show only that it fits below that limit.
 def test_reads_a_screenshot_at_the_size_a_screen_makes_one(tmp_path: Path) -> None:
     path = tmp_path / "screenshot.png"
     data = PNG_HEADER + b"\x00" * (150 * KILOBYTE)
@@ -183,7 +231,8 @@ def test_reads_undecodable_bytes_as_a_file_input(tmp_path: Path) -> None:
     }
 
 
-# The tool offers to read files, plural, of every kind in one call. Each body must follow the header that names it.
+# The tool reads more than one file, of every kind, in one call.
+# Each body must come after the header that names it.
 def test_reads_every_file_a_call_names(tmp_path: Path) -> None:
     (tmp_path / "notes.md").write_bytes(b"Notes\n")
     (tmp_path / "diagram.png").write_bytes(PNG_HEADER)
@@ -382,8 +431,8 @@ def test_keeps_a_cut_page_from_wording_itself_as_the_notice(monkeypatch: pytest.
 def test_reports_a_page_the_host_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_pages(monkeypatch, lambda _request: httpx.Response(404, text="Not found"))
 
-    # The row already names the URL, so the raised message must not repeat it. Anchor the match to catch a
-    # regression that would.
+    # The row already names the URL, and the message must not repeat it.
+    # The pattern matches the whole message, so a message that repeats the URL fails this test.
     with pytest.raises(RuntimeError, match=r"^404 Not Found$"):
         build_explorer().fetch_web_page("https://example.test/missing")
 
@@ -428,8 +477,8 @@ def test_names_a_read_row_after_the_files_it_covers() -> None:
     )
 
 
-# `PlainSerializer` reshapes `paths` only for the row's label. The invocation must still read the model's own
-# path list, not that label text.
+# `PlainSerializer` changes `paths` for the label of the row only.
+# The invocation must still read the paths that the model gave, and not that label.
 def test_reads_the_paths_a_call_names_rather_than_the_row_describing_them(tmp_path: Path) -> None:
     path = tmp_path / "example.txt"
     path.write_bytes(b"one\n")
@@ -443,3 +492,268 @@ def test_reads_the_paths_a_call_names_rather_than_the_row_describing_them(tmp_pa
         {"type": "input_text", "text": f"<file>\n{path}\n</file>"},
         {"type": "input_text", "text": "<content>\none\n\n</content>"},
     ]
+
+
+# A request at its size limit ends its segment. The explorer records that limit, so the model reports its
+# findings and does not collect more.
+def test_records_a_request_that_stands_at_its_size_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / "notes.md").write_bytes(b"Notes\n")
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    finding = Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
+    client = FakeClient([], parsed=[response(call("call-1", "read_files", paths=["notes.md"])), finding])
+    explorer = build_explorer(tmp_path, client)
+
+    with caplog.at_level(logging.INFO, logger="jri"):
+        result = drain(explorer.report("cats"))[1]
+
+    assert result == finding
+    assert {"role": "system", "content": INPUT_LIMIT_RECORD} in cast("list[object]", client.responses.inputs[-1])
+    reached = next(entry for entry in caplog.records if entry.getMessage().startswith("exploration_limit_reached"))
+    assert reached.getMessage().endswith(" room=1")
+    # The round that records the limit gives no tools, and no round after it gives tools.
+    assert client.responses.tools == [[], []]
+    # A call that the model makes anyway reaches no tool.
+    assert [item["output"] for item in cast("list[dict[str, object]]", explorer.history) if "output" in item] == [
+        "<tool_call_failed>\nUnknown tool `read_files`.\n</tool_call_failed>"
+    ]
+
+
+# The limit keeps the remaining room for the report that the segment writes. A request exactly at the limit
+# still has that room, and the segment continues.
+def test_gathers_on_from_a_request_that_stands_exactly_on_the_mark(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, MARKED_CATALOG)
+    explorer = build_explorer()
+    # With no tools, this one item makes a request of exactly the tokens that the limit above permits.
+    explorer.tools = []
+    explorer.history = [{"role": "user", "content": "x" * 67}]
+
+    assert explorer.get_context() == [{"role": "user", "content": "x" * 67}]
+
+
+# A request far below the limit leaves room for the segment to collect more. It keeps its tools, and no
+# record tells the model that the segment ends.
+@pytest.mark.parametrize("catalog", [CATALOG, UNNAMED_MODEL_CATALOG], ids=["published-room", "fallback-room"])
+def test_gathers_on_while_a_request_sits_under_its_size_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, catalog: dict[str, object]
+) -> None:
+    (tmp_path / "notes.md").write_bytes(b"Notes\n")
+    serve_catalog(monkeypatch, catalog)
+    finding = Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
+    client = FakeClient([], parsed=[response(call("call-1", "read_files", paths=["notes.md"])), finding])
+
+    explorer = build_explorer(tmp_path, client)
+
+    result = drain(explorer.report("cats"))[1]
+
+    assert result == finding
+    # A segment at its size limit has no tools, and answers a call with an unknown-tool message. This segment
+    # keeps its tools, and the call reads the file.
+    assert [item["output"] for item in cast("list[dict[str, object]]", explorer.history) if "output" in item] == [
+        [
+            {"type": "input_text", "text": f"<file>\n{tmp_path / 'notes.md'}\n</file>"},
+            {"type": "input_text", "text": "<content>\nNotes\n\n</content>"},
+        ]
+    ]
+    assert not [
+        item
+        for item in cast("list[dict[str, str]]", explorer.history)
+        if item.get("content") in {INPUT_LIMIT_RECORD, FINAL_LIMIT_RECORD}
+    ]
+
+
+# No segment comes after the last segment, and it cannot give the remaining work to a segment that follows.
+# Its own record tells the model that, so the model writes the report that it has.
+def test_records_the_size_limit_of_the_last_segment_as_the_end_of_the_exploration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report=f"Segment {number}.", summary="So far.", remaining="More.")
+            for number in range(1, MAX_SEGMENTS + 1)
+        ],
+    )
+
+    drain(build_explorer(client=client).report("cats"))
+
+    assert {"role": "system", "content": FINAL_LIMIT_RECORD} in cast("list[object]", client.responses.inputs[-1])
+
+
+# An exploration reports its progress to its caller. The model sends its reasoning to that caller unchanged.
+# Each row of a segment shows the depth of the caller.
+def test_reports_the_progress_of_a_segment_at_the_depth_of_its_caller(tmp_path: Path) -> None:
+    (tmp_path / "notes.md").write_bytes(b"Notes\n")
+    finding = Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
+    gathering = [thought("Weighing "), *response(call("call-1", "read_files", paths=["notes.md"]))]
+    client = FakeClient([], parsed=[gathering, finding])
+
+    events = list(build_explorer(tmp_path, client).report("cats", depth=2))
+
+    assert [event.text for event in events if isinstance(event, ReasoningDelta)] == ["Weighing "]
+    assert [
+        (event.call_id, event.depth) for event in events if isinstance(event, ToolCallStarted | ToolCallFinished)
+    ] == [("call-1", 2), ("call-1", 2)]
+
+
+# The user can stop an exploration while a segment runs. The exploration then has no result. The caller reads
+# that result, and not a report that the run did not write.
+def test_ends_an_exploration_the_user_stopped() -> None:
+    cancelled = Event()
+    client = FakeClient([], parsed=[stopped_thinking(cancelled)])
+
+    result = drain(build_explorer(client=client).report("cats", cancelled=cancelled))[1]
+
+    assert result is None
+
+
+# The caller of the exploration gives the query, and a model wrote that query. The first segment sends it as
+# the whole message, with no JRI words beside it.
+def test_sends_the_query_of_an_exploration_as_its_whole_first_message() -> None:
+    client = FakeClient([], parsed=[Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")])
+
+    drain(build_explorer(client=client).report("cats"))
+
+    assert read_message(client) == "cats"
+
+
+# Each segment reports its own findings, and the exploration answers with the reports and the summaries of
+# all the segments. A model does not repeat the data that JRI gives to it, so JRI keeps that data.
+def test_answers_an_exploration_with_the_report_of_every_segment(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."),
+            Exploration(report="Cats eat meat.", summary="Carnivores.", remaining="Where cats sleep."),
+            Exploration(report="Cats sleep anywhere.", summary="Sleepers.", remaining=""),
+        ],
+    )
+
+    result = drain(build_explorer(client=client).report("cats"))[1]
+
+    assert result == Exploration(
+        report="Cats are mammals.\n\nCats eat meat.\n\nCats sleep anywhere.",
+        summary="Mammals.\nCarnivores.\nSleepers.",
+        remaining="",
+    )
+
+
+# The summary replaces the report when the full report no longer fits. A model that writes no summary would
+# keep its report whole for all the interview. The first part of the report replaces it instead. A blank
+# summary would leave the reader with nothing.
+@pytest.mark.parametrize("written", ["", "   \n  "], ids=["no summary", "a summary of blank space"])
+@pytest.mark.parametrize(
+    ("report", "summary"),
+    [("Cats are mammals.", "Cats are mammals."), (LONG_REPORT, LONG_REPORT[:SUMMARY_LENGTH])],
+    ids=["a short report", "a long report"],
+)
+def test_answers_with_the_beginning_of_a_report_the_model_wrote_no_summary_for(
+    report: str, summary: str, written: str
+) -> None:
+    client = FakeClient([], parsed=[Exploration(report=report, summary=written, remaining="")])
+
+    result = drain(build_explorer(client=client).report("cats"))[1]
+
+    assert result == Exploration(report=report, summary=summary, remaining="")
+
+
+# A segment gives its remaining work to the segment that follows. The exploration is one job. That segment
+# reads the query, the summaries of the segments before it, and their remaining work. It reads the summaries
+# and not the reports, because the segment before it had no more room.
+def test_carries_the_query_and_the_summaries_so_far_into_the_next_segment(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."),
+            Exploration(report="Cats eat meat.", summary="Carnivores.", remaining="Where cats sleep."),
+            Exploration(report="Cats sleep anywhere.", summary="Sleepers.", remaining=""),
+        ],
+    )
+
+    drain(build_explorer(client=client).report("cats"))
+
+    message = read_message(client)
+    assert "<exploration_query>\ncats\n</exploration_query>" in message
+    assert "<summaries_so_far>\nMammals.\nCarnivores.\n</summaries_so_far>" in message
+    assert "<remaining_work>\nWhere cats sleep.\n</remaining_work>" in message
+    assert "Cats are mammals." not in message
+
+
+# A segment exists for size only, and each segment costs a full request. A segment that had room does its
+# remaining work in a further round, and no segment follows it.
+def test_starts_no_further_segment_after_a_segment_that_still_had_room() -> None:
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."),
+            Exploration(report="Cats eat meat.", summary="Carnivores.", remaining=""),
+        ],
+    )
+
+    result = drain(build_explorer(client=client).report("cats"))[1]
+
+    assert result == Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
+
+
+# A provider can answer a segment with text that is not an exploration. The provider library reads that text
+# during the stream. JRI reads it after the stream, when the library read none. The segments before it already
+# reported, and the exploration ends with their findings.
+@pytest.mark.parametrize(
+    "unreadable",
+    [unreadable_answer(Exploration, "Not an exploration."), response(reply("Not an exploration."))],
+    ids=["mid-stream", "post-stream"],
+)
+def test_ends_an_exploration_on_a_segment_that_failed(unreadable: "Round", monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [], parsed=[Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."), unreadable]
+    )
+
+    result = drain(build_explorer(client=client).report("cats"))[1]
+
+    assert result == Exploration(report="Cats are mammals.", summary="Mammals.", remaining="")
+
+
+# A usage limit comes from the provider. It is not an answer that JRI could not read. The user pays and gets
+# nothing, so this error always leaves the exploration. It ends the turn as a usage limit ends a turn, whatever
+# the segments before it reported.
+def test_fails_an_exploration_whose_segment_spent_the_usage_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."),
+            rate_limited(code="insufficient_quota"),
+        ],
+    )
+
+    with pytest.raises(UsageLimitError, match="Rate limit reached"):
+        drain(build_explorer(client=client).report("cats"))
+
+
+# No segment reported before the first one, so the exploration fails when the first segment fails.
+def test_fails_an_exploration_whose_first_segment_failed() -> None:
+    client = FakeClient([], parsed=[response(reply("Not an exploration."))])
+
+    with pytest.raises(ModelError, match="could not be read as Exploration"):
+        drain(build_explorer(client=client).report("cats"))
+
+
+# An exploration cannot run for an unlimited time. It ends at its last segment, with the findings of that
+# segment, and some work can stay unexplored.
+def test_ends_an_exploration_at_the_last_segment_it_can_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    reports = [f"Segment {number}." for number in range(1, MAX_SEGMENTS + 1)]
+    client = FakeClient(
+        [], parsed=[Exploration(report=report, summary="So far.", remaining="More.") for report in reports]
+    )
+
+    result = drain(build_explorer(client=client).report("cats"))[1]
+
+    assert result == Exploration(
+        report="\n\n".join(reports), summary="\n".join(["So far."] * MAX_SEGMENTS), remaining=""
+    )

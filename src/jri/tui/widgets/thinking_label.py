@@ -5,10 +5,11 @@ from jri.tui import copy, styles
 
 
 class ThinkingLabel(Static):
-    # A crest of light goes along the label, and each letter takes the shade of its distance from that crest.
-    # The terminal supplies these grays, thus the label agrees with the colors of its window, light or dark.
+    # A bright point moves along the label. Each letter takes the shade for its distance from that point.
+    # The terminal supplies these grays. The label agrees with the colors of its window, light or dark.
     SHADES = ("bold", "", "dim")
-    # The crest goes past the last letter before it starts again. This is the dark interval between two sweeps.
+    # The bright point moves past the last letter before it starts again. This is the dark interval between
+    # two sweeps.
     GAP = 4
     STEP = 0.1
 

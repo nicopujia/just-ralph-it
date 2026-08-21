@@ -59,9 +59,10 @@ class Lock:
         finally:
             os.close(descriptor)
 
-    # The operating system releases a lock when its holder exits. A lock
-    # that cannot be taken now has a running holder. This method releases
-    # a lock that it takes, so the caller does not become its holder.
+    # The operating system releases a lock when its holder exits. So a
+    # running process holds a lock that this method cannot take now. This
+    # method releases a lock that it takes, so the caller does not become
+    # its holder.
     def is_held(self) -> bool:
         if not self.take():
             return True
@@ -69,18 +70,18 @@ class Lock:
         return False
 
     def release(self) -> None:
-        # A child from `fork` has no descriptor to release. It was removed
-        # when the child closed its inherited descriptors.
+        # A child from `fork` has no descriptor to release. The child
+        # removed it when it closed its inherited descriptors.
         descriptor = _descriptors.pop(self, None)
         if descriptor is not None:
             _release(descriptor)
 
     # Return whether the lock is free now. Do not wait for a held lock.
-    # Take the lock first, then write the holder data. A reader can thus
+    # Take the lock first, then write the holder data. A reader can
     # find the lock held before its holder writes the record. The record
-    # also stays after the holder releases the lock, and after the
+    # also stays after the holder releases the lock. It stays after the
     # operating system frees the lock of a process that died. No code of
-    # a dead holder runs to erase it. The record alone therefore does not
+    # a dead holder runs to erase it. The record alone does not
     # name the process that holds the lock now. A reader that must trust
     # the record needs its own exclusion with the writers.
     def take(self, holder: str = "") -> bool:
@@ -101,7 +102,7 @@ class Lock:
         try:
             if sys.platform == "win32":
                 # `locking` starts at the current descriptor position. It
-                # waits by trying again every tenth of a second. `flock`
+                # waits and tries again every tenth of a second. `flock`
                 # waits without a limit on the number of tries.
                 msvcrt.locking(descriptor, msvcrt.LK_LOCK if wait else msvcrt.LK_NBLCK, LOCKED_BYTES)
             else:
@@ -133,7 +134,7 @@ class Lock:
 
 
 def _drop_inherited() -> None:
-    # The parent and child share the open file that owns the lock. If the
+    # The parent and child share the open file that holds the lock. If the
     # child unlocks it, it also releases the parent lock. Closing removes
     # only the child share of the open file.
     for descriptor in _descriptors.values():

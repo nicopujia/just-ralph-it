@@ -44,6 +44,8 @@ def tool(
 class ToolOutput:
     value: str | ResponseFunctionCallOutputItemListParam
     outcome: "ai.Outcome" = "done"
+    # A short text that replaces the output of a tool, for a reader that cannot keep the full output.
+    summary: str = ""
 
 
 class Invocation:
@@ -59,6 +61,7 @@ class Invocation:
         self.stream = output if isinstance(output, Iterator) else iter((ToolOutput(output),))
         self._failed = failed
         self._detail = detail
+        self._summary = ""
         self._outcome: ai.Outcome = "done"
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
@@ -84,9 +87,10 @@ class Invocation:
             if isinstance(item, ToolOutput):
                 self._output = item.value
                 self._outcome = item.outcome
+                self._summary = item.summary
                 logger.debug("stream_output output=%r", item.value)
             # A thought is sub-agent reasoning, not a call step. It has no row or depth.
-            # Adding depth raises here and reports a working call as failed.
+            # If JRI added depth here, this line would raise and report a working call as failed.
             elif isinstance(item, ai.ReasoningDelta):
                 yield item
             else:
@@ -95,8 +99,12 @@ class Invocation:
 
     @property
     def detail(self) -> str:
-        # Get the reason from the exception, not rendered output. Rendered output is quoted in a block.
+        # Get the reason from the exception, and not from the rendered output. JRI quotes rendered output in a block.
         return self._detail.partition("\n")[0][: self.MAX_DETAIL_LENGTH]
+
+    @property
+    def summary(self) -> str:
+        return self._summary
 
     @property
     def outcome(self) -> "ai.Outcome":
@@ -175,7 +183,8 @@ class Tool:
             )
         return tools
 
-    # A row is display data. Label formatting must not fail the call. Invalid arguments can cause file-system errors.
+    # A row is display data, so a label that JRI cannot format must not fail the call. Invalid arguments can cause
+    # filesystem errors.
     def format_label(self, label: str, arguments: str) -> str:
         try:
             payload = self.arguments_model.model_validate_json(arguments, strict=True)

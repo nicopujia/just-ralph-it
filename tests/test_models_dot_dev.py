@@ -15,15 +15,15 @@ CATALOG = {"openai/gpt-5.6-sol": {"limit": {"context": CONTEXT_LIMIT}}}
 FALLBACK = 9_000
 
 
-# This is the one live check against models.dev. Every other test here trusts a double that could drift from
-# what the real catalog actually serves for the configured model.
+# This is the only test that reads models.dev. Every other test here trusts a double. A double can disagree
+# with the catalog that models.dev serves for the configured model.
 @pytest.mark.contract
 def test_reads_the_context_limit_the_catalog_really_publishes() -> None:
     assert get_limit(AgentProfiles().interviewer.model) is not None
 
 
-# A catalog states the room a request has, or states the window and the largest answer, which leaves the rest of
-# the window to the request.
+# A catalog states the room that a request has. Or it states the window and the largest answer, and the request
+# gets the rest of the window.
 def test_reads_the_input_room_a_catalogue_publishes(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {"limit": {"context": WINDOW, "input": INPUT_ROOM}}})
 
@@ -43,16 +43,16 @@ def test_leaves_the_whole_window_to_a_request_when_the_catalog_names_no_answer(m
     assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == WINDOW
 
 
-# A catalogued model can state a window no larger than the answer it can write into that window. Such an entry
-# leaves a request no room at all, and it says as little about the model as an entry JRI cannot read.
+# A catalog entry can state a window no larger than the largest answer. Such an entry leaves the request no
+# room. It tells JRI as little as an entry that JRI cannot read, so JRI uses the fallback room.
 def test_falls_back_to_a_room_when_the_window_leaves_a_request_none(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch, {"openai/gpt-5.6-sol": {"limit": {"context": OUTPUT_LIMIT, "output": OUTPUT_LIMIT}}})
 
     assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
 
 
-# A window one token wider than the answer leaves the request that one token, and JRI works against it. Only a
-# window that leaves nothing at all falls back.
+# A window one token wider than the largest answer leaves the request one token, and JRI uses that one token.
+# Only a window that leaves no token makes JRI use the fallback room.
 def test_reads_the_room_a_window_leaves_beside_the_largest_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     catalog = {"openai/gpt-5.6-sol": {"limit": {"context": OUTPUT_LIMIT + 1, "output": OUTPUT_LIMIT}}}
     serve_catalog(monkeypatch, catalog)
@@ -66,8 +66,8 @@ def test_falls_back_to_a_room_when_the_catalog_states_no_window(monkeypatch: pyt
     assert get_input_room("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
 
 
-# One room comes from several published limits. The catalog answers for the whole model at once, so the answer
-# stands even when the endpoint stops answering after the first read.
+# JRI calculates one room from more than one published limit. The catalog gives all the limits of a model in one
+# answer. JRI still knows the room when the endpoint stops answering after the first read.
 def test_reads_the_catalog_once_for_the_room_it_answers_with(monkeypatch: pytest.MonkeyPatch) -> None:
     catalog = {"openai/gpt-5.6-sol": {"limit": {"context": WINDOW, "output": OUTPUT_LIMIT}}}
     serve_outcome(monkeypatch, build_response(catalog), httpx.ConnectError("connection refused"))
@@ -149,8 +149,8 @@ def test_falls_back_when_the_catalog_response_is_unusable(
     assert get_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
 
 
-# A catalog JRI cannot read leaves every model on its fallback, and the run says nothing about it. The log
-# carries the reason, so a reader can tell a fallback from a published limit.
+# JRI uses the fallback room for every model when it cannot read the catalog, and the run shows nothing about
+# this. The log gives the reason, and a reader knows if a room is a fallback or a published limit.
 def test_logs_a_catalog_read_that_failed(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     serve_outcome(monkeypatch, httpx.ConnectError("connection refused"))
 

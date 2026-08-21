@@ -7,7 +7,7 @@ from tempfile import NamedTemporaryFile
 
 __all__ = ["describe_paths", "remove_directory", "shorten_path", "write_atomically"]
 
-# Show paths that identify the read. More paths make a column, not a sentence.
+# Show sufficient paths to identify the read. A longer list is not a sentence that a user can read.
 MAX_DESCRIBED_PATHS = 3
 NEW_FILE_PERMISSIONS = 0o644
 
@@ -22,8 +22,8 @@ def describe_paths(paths: Sequence[str]) -> str:
     return f"{', '.join(described)} and {last}" if described else last
 
 
-# A failed removal is not the work that the caller asked for. The step that needs the location free reports
-# it. Thus log a failed removal, and do not raise it.
+# A failure here does not stop the work that the caller asked for. The step that needs a free location reports
+# the failure. Write the failure to the log, and do not raise it.
 def remove_directory(path: Path) -> None:
     try:
         shutil.rmtree(path, onexc=_remove_read_only)
@@ -37,8 +37,8 @@ def shorten_path(path: Path) -> str:
     expanded = path.expanduser()
     if not expanded.is_absolute():
         return path.as_posix()
-    # Use the process base directories. A project below a symbolic-link parent is still relative to the reader
-    # directory.
+    # Resolve the path, then compare it with the working directory and the home directory. A project below a
+    # symbolic link is then still relative to one of them.
     resolved = expanded.resolve()
     for base, prefix in ((Path.cwd(), ""), (Path.home(), "~/")):
         if resolved.is_relative_to(base):
@@ -49,7 +49,7 @@ def shorten_path(path: Path) -> str:
 def write_atomically(path: Path, content: str) -> None:
     temporary_path: Path | None = None
     # A symbolic link identifies the file to replace, not its directory entry. Create the replacement in the target
-    # file system.
+    # filesystem.
     target = path.resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -67,9 +67,9 @@ def write_atomically(path: Path, content: str) -> None:
         raise
 
 
-# Git writes each loose object read-only. Windows refuses to remove a read-only file, where POSIX asks only for
-# write access to the parent directory. A worktree of a repository therefore outlives the removal that Windows
-# stops here, and the run after it meets a location it cannot use. Clear the attribute and remove the path again.
+# Git writes each loose object read-only. Windows refuses to remove a read-only file. POSIX asks only for write
+# access to the parent directory. Windows stops the removal here, and the worktree of a repository remains.
+# The run after it then finds a location that it cannot use. Clear the attribute and remove the path again.
 def _remove_read_only(remove: Callable[[str], object], path: str, error: BaseException) -> None:
     if not isinstance(error, PermissionError):
         raise error

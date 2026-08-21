@@ -6,4 +6,8 @@ Rules:
 - Obviate reading secrets when possible.
 - State any ambiguity explicitly when the information you need is missing.
 
+Output:
+- `summary`: one or two lines that stand for the report.
+- `remaining`: what is left to explore, empty when the report answers the query.
+
 {working_directory}

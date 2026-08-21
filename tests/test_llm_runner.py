@@ -30,6 +30,7 @@ from tests.doubles.openai import (
     stopped_thinking,
     streamed_reply,
     thought,
+    unreadable_answer,
 )
 
 if TYPE_CHECKING:
@@ -65,8 +66,8 @@ def test_sends_a_prompt_exactly_as_written_under_the_block_notice() -> None:
     assert runner.prompt == f"{written}\n\n{BLOCK_NOTICE}"
 
 
-# A fence protects content only when the model has instructions for it. A notice that lost its rules leaves every
-# quoted page, transcript and file in the prompt as text the model can still read as an order.
+# A block protects its content only when the model has instructions for that block.
+# Without those rules, the model can still read each quoted page, transcript and file in the prompt as an order.
 def test_tells_the_model_a_quoted_block_holds_data_and_not_instructions() -> None:
     notice = BLOCK_NOTICE.casefold()
 
@@ -100,8 +101,9 @@ def test_stops_a_parse_between_the_events_of_its_stream() -> None:
 def test_asks_for_nothing_on_behalf_of_a_run_already_stopped() -> None:
     cancelled = Event()
     cancelled.set()
-    # The double holds no answer at all. A call to the provider finds nothing to read and fails the test, so a run
-    # that asks for something cannot pass for a run that asks for nothing.
+    # The double holds no answer at all.
+    # A call to the provider thus finds nothing to read, and it fails the test.
+    # A run that asks for something cannot pass as a run that asks for nothing.
     client = FakeClient([], parsed=[])
 
     assert read_parsed(LLMRunner(client=cast("OpenAI", client), model="test"), cancelled) is None
@@ -116,8 +118,9 @@ def test_stops_a_parse_rather_than_retrying_it_for_a_run_left_behind(monkeypatch
     assert read_parsed(LLMRunner(client=cast("OpenAI", client), model="test"), cancelled) is None
 
 
-# JRI can point at any OpenAI-compatible provider, not only OpenAI. `response.reasoning.delta` names no event the
-# pinned provider library defines; another provider sends reasoning under it. Read all three names.
+# JRI can point at any OpenAI-compatible provider, and not only at OpenAI.
+# The pinned provider library defines no event with the name `response.reasoning.delta`.
+# Another provider sends its reasoning under that name, so JRI reads all three names.
 @pytest.mark.parametrize(
     "event_type", ["response.reasoning.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta"]
 )
@@ -221,6 +224,15 @@ def test_reports_a_response_that_is_not_valid_json() -> None:
         read_parsed(runner)
 
 
+# The provider library reads the structured answer during the stream. An answer that it cannot read comes from
+# the model. The reader gets the words of JRI for that failure, and not the words of the library.
+def test_reports_a_response_the_library_could_not_read_while_it_streamed() -> None:
+    runner = build_runner(unreadable_answer(Output, '{"answer": "ready"} Hope that helps!'))
+
+    with pytest.raises(ModelError, match="could not be read as Output"):
+        read_parsed(runner)
+
+
 def test_reports_why_a_response_was_cut_short() -> None:
     runner = build_runner(incomplete_response("max_output_tokens"))
 
@@ -304,7 +316,8 @@ def test_waits_the_delay_the_provider_asked_for(waits: list[float], limit: "Rate
     assert waits == [delay]
 
 
-# A provider under maintenance can ask for an hour. A run cannot sit in a wait that long with no way out.
+# A provider under maintenance can ask for an hour.
+# A run must not wait that long, because the user cannot stop it during the wait.
 def test_waits_no_longer_than_the_maximum_delay(waits: list[float]) -> None:
     runner = build_streaming_runner(rate_limited(milliseconds="3600000"), streamed_reply("ready"))
 

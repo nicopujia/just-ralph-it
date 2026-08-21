@@ -23,8 +23,8 @@ MAX_CYCLES = 10
 logger = logging.getLogger(__name__)
 
 
-# Check cancellation during model calls and between steps. Stopping before `Specs.accept` leaves the project unchanged.
-# Do not stop acceptance. A partial patch or index is worse.
+# Check for a stop during each model call and between the steps. A run that stops before `Specs.accept` leaves the
+# project unchanged. Do not stop `Specs.accept` itself, because a partial patch or index is worse.
 def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Progress, None, SpecsResult | None]:
     cancelled = cancelled or Event()
     specs = Specs(Path.cwd())
@@ -43,7 +43,8 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
         while True:
             cycle += 1
             logger.info("specs_cycle_started cycle=%d", cycle)
-            # A fresh agent per cycle keeps each call stateless, matching the fresh input built for it.
+            # A new agent for each cycle keeps each call stateless, which matches the new input that JRI builds
+            # for it.
             analyst = functional_analyst.FunctionalAnalyst(
                 settings,
                 staging,
@@ -51,7 +52,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 existing=functional_context.current_specs_index is not None,
                 feedback=bool(functional_context.architect_feedback),
             )
-            # This row stands for one model call, named by cycle. Its feedback count equals the list sent to the
+            # This row reports one model call, named by cycle. Its feedback count equals the list sent to the
             # analyst, which keeps the UI count accurate. The pass writes its files in calls of its own, and each
             # of those opens and closes a row under this one.
             yield ai.ToolCallStarted(
@@ -60,7 +61,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             functional_result = yield from analyst.write(functional_context, cancelled)
             if functional_result is None:
                 return None
-            # A pass with questions and no work has nothing to save. Ask them, and leave the project as it stands.
+            # A pass with questions and no work has nothing to save. Ask them, and leave the project as it is.
             # A pass with neither is a pass that did nothing. The run refuses it below.
             if functional_result.unresolved and not (analyst.written_paths or functional_result.deleted_paths):
                 logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.unresolved))
@@ -78,7 +79,8 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             specs.save_draft(staging, baseline)
 
             # The pass wrote what the notebook settles and left the rest to the user.
-            # Stop after the draft, so the run the answers start continues from this work.
+            # Stop after JRI saves the draft. The user answers the questions, and the next run continues from this
+            # work.
             # Ask before the study and the design, which cannot settle a question that only the user answers.
             if functional_result.unresolved:
                 logger.info("specs_unresolved cycle=%d count=%d", cycle, len(functional_result.unresolved))
@@ -94,17 +96,16 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 # Study a disposable copy of the current project, not JRI's current commit.
                 snapshot = specs.workspace.root / paths.SNAPSHOT_DIR
                 with specs.repository.open_worktree(None, location=snapshot) as project:
-                    explorer_report = (
-                        yield from ai.Explorer(settings, project.path).report(
-                            "Study this repository generally. Report its structure, architecture, established "
-                            "patterns, development commands, and the constraints that new work in it must respect.",
-                            depth=1,
-                            cancelled=cancelled,
-                        )
-                    ).strip()
+                    exploration = yield from ai.Explorer(settings, project.path).report(
+                        "Study this repository generally. Report its structure, architecture, established "
+                        "patterns, development commands, and the constraints that new work in it must respect.",
+                        depth=1,
+                        cancelled=cancelled,
+                    )
                 # A cancelled study can be incomplete. Do not report the run as broken for that reason.
-                if cancelled.is_set():
+                if exploration is None:
                     return None
+                explorer_report = exploration.report.strip()
                 if not explorer_report:
                     raise SpecsError("Repository exploration produced no report.")
                 yield ai.ToolCallFinished("explorer", "Studied your existing project", "done")
@@ -147,8 +148,8 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             patch = specs.save_draft(staging, baseline)
 
             yield ai.ToolCallFinished(f"architecture-{cycle}", "Designed the project architecture", "done")
-            # This is the last safe cancellation point. After the next row, the specifications apply to the project.
-            # The run must then finish.
+            # The run can stop safely here for the last time. After the next row, the specifications apply to the
+            # project, and the run must then finish.
             if cancelled.is_set():
                 return None
             # An empty patch means the models found that the project already has these specifications.
@@ -158,7 +159,8 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 yield ai.ToolCallStarted("commit", "Comparing the specifications with your project", "💾")
                 yield ai.ToolCallFinished("commit", "Your project already holds these specifications", "done")
                 return Unchanged()
-            # Saving is a separate step. If the project blocks the commit, close the save row, not the design row.
+            # JRI saves in a step of its own. If the project blocks the commit, close the save row, and not the
+            # design row.
             yield ai.ToolCallStarted("commit", "Saving the specifications to your project", "💾")
             commit = specs.accept(patch, baseline)
             yield ai.ToolCallFinished("commit", "Saved the specifications to your project", "done")
@@ -173,7 +175,7 @@ class Ambiguities:
 
 
 # This marks a generation that wrote specifications already in the project.
-# It made no commit because no commit was needed.
+# It made no commit, because the project needed none.
 @dataclass(frozen=True)
 class Unchanged: ...
 

@@ -72,22 +72,25 @@ class MessageInput(TextArea):
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        # The app owns this key and has priority over this text-area action, thus the action is unreachable.
-        # Stand it down. The footer lists each key where its first owner declares it, and an entry here would
-        # move the app key to this widget and change the footer order when the input takes the focus.
+        # The app has this key and has priority over this text-area action. No key press thus reaches the
+        # action. Make the action unavailable. The footer lists each key where its first owner declares it.
+        # An entry here would move the app key to this widget. The footer order would then change when the
+        # input takes the focus.
         if action == TEXT_AREA_CTRL_K_ACTION:
             return False
         if action == "open_shortcuts":
             return not self.is_turn_active and not self.is_shortcuts_open
-        # Escape closes shortcuts only when they are open. When closed, it lets `esc esc` reach the turn.
+        # Escape closes the shortcuts only while they are open. Closed shortcuts let `esc esc` reach the turn.
         if action == "close_shortcuts":
             return self.is_shortcuts_open
         if action in self.SHORTCUT_ACTIONS:
-            # Open shortcuts own their letters. An unavailable action does nothing instead of adding text.
-            # Each action checks its availability. Closed shortcuts let the text area use the letters.
-            # The keymap must list all product bindings. It shows unavailable bindings instead of hiding them.
+            # While the shortcuts are open, the letters belong to the shortcuts. An unavailable action does
+            # nothing, and it adds no text. Each action checks whether it is available. Closed shortcuts let
+            # the text area use the letters. The keymap must list all product bindings, so it shows an
+            # unavailable binding instead of hiding it.
             return True if self.is_shortcuts_open else None
-        # Open shortcuts own the keyboard. All other bindings stand down. Their keys close the shortcuts.
+        # Open shortcuts take every key press. All other bindings become unavailable, and their keys close
+        # the shortcuts.
         if self.is_shortcuts_open:
             return False
         return super().check_action(action, parameters)
@@ -150,7 +153,8 @@ class MessageInput(TextArea):
         self._message_index = len(self._messages)
         self.text = ""
 
-    # A turn from shortcuts, or the message below them, owns Escape. Close shortcuts before the turn can stop.
+    # A turn from the shortcuts, or from the message below them, takes Escape. Close the shortcuts before the
+    # user can stop the turn.
     def watch_is_turn_active(self) -> None:
         if self.is_turn_active:
             self.is_shortcuts_open = False

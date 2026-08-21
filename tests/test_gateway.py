@@ -7,8 +7,9 @@ from jri.lib.providers import gateway
 MODEL = "anthropic/claude-opus-5"
 
 
-# The gateway reads fields of its own off a request, and it answers nothing about them. The body that left the
-# process is where such a field either stands or does not, so a double stands at the transport and keeps it.
+# The gateway reads fields of its own from a request, and it answers nothing about them.
+# Only the body that leaves the process shows if JRI sent such a field.
+# The double replaces the transport, and it keeps that body.
 def build_client(requests: list[httpx.Request]) -> gateway.Client:
     def handle(request: httpx.Request) -> httpx.Response:
         requests.append(request)

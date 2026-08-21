@@ -22,10 +22,12 @@ from jri.lib.providers import codex
 from . import copy
 from .app import App
 
-# This is the shell status for a process ended by hangup. It is also the status after SIGHUP delivery.
-# The status does not identify which event ended the window. Only the `terminal_hung_up` record identifies it.
+# This is the shell status for a process that a hangup ended. It is also the status that follows a SIGHUP
+# signal. The status does not identify which event ended the window. Only the `terminal_hung_up` record
+# identifies it.
 HANGUP_STATUS = 129
-# This is the shell status for an interrupt requested by the user. Do not show a traceback for the requested operation.
+# This is the shell status for an interrupt that the user asked for. Do not show a traceback for an operation
+# that the user stopped.
 INTERRUPTED_STATUS = 130
 # A report shows a moment in the local time of the machine that reads it. `--json` keeps the recorded time.
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -91,8 +93,9 @@ def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
     writes_settings = force or not workspace.settings_file.exists()
     settings = Settings.render(_load_global_settings() if writes_settings else None, comments=comments)
     if force:
-        # Ask the question inside the reset. First report an active window or run that prevents deletion.
-        # Keep the project held while the user reads. The answer then applies to the project state at deletion.
+        # Ask the question inside the reset. First report an active window or run that prevents the deletion.
+        # Keep the project held while the user reads. The answer then applies to the same project state that
+        # JRI deletes.
         with workspace.open_reset() as reset:
             if not (yes or _confirm_reset(reset)):
                 print(copy.FORCE_CANCELLED)
@@ -144,28 +147,30 @@ def _view() -> None:
     graph = conversation.notebook.graph
     visualization_file = conversation.workspace.visualization_file
     visualization_file.write_text(visualization.render(graph), encoding="utf-8", newline="\n")
-    # The browser determines whether it opens. It can fail over SSH, without a browser, or when it covers the terminal.
+    # The browser decides whether it opens. It can fail over SSH, on a machine with no browser, or when it
+    # covers the terminal.
     opened = browser.open_page(visualization_file.resolve().as_uri())
     print((copy.VIEW_OPENED if opened else copy.VIEW_UNOPENED).format(file=files.shorten_path(visualization_file)))
     print(copy.VIEW_NEXT_STEPS if graph.notes else copy.VIEW_NO_NOTES)
 
 
 # This is a run without a window. It takes the project generation lock, not the chat lock.
-# The command is the run itself: it holds this terminal until the run ends.
-# A supervisor that starts it thus owns the run for all its life.
+# The command is the run itself, and it holds this terminal until the run ends.
+# A supervisor that starts the command thus controls the run for all its life.
 def _start() -> None:
     settings = _load_settings()
     logs.configure(settings)
     settings.llm.validate_authentication()
-    # A run says nothing for as long as it works. Say that it began, so a reader knows the wait is the run.
-    # The run says when that is, because a refusal must not follow a line that says it started.
+    # A run says nothing while it works. Say that the run began, because the reader must know that the wait is
+    # the run. The run itself says when it began, because a refusal must not come after a line that says the
+    # run started.
     conclusion = Generation.execute(settings, lambda: print(copy.START_BEGAN, flush=True))
     print(
         copy.START_ENDED_DETAIL.format(ending=conclusion.ending, detail=conclusion.detail)
         if conclusion.detail
         else copy.START_ENDED.format(ending=conclusion.ending)
     )
-    # A supervisor reads the process status. An ending the run could do nothing about is a failed process.
+    # A supervisor reads the process status. An ending that the run cannot control is a failed process.
     if conclusion.failure:
         raise SystemExit(1)
 
@@ -193,7 +198,8 @@ def _status(*, json: bool) -> None:
             if status.started is not None
             else copy.STATUS_STARTING.format(pid=status.pid)
         )
-    # A run that is gone left the step it was on. Report that step in the past, so it does not read as work in hand.
+    # A run that is gone left the step it was on. Report that step in the past tense, because the reader must
+    # not read it as work that continues.
     if status.step and status.step_started is not None:
         step_copy = copy.STATUS_STEP if status.pid is not None else copy.STATUS_LAST_STEP
         lines.append(step_copy.format(step=status.step, started=_describe_time(status.step_started)))
@@ -228,8 +234,8 @@ def _load_settings() -> Settings:
         _report_settings_error(error, files.shorten_path(workspace.settings_file), copy.SETTINGS_ERROR_PROJECT_USE)
 
 
-# A global settings file that JRI cannot read stops the installation. A default that disappears silently is worse
-# than an installation that stops.
+# A global settings file that JRI cannot read stops the installation. A default that goes away with no message
+# is worse than an installation that stops.
 def _load_global_settings() -> Settings | None:
     try:
         return Settings.load_global()
@@ -254,7 +260,8 @@ def _describe_issue(issue: ErrorDetails) -> str:
     setting = ".".join(map(str, issue["loc"])) or "settings"
     if issue["type"] != "extra_forbidden":
         return f"- {setting}: {issue['msg']}"
-    # An undeclared setting key is probably a typo for its writer, not the Pydantic schema error.
+    # For the person who wrote it, an undeclared setting key is usually a typo. Show a suggestion, and not the
+    # Pydantic schema error.
     suggestion = Settings.suggest(issue["loc"])
     return f"- {setting}: " + (
         copy.UNKNOWN_SETTING_SUGGESTION.format(setting=suggestion) if suggestion else copy.UNKNOWN_SETTING
@@ -281,9 +288,10 @@ def _take_over(hold: Hold) -> bool:
 
 # The window terminal is gone. The event loop can block while it writes to a terminal that cannot read.
 # A quit request would not return. Exit the process instead.
-# Process exit releases the project hold. The separate run continues and records itself.
+# The process exit releases the project hold. The separate run continues and records itself.
 # A new window reads that record and ends the turn.
-# Reaching this point means SIGHUP did not end the window first. This is the less common case in `lib.terminal`.
+# The code reaches this line only when SIGHUP did not end the window first. This is the less common case in
+# `lib.terminal`.
 def _end_hung_up_window() -> None:
     logger.info("terminal_hung_up")
     os._exit(HANGUP_STATUS)

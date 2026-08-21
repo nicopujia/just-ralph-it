@@ -56,9 +56,9 @@ class InterviewerTurnState:
     is_ralphing: bool = False
     cancelled: Event = field(default_factory=Event)
 
-    # A turn shows one thinking label at a time. This field holds it. A label that this field forgets stays on
-    # the screen until the window closes. Thus mount and remove the label only here. A new label first removes
-    # the label before it.
+    # A turn shows one thinking label at a time. This field holds that label. A label that this field no longer
+    # holds stays on the screen until the window closes. Mount and remove a label only in these two methods.
+    # A new label first removes the label before it.
     async def hide_thinking_label(self) -> None:
         label, self.thinking_label = self.thinking_label, None
         if label is not None:
@@ -88,9 +88,10 @@ class CommandPalette(TextualCommandPalette):
 
 
 class Screen(TextualScreen[None]):
-    # The keymap panel takes the keys, because a reader scrolls a long list. Textual builds that list from the widget
-    # that has the keys, thus the panel would list only its own scroll keys. Read the list from the message input,
-    # which is the widget that the reader asks about. Only the list uses this. Key presses go to the panel.
+    # The keymap panel takes the focus, because a reader scrolls a long list. Textual builds that list from the
+    # widget that has the focus. The panel would then list only its own scroll keys. Read the list from the
+    # message input, which is the widget that the reader asks about. Only the list uses this. Key presses still
+    # go to the panel.
     @property
     @override
     def active_bindings(self) -> dict[str, ActiveBinding]:
@@ -103,22 +104,23 @@ class Screen(TextualScreen[None]):
         finally:
             self.set_reactive(TextualScreen.focused, focused)
 
-    # The message input owns the shortcuts. It handles them only while this screen is active.
-    # A screen over this screen takes the keys. Close the mode here to avoid hints for unavailable keys.
+    # The message input has the shortcuts. It handles them only while this screen is active.
+    # A screen above this screen takes the focus. Close the shortcuts here, because the window must not show
+    # hints for keys that are not available.
     def on_screen_suspend(self) -> None:
         self.query_one(MessageInput).is_shortcuts_open = False
 
 
 class App(TextualApp[None]):
     # The window opens on the message input, because the user came here to write. Typing needs no click or Tab.
-    # The app bindings stay available, because they have priority over the text-area keys.
+    # The app bindings stay available. They have priority over the text-area keys.
     AUTO_FOCUS = f"#{styles.MESSAGE_INPUT_ID}"
     # The footer shows only the three exits from the current view.
-    # All other bindings have `show=False` and are in the keymap panel.
-    # A permanent hint has little value. The footer is the only terminal line that remains reserved.
+    # All other bindings have `show=False`, and the keymap panel lists them.
+    # A permanent hint has little value, and the footer keeps one terminal line while the window is open.
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+k", "toggle_keymap_panel", copy.KEYMAP_PANEL, priority=True),
-        # Declare this binding instead of using Textual's. Textual calls it "palette".
+        # Declare this binding here instead of the Textual one, which Textual calls "palette".
         # The footer shows it on the right. Keep it hidden from the key list.
         Binding("ctrl+p", "command_palette", copy.COMMAND_PALETTE, show=False, priority=True),
         Binding("ctrl+q", "confirm_quit", copy.QUIT, priority=True),
@@ -126,7 +128,7 @@ class App(TextualApp[None]):
         Binding("ctrl+t", "toggle_reasoning", copy.THINKING_BLOCKS, show=False, priority=True),
     ]
     # Esc, ^q, and Enter stop a reply, and each one asks first. The question stays open for this many seconds.
-    # Its notice stays on the screen for the same time, thus both end together.
+    # The notice stays on the screen for the same time. The question and the notice end together.
     CONFIRMATION_WINDOW = 1.0
     HISTORY_BATCH_SIZE = 15
     TITLE = copy.TITLE
@@ -148,17 +150,17 @@ class App(TextualApp[None]):
     def __init__(self, conversation: Conversation) -> None:
         super().__init__()
         self.conversation = conversation
-        # The header paints after this method, thus it shows the project name from its first paint.
+        # The header paints after this method. It shows the project name from its first paint.
         self._sync_project_name()
         # Set this event when the window closes. It signals a run that continues after the window.
         self.detached = Event()
         self.restored_turns = conversation.restore()
-        # A saved theme is the selection the user made in this project. The system appearance opens the first window.
+        # A saved theme is the theme the user selected in this project. The first window uses the system appearance.
         self.theme = conversation.session.theme or (
             styles.THEME_LIGHT if appearance.read() == "light" else styles.THEME_DARK
         )
         self.is_reasoning_visible = conversation.session.show_thinking_blocks
-        # Restored turns mount newest first. This is the conversation index of the first mounted turn.
+        # JRI mounts restored turns newest first. This is the conversation index of the first mounted turn.
         self.restored_turn_index = len(self.restored_turns)
         self.is_restoring_history = False
         self.mounted_turns: list[tuple[Markdown, Vertical]] = []
@@ -192,16 +194,16 @@ class App(TextualApp[None]):
         yield self.shortcut_hints
         yield self.footer
 
-    # Textual dims the second half of the title and joins with an em dash. The project name is the half that
-    # the reader looks for, thus dim the app name and its separator instead.
+    # Textual dims the second half of the title and joins the two halves with an em dash. The reader looks for
+    # the project name. Dim the app name and its separator instead.
     @override
     def format_title(self, title: str, sub_title: str) -> Content:
         return Content.assemble((f"{title}{copy.TITLE_SEPARATOR}", "dim"), Content(sub_title))
 
     @override
     def get_default_screen(self) -> Screen:
-        # Textual uses this id for its default screen. This screen only adds a key list and a suspend event method.
-        # Code that uses the first screen id still finds it.
+        # Textual uses this id for its default screen. This screen only adds a key list and a suspend event
+        # method. Code that queries the default screen id still finds this screen.
         return Screen(id="_default")
 
     @override
@@ -256,8 +258,8 @@ class App(TextualApp[None]):
 
         if user_message == copy.QUIT_COMMAND:
             logger.info("quit_requested source=message")
-            # Ask the turn to stop, as the quit key does. A worker thread that continues to read holds the process
-            # open after the window goes, and with it the hold on the project.
+            # Ask the turn to stop, as the quit key does. A worker thread that continues to read keeps the
+            # process open after the window closes. The process then keeps the hold on the project.
             await self._request_cancellation()
             await self.action_quit()
             return
@@ -267,18 +269,18 @@ class App(TextualApp[None]):
             logger.info("message_submission_ignored reason=blank_message")
             return
 
-        # A new message stops the active turn. `_finish_turn` sends the message when that turn is closed and saved.
-        # The empty input shows the user that JRI accepted the message.
-        # A run disables the message input behind its panel, thus a run keeps the turn to its end.
+        # A new message stops the active turn. `_finish_turn` sends the message after JRI closes and saves that
+        # turn. The empty input shows the user that JRI accepted the message.
+        # A run disables the message input behind its panel. Its turn continues to the end.
         if self.is_busy:
-            # The second press stops the reply on the screen. Enter is the key that sends, and the user presses it
-            # after each thought, thus a press while a reply comes in can be a slip.
-            # Ask first, and keep the text: JRI does not hold the message yet.
+            # The second press stops the reply on the screen. Enter is the key that sends, and the user presses
+            # it after each thought. A press while a reply comes in can be a slip.
+            # Ask first, and keep the text, because JRI does not hold the message yet.
             if not self._read_confirmation(copy.SEND_MESSAGE_CONFIRMATION):
                 logger.info("message_submission_confirmation_requested")
                 return
             self.pending_message = PendingMessage(user_message, event.history_index)
-            # This message is held. A press that replaces it answers no question that this window asked.
+            # JRI holds this message now. A press that replaces it answers no question that this window asked.
             self.confirmations.clear()
             event.message_input.text = ""
             logger.info("message_held characters=%d", len(user_message))
@@ -289,8 +291,8 @@ class App(TextualApp[None]):
 
     async def on_mount(self) -> None:
         self.watch(self.message_input, "is_shortcuts_open", self._sync_shortcut_hints)
-        # This signal reports the themes the user selects. The theme this window opened with does not reach it,
-        # so a window that follows the system appearance keeps following it.
+        # This signal reports the themes the user selects. The signal does not report the theme that this window
+        # opened with. A window that follows the system appearance continues to follow it.
         self.theme_changed_signal.subscribe(self, self._save_theme)
         await self._restore_history()
         # Resume a pending run through its normal start path. This renders its rows, reply, and ending as usual.
@@ -316,7 +318,7 @@ class App(TextualApp[None]):
         if turn_state is None:
             return
         # A reply comes back in seconds, and a second key press is a sufficient answer to stop it.
-        # A run takes much longer, thus its stop asks in a dialog that gives the cost.
+        # A run takes much longer. A dialog asks before JRI stops a run, and the dialog gives the cost.
         if turn_state.is_ralphing:
             self.push_screen(RunCancellationDialog(), self._answer_run_cancellation)
             return
@@ -331,10 +333,10 @@ class App(TextualApp[None]):
         elif self.use_command_palette:
             self.push_screen(CommandPalette(id="--command-palette"))
 
-    # A key press near the keys that send a message can be a slip, and a reply goes with the window that shows it.
-    # Warn before that, then stop the reply and close on the second press. Do not wait for the worker.
-    # A run outlives its window, as its panel states, so a quit during a run only closes the window.
-    # The typed quit command stays immediate, because the user wrote it.
+    # A key press near the keys that send a message can be a slip, and a reply ends when its window closes.
+    # Warn first. Stop the reply and close the window on the second press. Do not wait for the worker.
+    # A run continues after its window closes, as its panel states. A quit during a run only closes the
+    # window. The typed quit command acts at once, because the user wrote the command.
     async def action_confirm_quit(self) -> None:
         turn_state = self.active_turn_state
         if turn_state is not None and not turn_state.is_ralphing:
@@ -351,12 +353,14 @@ class App(TextualApp[None]):
             logger.info("keymap_panel_toggled visible=False")
             return
         await self.screen.mount(HelpPanel())
-        # The panel is a reading list, and it can be longer than the window. Give it the keys, thus arrows,
-        # Page keys, Home, and End scroll it. Textual gives its key list no focus, so make this one take the keys.
+        # The panel is a reading list, and it can be longer than the window. Give the panel the focus, because
+        # the arrow keys, the Page keys, Home, and End must scroll it. Textual gives its key list no focus.
+        # Make this key list take the focus.
         key_panel = self.screen.query_one(KeyPanel)
         key_panel.can_focus = True
         key_panel.focus()
-        # The letters of the open shortcuts go to the panel now. Close the mode to avoid hints for unavailable keys.
+        # The letters of the open shortcuts go to the panel now. Close the shortcuts, because the window must
+        # not show hints for keys that are not available.
         self.message_input.is_shortcuts_open = False
         logger.info("keymap_panel_toggled visible=True")
 
@@ -424,8 +428,9 @@ class App(TextualApp[None]):
         if turn_state.is_ralphing:
             self.ralphing.display = False
             self.message_input.disabled = False
-            # A disabled widget cannot hold the keys, thus the run took them. Give them back, as at the window start.
-            # A reader of the keymap panel keeps them, because the panel scrolls with the keys.
+            # A disabled widget cannot hold the focus, and the run moved the focus away. Give the focus
+            # back to the message input, as at the window start. A reader of the keymap panel keeps the focus,
+            # because the panel scrolls with the keys.
             if not isinstance(self.focused, KeyPanel):
                 self.message_input.focus()
             self._mark_run(is_active=False)
@@ -433,14 +438,14 @@ class App(TextualApp[None]):
             if isinstance(self.screen, RunCancellationDialog):
                 self.screen.dismiss("keep")
         self._follow_bottom(turn_state)
-        # A turn that failed puts the notebook back as it was, and with it the project name.
+        # A turn that failed puts the notebook back as it was. The project name comes back with it.
         self._sync_project_name()
         self.active_turn_state = None
         App.ALLOW_SELECT = True
         await self._sync_ralph_button()
         self._sync_retry_shortcut()
         logger.info("turn_ending_rendered ending=%s", event.ending)
-        # The turn is closed and the session holds it. The message that stopped the turn opens the next turn.
+        # JRI closed the turn, and the session holds it. The message that stopped the turn opens the next turn.
         if self.pending_message is not None:
             pending_message = self.pending_message
             self.pending_message = None
@@ -452,8 +457,8 @@ class App(TextualApp[None]):
         self.is_restoring_history = True
         old_scroll_y = self.messages_container.scroll_y
         old_max_scroll_y = self.messages_container.max_scroll_y
-        # During scrolling, hidden turns are a prefix. During history preview, they are a suffix.
-        # Turn 0 stays visible during preview, so no older turns are available.
+        # While the reader scrolls, the hidden turns are a prefix. While JRI previews the history, they are a
+        # suffix. No older turns are available, because turn 0 stays visible during the preview.
         first_visible_turn = next(
             (index for index, (user_message, _) in enumerate(self.mounted_turns) if user_message.display),
             len(self.mounted_turns),
@@ -562,7 +567,8 @@ class App(TextualApp[None]):
 
     def _build_restored_turns(self, start: int, end: int) -> list[tuple[Markdown, Vertical]]:
         # A retry runs the last conversation turn again. Only that turn can contain the retry control.
-        # Newest turns restore first. The last turn is in the first batch, and later batches contain older turns.
+        # JRI restores the newest turns first. The last turn is in the first batch, and each batch after it
+        # contains older turns.
         retried_turn = None if self.mounted_turns else self.restored_turns[-1]
         restored_turns: list[tuple[Markdown, Vertical]] = []
         for turn in self.restored_turns[start:end]:
@@ -646,8 +652,8 @@ class App(TextualApp[None]):
                 user_message.display = interviewer_turn.display = index < self.message_input.history_index
         self.messages_container.scroll_end(animate=False)
 
-    # A key that stops a reply asks before it acts. Answer whether this press answers the question that the press
-    # before it asked. Each other press asks that question again.
+    # A key that stops a reply asks before it acts. This method reports whether the press answers the question
+    # that the press before it asked. Each other press asks that question again.
     def _read_confirmation(self, question: str) -> bool:
         now = monotonic()
         if now - self.confirmations.get(question, 0.0) <= self.CONFIRMATION_WINDOW:
@@ -713,8 +719,8 @@ class App(TextualApp[None]):
         self.ralph_button.display = False
 
         if history_index is not None:
-            # If rewind is refused, do not send the message. Keep the current offer on screen.
-            # Display the provider name as text, not as terminal markup.
+            # If JRI refuses the rewind, do not send the message. Keep the current offer on the screen.
+            # Show the provider name as text, and not as terminal markup.
             try:
                 self.conversation.rewind(history_index)
             except PersistenceError as error:
@@ -722,7 +728,7 @@ class App(TextualApp[None]):
                 self.notify(str(error), severity="error", markup=False)
                 await self._sync_ralph_button()
                 return
-            # The rewind puts the notebook back as it was, and with it the project name.
+            # The rewind puts the notebook back as it was. The project name comes back with it.
             self._sync_project_name()
             await self._remove_turns(history_index)
             self.restored_turns = self.restored_turns[:history_index]
@@ -790,7 +796,7 @@ class App(TextualApp[None]):
         self.message_input.is_retry_ready = bool(self.query(f".{styles.RETRY_BUTTON_CLASSES}"))
 
     # Textual selects footer entries from each binding `show` value.
-    # It cannot show keys that change with a mode. Use this bar while the mode is open.
+    # It cannot show keys that change with the shortcuts. Use this bar while the shortcuts are open.
     def _sync_shortcut_hints(self) -> None:
         is_open = self.message_input.is_shortcuts_open
         if is_open:
@@ -803,9 +809,9 @@ class App(TextualApp[None]):
 # An unhandled ending does not satisfy the return type.
 def _describe_ending(ending: TurnEnding | None, detail: str) -> tuple[str, str]:
     match ending:
-        # An open turn has no ending status. This window resumes its associated run.
-        # A runner can hold its lock before it writes a journal. `on_mount` reads the journal and draws the turn open.
-        # That turn stays without a window until the user asks again.
+        # An open turn has no ending status. This window resumes the run of that turn.
+        # A runner can hold its lock before it writes a journal. `on_mount` reads the journal and shows the turn
+        # as open. That turn stays without a window until the user asks again.
         case None:
             return "", styles.INTERVIEWER_MESSAGE_CLASSES
         case "replied":

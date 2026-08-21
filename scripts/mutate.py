@@ -22,25 +22,25 @@ from typing import NamedTuple
 import check
 
 # A mutant is one small wrong version of a line the change touched. The tests of that file must fail on it.
-# A mutant that lives says the tests run the line but read nothing it produced. Coverage cannot find this:
-# it counts the lines a test runs, not the values a test looks at. This gate is a tripwire on the lines a
-# change touched, and not a proof. It writes a few kinds of wrong line, and a suite that kills them all can
-# still miss another kind.
+# A mutant that lives says the tests run the line but read no value it makes. Coverage cannot find this,
+# because it counts the lines a test runs, and not the values a test reads. This gate gives an alarm on the
+# lines a change touched. It is not a proof. It writes a few kinds of wrong line, and a suite that kills all
+# of them can still miss another kind.
 # A mutant gets one of three answers, and they mean different things. `killed` says a test read the value the
-# line makes. `SURVIVED` says a test ran the line and read nothing it makes, which is a hole in an assertion.
+# line makes. `SURVIVED` says a test ran the line and read no value it makes, which is a hole in an assertion.
 # `UNREACHED` says no test ran the line at all, which is a hole in the coverage. Only a survivor fails the
-# gate: a line that no test reaches has no assertion to be missing, and to call it a fault would make a
-# branch that only one operating system takes into a permanent failure.
+# gate. A line that no test reaches has no assertion to be missing. To call it a fault would make a branch
+# that only one operating system takes into a permanent failure.
 DEFAULT_BASE_REVISION = "main"
-# One mutant runs one test module. The workers run a core's worth of them at a time, so this budget is a few
-# rounds and keeps a pull request under a few minutes. The report names the mutants it left out, because
-# silence would read as a clean run.
+# One mutant runs one test module. The workers run one mutant for each core at a time. This budget is a
+# few rounds, and it keeps a pull request under a few minutes. The report names the mutants it left out,
+# because a report that says nothing would read as a clean run.
 DEFAULT_BUDGET = 30
 SOURCE_DIR = "src"
 PACKAGE = "jri"
 TESTS_DIR = "tests"
 DIFF_COMMAND = ("diff", "--unified=0")
-# `-x` stops at the first failure, because one failure already kills the mutant. `no:cacheprovider` keeps the
+# `-x` stops at the first failure, because one failure already kills the mutant. `no:cacheprovider` stops the
 # run from writing a cache into the repository.
 PYTEST_COMMAND = ("run", "--locked", "pytest", "-x", "-q", "-p", "no:cacheprovider")
 PYTEST_PASSED = 0
@@ -49,13 +49,13 @@ PYTEST_FAILED = 1
 # mutant is dead. Every other answer, such as no test at all or a wrong option, says the gate is broken. A
 # dead mutant there would read as a clean run.
 PYTEST_INTERRUPTED = 2
-# A mutant can spin instead of answering: a negated `while` runs a loop the code left. Wait this multiple of
-# the slowest unmutated run, and no longer. `-x` stops the tests at the first failure, so only a survivor runs
-# its module to the end, and this leaves room for one under the load the other workers add. A run that reaches
-# the limit hangs, which is a fault the tests found, so the mutant dies.
+# A mutant can run without end instead of answering. A negated `while` runs a loop that the code left. Wait
+# this multiple of the slowest unmutated run, and no longer. `-x` stops the tests at the first failure, so
+# only a survivor runs its module to the end. This multiple leaves room for one such run under the load the
+# other workers add. A run that reaches the limit hangs, which is a fault the tests found, and the mutant dies.
 TIMEOUT_FACTOR = 5
-# The slowest module of a small change takes a few seconds. Hold this floor under the limit, so that the noise
-# of one quick run does not end the next one early and report a mutant that no test killed as dead.
+# The slowest module of a small change takes a few seconds. Hold this floor under the limit. The noise of one
+# quick run must not end the next run early and report a mutant that no test killed as dead.
 TIMEOUT_FLOOR = 60
 COVERAGE_DATA_FILE = ".coverage"
 COVERAGE_REPORT_FILE = "coverage.json"
@@ -73,9 +73,9 @@ COMPARISON_FLIPS = {
     ast.Is: ast.IsNot,
     ast.IsNot: ast.Is,
 }
-# A narrower clause lets through every failure the wider one caught. A test that reaches the handler fails.
+# A narrower clause does not catch every failure the wider one caught. A test that reaches the handler fails.
 EXCEPTION_NARROWINGS = {"BaseException": "Exception", "Exception": "RuntimeError", "OSError": "FileNotFoundError"}
-# The first argument of each of these repeats the name that takes the answer. It reaches no behavior.
+# The first argument of each of these repeats the name that takes the answer. It changes no behavior.
 TYPE_DECLARERS = frozenset({"NewType", "ParamSpec", "TypeVar", "TypeVarTuple", "cast"})
 CLOCK_CALLS = frozenset({"monotonic", "monotonic_ns", "perf_counter", "perf_counter_ns", "time"})
 SLEEP_CALLS = frozenset({"sleep"})
@@ -104,20 +104,20 @@ def check_change(root: Path, base: str, *, budget: int) -> None:
     )
     print(f"{base}...HEAD changes {len(changed)} file(s) under {SOURCE_DIR}/, which take {len(mutants)} mutant(s).")
     over, unreached, runnable, survivors = 0, [], [], []
-    # A copy of the source and an unmutated run of a module cost the same whether or not a mutant follows them,
-    # so a change that takes no mutant opens neither.
+    # A copy of the source and an unmutated run of a module cost the same, whether or not a mutant follows
+    # them. A change that takes no mutant opens neither.
     if mutants:
         with TemporaryDirectory() as directory:
             modules = sorted(set(targets.values()))
-            # The measured round runs one module for each worker too, so count the modules beside the mutants.
+            # The measured round also runs one module for each worker. Count the modules beside the mutants.
             count = max(min(os.cpu_count() or 1, max(len(mutants), len(modules))), 1)
             with ThreadPoolExecutor(max_workers=count) as pool:
                 workers = Workers(pool, _open_workspaces(root, Path(directory), count))
                 measurements = _measure_targets(uv, root, workers, modules)
                 unrun = _find_unrun_lines(targets, measurements)
                 unreached, runnable = _sort_by_reach(root, targets, mutants, unrun)
-                # A mutant on a line no test runs needs no test run to answer it, so it costs nothing and spends
-                # none of the budget. The budget counts the mutants that the tests must answer.
+                # A mutant on a line no test runs needs no test run to answer it. It costs nothing, and it
+                # spends none of the budget. The budget counts the mutants that the tests must answer.
                 over = len(runnable) - budget
                 runnable = runnable[:budget]
                 survivors = _run_mutants(uv, root, workers, targets, measurements, runnable)
@@ -140,8 +140,8 @@ def check_change(root: Path, base: str, *, budget: int) -> None:
     if not mutants:
         print("No line this change added holds a value the gate knows how to write wrong.")
         return
-    # A run that measured nothing is not a run that found nothing. Say which one it was, or a reader takes an
-    # unmeasured change for a guarded one.
+    # A run that measured nothing is not a run that found nothing. Say which one it was, because a reader
+    # would otherwise take an unmeasured change for a guarded one.
     if not runnable:
         print("No mutant ran, so this change is unmeasured. The tests reach none of the lines it wrote.")
         return
@@ -151,7 +151,7 @@ def check_change(root: Path, base: str, *, budget: int) -> None:
 class Measurement(NamedTuple):
     # Coverage names each source file it read, and gives each one the lines the tests ran, missed and excluded.
     files: dict[Path, dict[str, list[int]]]
-    # How long the module took unmutated. A mutant of it gets no longer than a multiple of this.
+    # This is the time the module took unmutated. A mutant of it gets no more than a multiple of this time.
     seconds: float
 
 
@@ -165,15 +165,15 @@ class Mutant(NamedTuple):
 
 class Workers(NamedTuple):
     pool: ThreadPoolExecutor
-    # One copy of the source for each worker. A worker takes a copy while it runs a module and gives it back
-    # after, so the mutant one worker writes is never the file another worker reads.
+    # This holds one copy of the source for each worker. A worker takes a copy while it runs a module, and it
+    # gives the copy back after. The mutant one worker writes is never the file another worker reads.
     free: SimpleQueue[Path]
 
 
 # `check.py` gives one test module to one source module, and refuses a change that leaves one without a test
 # module. Read that answer, and do not name the file here. A rule of its own would take the first name that
 # exists, which gives `tests/test_repository.py` to `core/ai/prompts/_repository.py`. That file never imports
-# the module, so every mutant of it would live, and the report would name tests that never saw the line.
+# the module. Every mutant of it would live, and the report would name tests that never saw the line.
 def _assign_targets(root: Path, changed: dict[Path, frozenset[int]]) -> dict[Path, Path]:
     assigned = check.assign_test_modules(root / SOURCE_DIR / PACKAGE)
     tests = root / TESTS_DIR
@@ -182,20 +182,20 @@ def _assign_targets(root: Path, changed: dict[Path, frozenset[int]]) -> dict[Pat
     }
 
 
-# The tests import a copy, because PYTHONPATH comes before the path the virtual environment holds. The gate thus
+# The tests import a copy, because PYTHONPATH comes before the path the virtual environment holds. The gate
 # never opens the file the developer has. A crash, a failure or a Ctrl-C leaves the working tree as it was,
 # because nothing in the run can write to it.
-# Each worker holds a copy of its own, so that the mutant one worker writes is not the file another worker reads.
-# A test waits for a subprocess, a Git command, or a file much longer than it calculates, so a worker for each
-# core reads that wait as free time and fills it, as the suite already does under `-n auto`. Keep to that number:
-# more workers only add load, which makes a test that waits for a deadline miss it and report a mutant that no
-# test killed as dead.
+# Each worker holds a copy of its own. The mutant one worker writes is not the file another worker reads.
+# A test waits for a subprocess, a Git command, or a file much longer than it calculates. One worker for each
+# core uses that wait time for other tests, as the suite already does under `-n auto`. Keep to that number.
+# More workers only add load. A test that waits for a deadline then misses the deadline, and the gate reports
+# a mutant that no test killed as dead.
 def _open_workspaces(root: Path, directory: Path, workers: int) -> SimpleQueue[Path]:
     free = SimpleQueue[Path]()
     for number in range(workers):
         # Coverage names each file it read by the path with no link left in it. macOS gives out a temporary
-        # directory under `/var`, which is a link to `/private/var`, so take the resolved path here. The names
-        # the report gives back then match the names this run asks it for.
+        # directory under `/var`, which is a link to `/private/var`. Take the resolved path here. The names the
+        # report gives back then match the names this run asks it for.
         workspace = directory.resolve() / str(number) / SOURCE_DIR
         shutil.copytree(root / SOURCE_DIR, workspace, ignore=shutil.ignore_patterns("__pycache__"))
         free.put(workspace)
@@ -227,7 +227,7 @@ def _run_mutants(
 ) -> list[str]:
     survivors: list[str] = []
     limit = max(TIMEOUT_FLOOR, TIMEOUT_FACTOR * max((run.seconds for run in measurements.values()), default=0))
-    # `map` gives the answers back in the order it took the mutants, so the report reads in that order while
+    # `map` gives the answers back in the order it took the mutants. The report reads in that order while
     # every worker runs.
     answers = workers.pool.map(partial(_run_mutant, uv, root, workers, targets, limit), runnable)
     for mutant, answer in zip(runnable, answers, strict=True):
@@ -240,9 +240,9 @@ def _run_mutants(
     return survivors
 
 
-# Run each test module once against a copy as it stands, before any mutant. A module that fails for its own
-# reason fails again under every mutant, and the gate would read each failure as a kill and report a clean run.
-# The same run says which lines the tests reach and how long the module takes.
+# Run each test module one time against an unchanged copy, before any mutant. A module that fails for its own
+# reason fails again under every mutant. The gate would then read each failure as a kill and report a clean
+# run. The same run says which lines the tests reach and how long the module takes.
 def _measure_targets(uv: str, root: Path, workers: Workers, modules: list[Path]) -> dict[Path, Measurement]:
     answers = workers.pool.map(partial(_measure_target, uv, root, workers), modules)
     return dict(zip(modules, answers, strict=True))
@@ -266,8 +266,8 @@ def _measure_target(uv: str, root: Path, workers: Workers, target: Path) -> Meas
                 f"{target.relative_to(root)} does not pass unmutated, so no mutant of it can be measured:\n"
                 f"{result.stdout}{result.stderr}"
             )
-        # Name each file by the path the developer has, and not by the path of the copy that measured it, so
-        # that a reader of the answer does not need to know which worker took the module.
+        # Name each file by the path the developer has, and not by the path of the copy that measured it.
+        # A reader of the answer then does not need to know which worker took the module.
         files = json.loads(report.read_text(encoding="utf-8"))["files"]
         return Measurement(
             {root / SOURCE_DIR / Path(name).relative_to(workspace): lines for name, lines in files.items()}, seconds
@@ -281,7 +281,7 @@ def _find_unrun_lines(targets: dict[Path, Path], measurements: dict[Path, Measur
         lines = measurements[target].files.get(path, {})
         ran = frozenset(lines.get("executed_lines", ()))
         # Coverage counts a statement at the line it starts on. Give each statement the lines up to the next
-        # one, so that a mutant inside a statement that spans lines belongs to that statement. A file the
+        # statement. A mutant inside a statement that spans lines then belongs to that statement. A file the
         # report does not name at all starts at its first line, which no test ran, so every line is unrun.
         starts = sorted(ran | set(lines.get("missing_lines", ())) | set(lines.get("excluded_lines", ()))) or [1]
         ends = [*starts[1:], len(path.read_text(encoding="utf-8").splitlines()) + 1]
@@ -307,11 +307,12 @@ def _run_mutant(uv: str, root: Path, workers: Workers, targets: dict[Path, Path]
     return answer
 
 
-# `uv` starts pytest as a child of its own, and a kill that names only `uv` leaves that child running. It would
-# hold the copy the worker is about to give back, read the next mutant another worker writes into that copy, and
-# outlive the gate itself. Every such run then adds load, which carries the next run nearer this same limit, and
-# a run that reaches the limit is read as a kill. Give each run a session of its own, and end that whole session.
-# The number signalled here is the child this call just started, so it names that session and nothing wider.
+# `uv` starts pytest as a child of its own, and a kill that names only `uv` leaves that child running. That
+# child would hold the copy the worker is about to give back. It would read the next mutant another worker
+# writes into that copy, and it would continue after the gate itself. Every such run adds load, which brings
+# the next run nearer this same limit. The gate reads a run that reaches the limit as a kill. Give each run a
+# session of its own, and end that whole session. The number this call signals is the child it just started,
+# so it names that session and nothing wider.
 def _ask_the_tests(uv: str, root: Path, workspace: Path, target: Path, limit: float) -> tuple[int, str]:
     with subprocess.Popen(
         [uv, *PYTEST_COMMAND, str(target)],
@@ -324,7 +325,7 @@ def _ask_the_tests(uv: str, root: Path, workspace: Path, target: Path, limit: fl
     ) as pytest:
         try:
             stdout, stderr = pytest.communicate(timeout=limit)
-        # A mutant that never returns is one the tests hang on, which is a failure they found.
+        # A mutant that never returns makes the tests hang, which is a failure the tests found.
         except subprocess.TimeoutExpired:
             # The session is gone already if the run ended between the limit and this line.
             with suppress(ProcessLookupError):
@@ -334,7 +335,7 @@ def _ask_the_tests(uv: str, root: Path, workspace: Path, target: Path, limit: fl
         return pytest.returncode, f"{stdout}{stderr}"
 
 
-# A copy in the queue is a copy that holds the source as the developer wrote it.
+# A copy in the queue holds the source as the developer wrote it.
 @contextmanager
 def _borrow(workers: Workers) -> Iterator[Path]:
     workspace = workers.free.get()
@@ -346,7 +347,7 @@ def _borrow(workers: Workers) -> Iterator[Path]:
 
 # Python names a cached module after the second its source changed. Two mutants of one file, of one size, in one
 # second would run the first mutant twice. Let the run keep no cache. Keep the coverage data beside the copy
-# too, so the run writes nothing at all into the repository and no two workers write one file.
+# too. The run then writes nothing at all into the repository, and no two workers write one file.
 def _environment(workspace: Path) -> dict[str, str]:
     return os.environ | {
         "PYTHONPATH": str(workspace),
@@ -362,7 +363,7 @@ def _describe(root: Path, mutant: Mutant) -> str:
 def _read_changed_lines(git: str, root: Path, base: str) -> dict[Path, frozenset[int]]:
     # A hunk header of a diff with no context names the lines the change added. A line the change only
     # removed leaves a hunk of length zero, which holds no line to mutate.
-    # Let Git say what it cannot read, such as a base revision this repository does not hold.
+    # Let Git report what it cannot read, such as a base revision this repository does not hold.
     diff = subprocess.run(
         [git, *DIFF_COMMAND, f"{base}...HEAD", "--", SOURCE_DIR],
         cwd=root,
@@ -384,7 +385,7 @@ def _read_changed_lines(git: str, root: Path, base: str) -> dict[Path, frozenset
 
 def _find_mutants(path: Path, changed: frozenset[int]) -> Iterator[Mutant]:
     text = path.read_text(encoding="utf-8")
-    # A column of the tree counts bytes, so cut the bytes and read the text back afterwards.
+    # A column of the tree counts bytes. Cut the bytes, and read the text back after that.
     data = text.encode("utf-8")
     starts = [0]
     for line in data.splitlines(keepends=True)[:-1]:
@@ -392,8 +393,8 @@ def _find_mutants(path: Path, changed: frozenset[int]) -> Iterator[Mutant]:
     tree = ast.parse(text)
     # No test reads these nodes for what they hold. An annotation and the name a `cast` or a `TypeVar` takes
     # carry no value at run time. A dunder name, such as `__all__`, states what the module is and not what it
-    # does: a test that imports the module already names every export it uses. A piece of an f-string is text
-    # inside text, which reads as neither in a report: the gate writes the whole f-string wrong instead.
+    # does. A test that imports the module already names every export it uses. A piece of an f-string is text
+    # inside text, and a report can show it as neither. The gate writes the whole f-string wrong instead.
     # The wording of an error stays in, because a test names it and `check.py` makes it name it.
     unread: list[ast.AST] = _find_durations(tree)
     for node in ast.walk(tree):
@@ -436,20 +437,21 @@ def _find_mutants(path: Path, changed: frozenset[int]) -> Iterator[Mutant]:
             yield Mutant(path, node.lineno, data[start:end].decode("utf-8"), after, mutated)
 
 
-# A poll interval and a deadline are lengths of time. No test this repository accepts can read one. To wait for
-# it makes the test slow and unsteady, and to read the call that received it asserts the way and not the
-# result, which `tests/AGENTS.md` refuses and `check_black_box` finds. `POLL = 0.05 -> 0` and `>= -> >` on a
-# clock therefore live whatever the tests say, and a gate that reports an alarm nobody can answer gets turned
-# off. Leave them out. A length of time that is wrong appears as a wait, and not as a wrong answer.
+# A poll interval and a deadline are lengths of time. No test this repository accepts can read one. A test that
+# waits for the time becomes slow and unsteady. A test that reads the call which received the time asserts the
+# way and not the result, which `tests/AGENTS.md` refuses and `check_black_box` finds. `POLL = 0.05 -> 0` and
+# `>= -> >` on a clock live whatever the tests say. A gate that gives an alarm nobody can answer gets
+# turned off. Leave these mutants out. A length of time that is wrong shows as a wait, and not as a wrong
+# answer.
 def _find_durations(tree: ast.Module) -> list[ast.AST]:
     timed: list[ast.AST] = []
     for node in ast.walk(tree):
         match node:
             # A comparison against a clock only says when the wait ends. Leave the other sides of the chain
-            # that holds it: `signalled is None` beside it says whom to signal, which a test can read.
+            # that holds it. `signalled is None` beside it says whom to signal, which a test can read.
             case ast.Compare() if _reads_clock(node):
                 timed.append(node)
-            # A wait that goes away turns a poll into a busy loop, which answers the same.
+            # A wait that goes away makes a poll into a busy loop, which gives the same answer.
             case ast.Expr(value=ast.Call() as call) if _name(call.func) in SLEEP_CALLS:
                 timed.append(node)
             case ast.Call(args=arguments) if _name(node.func) in SLEEP_CALLS:
@@ -457,7 +459,7 @@ def _find_durations(tree: ast.Module) -> list[ast.AST]:
             case _:
                 continue
     # A constant reaches a clock through the names that carry it. Follow each name back through the
-    # assignments that fill it, until no more names come in, and leave the numbers those names hold.
+    # assignments that fill it, until no more names come in. Then leave the numbers those names hold.
     carried = {name for expression in timed for inner in ast.walk(expression) if (name := _name(inner))}
     assignments = [
         (_name(node.targets[0] if isinstance(node, ast.Assign) else node.target), node.value)
@@ -495,7 +497,7 @@ def _propose_changes(node: ast.stmt | ast.expr | ast.ExceptHandler) -> Iterator[
             swapped.op = ast.Or() if isinstance(operator, ast.And) else ast.And()
             yield node, ast.unparse(swapped)
             # A chain that answers the same without one of its sides has a side no test reads. A side that
-            # reads a clock is not one of them: it only holds the chain back until the wait ends.
+            # reads a clock is not one of them, because it only holds the chain back until the wait ends.
             for index, dropped in enumerate(values):
                 if _reads_clock(dropped):
                     continue
@@ -528,7 +530,7 @@ def _reads_clock(node: ast.AST) -> bool:
     return any(isinstance(inner, ast.Call) and _name(inner.func) in CLOCK_CALLS for inner in ast.walk(node))
 
 
-# A bare name and the last name of a chain of attributes, such as `POLL` or `self.POLL`, both name one value.
+# A bare name and the last name of a chain of attributes, such as `POLL` or `self.POLL`, name one value.
 def _name(node: ast.AST) -> str | None:
     match node:
         case ast.Name(id=name) | ast.Attribute(attr=name):
@@ -538,7 +540,7 @@ def _name(node: ast.AST) -> str | None:
 
 
 def _quote(source: str) -> str:
-    # A statement holds newlines and holds more text than a report line. Give each mutant one line.
+    # A statement holds newlines, and it holds more text than a report line. Give each mutant one line.
     flat = " ".join(source.split())
     return flat if len(flat) <= MAX_QUOTED_CHARACTERS else f"{flat[:MAX_QUOTED_CHARACTERS]}..."
 

@@ -24,23 +24,23 @@ from tests.doubles.specs import install_specifications
 
 CONTEXT = functional_analyst.Input(notebook="Report the totals.")
 NOTHING_LEFT = functional_analyst.Specifications(deleted_paths=[], unresolved=[])
-# A body of this size weighs 10000 tokens, so six of them together pass the mark the room below sets, and what
-# the first of them free brings the request back under the lower mark before the last bodies go.
+# One body of this size weighs 10000 tokens. Six of them together go above the mark that the room below sets.
+# The room that the first bodies make brings the request under the lower mark before the last bodies go.
 BODY = "Behavior. " * 3_000
-# A body of blanks names a file and carries none of the behavior it names, so the write is refused.
+# A body of blanks names a file, but it gives none of the behavior of that file. JRI refuses the write.
 BLANK_BODY = " " * len(BODY)
 PATHS = [f"functional/part{number}.md" for number in range(6)]
-# Three bodies free enough room, so the pass stops there and the last three stay in the request whole.
+# Three bodies make enough room. The pass stops there, and the last three bodies stay whole in the request.
 COMPACTED_BODIES = 3
-# The room this catalog publishes puts the marks at 42000 and 31500 tokens, which the pass above passes and
-# then comes back under.
+# This catalog publishes a room that puts the marks at 42000 and 31500 tokens. The pass above goes over the
+# first mark, and it then comes back under the second mark.
 ROOMY_CATALOG: dict[str, Any] = {"test": {"limit": {"context": 60_000, "input": 52_500, "output": 7_500}}}
-# A room no pass of these tests can fill, for a pass that must stand in the history as the model made it.
+# No pass of these tests can fill this room. The history keeps each call as the model made it.
 SPACIOUS_CATALOG: dict[str, Any] = {"test": {"limit": {"input": 10_000_000}}}
-# A room this small caps one read at 100 tokens, which two files of a few hundred bytes already pass.
+# A room this small limits one read to 100 tokens. Two files of a few hundred bytes are already above it.
 NARROW_CATALOG: dict[str, Any] = {"test": {"limit": {"context": 2_000, "input": 1_000, "output": 1_000}}}
-# What JRI leaves where a body stood. It says the project holds the file in full, and how to read it back, so
-# the model can never read it as a shorter file than the one it wrote.
+# JRI puts this text in the place of a body. It says that the project holds the full file, and it says how to
+# read the file back. The model then never reads it as a shorter file than the file that it wrote.
 WRITTEN_FILE_RECORD = (
     "[This body was taken out of the message to make room. The project holds the file as you wrote it, in full. "
     "Call `read_functional_specs` with `{path}` to read it back.]"
@@ -66,8 +66,8 @@ def write(analyst: functional_analyst.FunctionalAnalyst) -> "functional_analyst.
     return drain(analyst.write(CONTEXT, Event()))[1]
 
 
-# A pass that answered with one write call per file, under a room no request of it can fill. Its calls stand in
-# the history exactly as the model made them.
+# This pass answers with one write call for each file, in a room that no request of it can fill. The history
+# keeps its calls exactly as the model made them.
 def build_pass(repository_path: Path, bodies: Mapping[str, str]) -> functional_analyst.FunctionalAnalyst:
     calls = [write_call(number, {path: body}) for number, (path, body) in enumerate(bodies.items())]
     analyst = build_analyst(FakeClient([], parsed=[*calls, NOTHING_LEFT]), repository_path)
@@ -83,7 +83,7 @@ def read_outputs(client: FakeClient) -> list[str]:
     return [str(item["output"]) for item in read_items(client, "function_call_output")]
 
 
-# The files of every write call the request carries, oldest first.
+# Read the files of every write call in the request, oldest first.
 def read_written_files(writer: SpecsWriter) -> list[dict[str, str]]:
     return [
         file
@@ -97,21 +97,22 @@ def read_logs(caplog: pytest.LogCaptureFixture, event: str) -> list[str]:
     return [record.getMessage() for record in caplog.records if record.getMessage().startswith(event)]
 
 
-# What JRI weighs the request of one round at: the context of that round, and the tools it offers with it.
+# Weigh the request of one round as JRI does. That request holds the context of the round and the tools that
+# JRI offers with the context.
 def measure_context(writer: SpecsWriter) -> int:
     return estimate_tokens(measure_request(writer.history, [item.definition for item in writer.tools]))
 
 
-# Publish the room whose mark the given estimate stands exactly on. A mark is a share of the room, so round the
-# room up: a room short of the quotient would put the mark one token under the estimate.
+# Publish the room whose mark is exactly the given estimate. A mark is a share of the room, so round the room
+# up. A room below the quotient puts the mark one token under the estimate.
 def serve_room(monkeypatch: pytest.MonkeyPatch, estimate: int, share: float = SpecsWriter.INPUT_SHARE) -> int:
     room = ceil(estimate / share)
     serve_catalog(monkeypatch, {"test": {"limit": {"input": room}}})
     return room
 
 
-# One answer no longer has to hold the whole set: a pass writes as many calls as it needs, and each file reaches
-# the project as its call arrives.
+# One answer does not have to hold all the files. A pass makes as many calls as it needs, and each file reaches
+# the project when its call arrives.
 def test_writes_every_file_of_a_pass_that_wrote_them_in_several_calls(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -140,7 +141,7 @@ def test_writes_every_file_of_a_pass_that_wrote_them_in_several_calls(
     }
 
 
-# A write call takes minutes, and this row is what the user sees of it while it runs.
+# A write call takes minutes. This row is what the user sees while the call runs.
 def test_names_the_row_of_a_write_call(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     client = FakeClient([], parsed=[write_call(0, {PATHS[0]: "# Behavior\n"}), NOTHING_LEFT])
@@ -153,8 +154,8 @@ def test_names_the_row_of_a_write_call(tmp_path: Path, create_repository: Create
     ]
 
 
-# A rewind replays the calls it keeps. A replayed write would put back a file that the rewind took away, so this
-# call is never replayed.
+# A rewind replays the calls that it keeps. A replayed write puts back a file that the rewind removed, so JRI
+# never replays a write call.
 def test_never_replays_a_write_call(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     analyst = build_analyst(FakeClient([]), tmp_path)
@@ -165,7 +166,7 @@ def test_never_replays_a_write_call(tmp_path: Path, create_repository: CreateRep
     assert not (tmp_path / SPECS_DIR / PATHS[0]).exists()
 
 
-# These descriptions are the whole account the model gets of the two tools a pass calls.
+# These descriptions are all that the model reads about the two tools that a pass calls.
 def test_offers_the_model_tools_that_write_and_read_specification_files(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -181,7 +182,7 @@ def test_offers_the_model_tools_that_write_and_read_specification_files(
     }
 
 
-# A read call names the files it asked the project for, so the user sees which ones a pass read back.
+# A read call names the files that it asks the project for. The user sees which files a pass reads back.
 def test_names_the_row_of_a_read_call(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     install_specifications(tmp_path, {PATHS[0]: "# Behavior\n"})
@@ -195,8 +196,8 @@ def test_names_the_row_of_a_read_call(tmp_path: Path, create_repository: CreateR
     ]
 
 
-# A rewind replays the calls it keeps, against the project as it stands once the rewind has taken its turns away.
-# A file that a kept read named can be gone by then, so a read is never replayed.
+# A rewind replays the calls that it keeps, against the project that stays after the rewind removes its turns.
+# A file that a kept read names can be absent then. JRI never replays a read call.
 def test_never_replays_a_read_call(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     analyst = build_analyst(FakeClient([]), tmp_path)
@@ -205,9 +206,9 @@ def test_never_replays_a_read_call(tmp_path: Path, create_repository: CreateRepo
     read_specs.replay(json.dumps({"paths": ["functional/gone.md"]}))
 
 
-# Past the mark, the oldest bodies leave the request and a record of the file takes their place. The pass keeps
-# the newest bodies, and a body that left never returns, so the request that ends the pass still carries the
-# record where the first body stood.
+# Above the mark, the oldest bodies leave the request, and a record of the file takes the place of each one. The
+# pass keeps the newest bodies. A body that left never comes back. The last request of the pass still holds
+# the record in the place of the first body.
 def test_takes_the_oldest_bodies_out_of_a_pass_that_passes_the_mark(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -227,7 +228,7 @@ def test_takes_the_oldest_bodies_out_of_a_pass_that_passes_the_mark(
     assert (tmp_path / SPECS_DIR / PATHS[0]).read_text().endswith(BODY)
 
 
-# The mark says when a request is too heavy, and a request of exactly that weight is not yet too heavy.
+# The mark says when a request is too heavy. A request of exactly that weight is not yet too heavy.
 def test_keeps_every_body_when_the_request_weighs_the_mark(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -241,8 +242,8 @@ def test_keeps_every_body_when_the_request_weighs_the_mark(
     assert [file["content"] for file in read_written_files(analyst)] == [BODY] * len(PATHS)
 
 
-# JRI stops taking bodies out as soon as the request is under the lower mark, and a request of exactly that
-# weight is under it. The bodies of the newer calls thus stand whole in the request that goes out.
+# JRI takes no more bodies out when the request comes under the lower mark. A request of exactly that weight is
+# under the mark. The bodies of the newer calls stay whole in the request that goes out.
 def test_keeps_the_newest_bodies_when_the_request_weighs_the_lower_mark(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -250,7 +251,7 @@ def test_keeps_the_newest_bodies_when_the_request_weighs_the_lower_mark(
     serve_catalog(monkeypatch, SPACIOUS_CATALOG)
     records = [WRITTEN_FILE_RECORD.format(path=path) for path in PATHS]
     kept = [*records[:2], *([BODY] * (len(PATHS) - 2))]
-    # The request a compaction must leave, which the lower mark stands exactly on.
+    # A compaction must leave this request, and the lower mark is exactly its weight.
     settled = build_pass(tmp_path, dict(zip(PATHS, kept, strict=True)))
     analyst = build_pass(tmp_path, dict.fromkeys(PATHS, BODY))
     serve_room(monkeypatch, measure_context(settled), SpecsWriter.LOW_SHARE)
@@ -260,8 +261,9 @@ def test_keeps_the_newest_bodies_when_the_request_weighs_the_lower_mark(
     assert [file["content"] for file in read_written_files(analyst)] == kept
 
 
-# A compaction takes bodies out of a request the user never sees, so the log is the only account of it: the
-# weight the request stood at, and the two marks it works between, which are shares of the room the model reads.
+# A compaction takes bodies out of a request that the user never sees. Only the log tells what happened:
+# the weight of the request, and the two marks that the compaction works between. A mark is a share of the room
+# of the model.
 def test_logs_the_marks_a_compaction_works_between(
     tmp_path: Path,
     create_repository: CreateRepository,
@@ -283,7 +285,7 @@ def test_logs_the_marks_a_compaction_works_between(
     ]
 
 
-# Which body left the request, and what the request weighed once it had, stand nowhere but the log.
+# Only the log names the body that left the request, and the weight of the request after it left.
 def test_logs_each_body_a_compaction_took_out(
     tmp_path: Path,
     create_repository: CreateRepository,
@@ -303,8 +305,8 @@ def test_logs_each_body_a_compaction_took_out(
     ]
 
 
-# A catalog JRI cannot reach publishes no room, and the pass must still write. It works against a room of its own,
-# which is wide enough to leave a written body where the model put it.
+# A catalog that JRI cannot reach publishes no room, and the pass must still write. The pass then uses a room of
+# its own, which is large enough to keep a written body in its place.
 def test_keeps_a_written_body_when_the_catalog_publishes_no_room(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -317,8 +319,8 @@ def test_keeps_a_written_body_when_the_catalog_publishes_no_room(
     assert read_written_files(analyst)[0]["content"] == BODY
 
 
-# A call whose arguments answer to no schema stands in the history as the model sent it. Compaction leaves those
-# alone and takes the bodies of the calls that did write.
+# The history keeps a call whose arguments answer to no schema as the model sent it. A compaction does not change
+# such a call, and it takes only the bodies of the calls that wrote a file.
 def test_compacts_a_pass_that_also_made_a_call_that_answers_to_no_schema(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -338,8 +340,8 @@ def test_compacts_a_pass_that_also_made_a_call_that_answers_to_no_schema(
     assert written[-1]["content"] == BODY
 
 
-# A call JRI refused wrote no file, whatever its arguments answered to. The record states that the project holds
-# the file in full, so it must never stand where the body of such a call stood.
+# A call that JRI refused wrote no file, whatever its arguments answered to. The record says that the project
+# holds the full file, so the record must never replace the body of such a call.
 def test_compacts_a_pass_that_also_made_a_call_jri_refused(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -359,8 +361,8 @@ def test_compacts_a_pass_that_also_made_a_call_jri_refused(
     assert not (tmp_path / SPECS_DIR / "functional/stub.md").exists()
 
 
-# A compacted call is still a call the model made. It must read back against the schema of the tool it called,
-# so the record replaces the body and changes nothing else about the call.
+# A compacted call is still a call that the model made. It must answer to the schema of the tool that it called.
+# The record replaces the body and changes nothing else in the call.
 def test_leaves_a_compacted_call_in_the_shape_the_tool_takes(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -378,8 +380,8 @@ def test_leaves_a_compacted_call_in_the_shape_the_tool_takes(
     assert all(sorted(file) == ["content", "path", "summary"] for file in read_written_files(analyst))
 
 
-# A cut specification reads like a complete one, and the model would design against the part that arrived. The
-# refusal names what each file weighs, so the next call can ask for fewer of them.
+# A specification that JRI cuts reads like a complete one, and the model designs against the part that arrived.
+# The refusal gives the weight of each file, and the next call can then ask for fewer files.
 def test_refuses_a_batch_of_reads_over_the_cap_instead_of_cutting_it(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:

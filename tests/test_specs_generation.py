@@ -19,16 +19,15 @@ from jri.core.exceptions import RepositoryStateError, SpecsError
 from jri.core.notes import Notebook
 from jri.core.repository import ACCEPTANCE_TRAILER
 from tests.conftest import CreateRepository, RunGit
+from tests.doubles.agents import explored
 from tests.doubles.openai import (
     FakeClient,
-    Round,
     call,
-    partial_reply,
     read_tool_outputs,
     reply,
     response,
     stopped_stream,
-    streamed_reply,
+    stopped_thinking,
     thought,
 )
 from tests.doubles.settings import build_settings
@@ -43,8 +42,8 @@ type Result = specs_generation.Ambiguities | specs_generation.Unchanged | str | 
 type Row = ToolCallStarted | ToolCallFinished
 
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
-# A null byte makes Git treat the file as binary, and `git apply` cannot diff a binary file. A resumed draft
-# carrying one must be refused before Git ever sees it.
+# A null byte makes Git read the file as binary, and `git apply` cannot diff a binary file. JRI must refuse a
+# resumed draft that holds a null byte before Git reads it.
 NULL_BODY_DRAFT = (
     "diff --git a/.jri/specs/functional/null.md b/.jri/specs/functional/null.md\n"
     "new file mode 100644\n"
@@ -54,8 +53,8 @@ NULL_BODY_DRAFT = (
     "+# Null\x00byte\n"
 )
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
-# `CON` is a reserved Windows device name. JRI blocks it on every platform, not only Windows, so a project stays
-# portable if it is ever checked out there.
+# `CON` is a reserved device name on Windows. JRI refuses it on every platform, and not only on Windows. A user
+# can check the project out on Windows later.
 REDRAFTED_DEVICE_NAME_DRAFT = """\
 diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
 new file mode 100644
@@ -70,8 +69,8 @@ diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
  # Console
 +The console reports totals.
 """
-# A draft is validated as one whole patch. One invalid entry refuses the whole draft, including its valid
-# changes, so a run resumes from the accepted baseline instead of keeping the good part.
+# JRI validates a draft as one full patch. One invalid entry refuses the full draft with its valid changes. A run
+# starts again from the accepted baseline, and it does not keep the valid part.
 FOREIGN_FILE_DRAFT = """\
 diff --git a/.jri/specs/functional/exports.md b/.jri/specs/functional/exports.md
 new file mode 100644
@@ -114,13 +113,13 @@ def generate(
 
 
 def commit_specs() -> None:
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
     _, commit = generate(client)
     assert isinstance(commit, str)
 
 
-# One pass answers over several rounds: one round for each call that writes files, and a last round that returns
-# what stays outside them. A pass that writes nothing goes straight to that last round.
+# One pass answers in more than one round. It uses one round for each call that writes files, and a last
+# round that returns what the calls leave out. A pass that writes nothing goes directly to that last round.
 def written_specs(
     files: Mapping[str, str] = FUNCTIONAL_FILES, deleted: Sequence[str] = (), unresolved: Sequence[str] = ()
 ) -> list[object]:
@@ -137,7 +136,8 @@ def designed_architecture(files: Mapping[str, str] = ARCHITECTURE_FILES, deleted
     ]
 
 
-# The last cycle asks for an architecture alone, so its pass answers with that shape and not with the union above.
+# The last cycle asks only for an architecture. Its pass answers with that shape, and not with the union
+# above.
 def drafted_architecture(files: Mapping[str, str] = ARCHITECTURE_FILES, deleted: Sequence[str] = ()) -> list[object]:
     return [
         *write_files("architecture", files),
@@ -158,8 +158,8 @@ def build_thinking_call(rounds: list[object], text: str) -> list[object]:
     return [*calls, [thought(text), *response(reply(cast("BaseModel", result).model_dump_json()))]]
 
 
-# A pass takes a round for each call it makes, and every round of it carries the same messages. Name each of
-# those messages once, so a reader of this list reads what was said and not how many rounds said it.
+# A pass uses one round for each call that it makes, and every round holds the same messages. Give each message
+# one time, so a reader of this list sees what the pass said and not the number of rounds.
 def read_prompts(client: FakeClient) -> list[str]:
     return list(
         dict.fromkeys(
@@ -233,7 +233,7 @@ def test_asks_for_the_details_a_pass_could_not_settle_from_the_notebook(
     assert not (tmp_path / paths.SPECS_DIR).exists()
 
 
-# The draft is what makes the answers continue this work instead of starting it again.
+# The draft lets the answers continue this work. Without the draft, the work starts again.
 def test_keeps_the_specifications_a_pass_wrote_before_it_asked(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -250,10 +250,7 @@ def test_resumes_the_specifications_a_pass_wrote_before_it_asked(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     generate(FakeClient([], parsed=[*written_specs(unresolved=["JSON or plain text?"])]))
-    client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture()],
-    )
+    client = FakeClient([], parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *explored(), *designed_architecture()])
 
     rows, result = generate(client)
 
@@ -274,7 +271,7 @@ def test_writes_specifications_from_the_topics_the_user_kept(
     discarded = notebook.add_topic("Discarded", "t1", "What discarded covers.")
     notebook.add(["Build a rocket instead."], discarded.id)
     notebook.trash([discarded.id])
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     generate(client)
 
@@ -295,8 +292,12 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
     commit_specs()
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Export the data as CSV."], "t1")
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     _, result = generate(client)
@@ -311,7 +312,7 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
 def test_writes_a_first_generation_without_a_notebook_diff(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Ship a web app."], "t1")
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client)
 
@@ -330,7 +331,7 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
     (tmp_path / paths.NOTEBOOK_FILE).unlink()
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Ship a web app."], "t1")
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client)
 
@@ -338,20 +339,21 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     prompts = read_prompts(client)
     assert any("Ship a web app." in prompt for prompt in prompts)
     assert not any("nonsense" in prompt for prompt in prompts)
-    # An unparsable accepted notebook names no baseline to compare with, so the run continues without a diff
-    # instead of showing one built against the unreadable "nonsense" bytes or against nothing.
+    # JRI cannot read this accepted notebook, so it has no baseline to compare with. The run continues with no
+    # diff, and it shows no diff against the unreadable "nonsense" bytes or against nothing.
     assert not any("<notebook_diff_from_accepted_baseline>" in prompt for prompt in prompts)
 
 
-# `git apply` refuses an empty patch, so an unchanged generation must return before it ever tries to commit. It
-# cannot create and then remove an acceptance record, which would leave a window a killed run could get stuck in.
+# `git apply` refuses an empty patch. A generation that changes nothing must return before it commits. It
+# must not make an acceptance record and then remove it, because a run that stops between the two steps leaves
+# the project blocked.
 def test_reports_a_generation_that_changed_nothing(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     build_workspace(tmp_path, create_repository)
     commit_specs()
     accepted = run_git(tmp_path, "rev-parse", "HEAD")
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     rows, result = generate(client)
 
@@ -379,7 +381,7 @@ def test_stops_a_run_without_touching_the_project(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     head = run_git(tmp_path, "rev-parse", "HEAD")
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     rows, result = generate(client, stop_at)
 
@@ -387,14 +389,18 @@ def test_stops_a_run_without_touching_the_project(
     assert rows[-1] == stop_at
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
-    # Cancellation must still exit the worktree context manager; otherwise a temporary worktree survives the run.
+    # A stop must also leave the worktree context manager. If it does not, a temporary worktree stays after the
+    # run.
     assert not run_git(tmp_path, "diff", "--cached")
     assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
 
 
 @pytest.mark.parametrize(
     "queue_responses",
-    [lambda cancelled: [stopped_stream(cancelled)], lambda cancelled: [*written_specs(), stopped_stream(cancelled)]],
+    [
+        lambda cancelled: [stopped_stream(cancelled)],
+        lambda cancelled: [*written_specs(), *explored(), stopped_stream(cancelled)],
+    ],
     ids=["writing", "designing"],
 )
 def test_stops_a_run_while_a_model_is_still_answering(
@@ -406,7 +412,7 @@ def test_stops_a_run_while_a_model_is_still_answering(
     build_workspace(tmp_path, create_repository)
     head = run_git(tmp_path, "rev-parse", "HEAD")
     cancelled = Event()
-    client = FakeClient([streamed_reply("Repository report")], parsed=queue_responses(cancelled))
+    client = FakeClient([], parsed=queue_responses(cancelled))
 
     _, result = generate(client, cancelled=cancelled)
 
@@ -417,34 +423,30 @@ def test_stops_a_run_while_a_model_is_still_answering(
     assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
 
 
-# A stop reaches the study before it reports anything, and after it reports its first words. Both end the run
-# where they arrive, and neither designs against the part of a report that the study reached.
-@pytest.mark.parametrize(
-    "study",
-    [response(call("read", "read_files", paths=["README.md"])), partial_reply("Draft notes")],
-    ids=["silent", "reporting"],
-)
+# A stop can arrive while the study still answers. It ends the run at that point. No design uses the part of
+# the report that the study wrote.
 def test_stops_the_repository_study_without_calling_it_a_failure(
-    study: Round, tmp_path: Path, create_repository: CreateRepository
+    tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([study], parsed=[*written_specs(), *designed_architecture()])
+    cancelled = Event()
+    client = FakeClient([], parsed=[*written_specs(), stopped_thinking(cancelled), *designed_architecture()])
 
-    rows, result = generate(client, ToolCallStarted("explorer", "Studying your existing project", "🔎"))
+    rows, result = generate(client, cancelled=cancelled)
 
-    # Cancellation is checked before the empty-report check, so stopping the explorer early reads as a clean stop,
-    # not a broken report.
+    # A study that a stop ended is a clean stop, and not a broken report.
     assert result is None
-    # The design row is the one that would follow. Its absence states that the stop ended the run at the study.
+    # The design row is the row that follows the study. It is not here, so the stop ended the run at the study.
     assert read_rows(rows)[-1] == ("ToolCallStarted", "explorer", "Studying your existing project")
 
 
 def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs(),
+            *explored(),
             *reported_issues("Undefined totals.", "Unclear export.", "Missing errors."),
             *written_specs(),
             *reported_issues("Unclear export."),
@@ -489,8 +491,8 @@ def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repo
         ("ToolCallStarted", "commit", "Saving the specifications to your project"),
         ("ToolCallFinished", "commit", "Saved the specifications to your project"),
     ]
-    # Every started row but `commit` must map to one model request; a mismatch would mean a call the model made
-    # with no row shown, or a row shown for no call.
+    # Each started row, but not `commit`, must agree with one model request. Different numbers show a call that
+    # the model made with no row, or a row with no call.
     assert len([row for row in rows if isinstance(row, ToolCallStarted) and row.call_id != "commit"]) == len(
         client.responses.inputs
     )
@@ -502,9 +504,10 @@ def test_carries_the_thinking_of_a_call_between_its_two_rows(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *build_thinking_call(written_specs(), "Weighing the totals."),
+            *explored(),
             *build_thinking_call(designed_architecture(), "Weighing the layers."),
         ],
     )
@@ -537,7 +540,7 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
     rows: list[Progress] = []
 
     def block_the_project_once_the_design_lands() -> None:
@@ -551,8 +554,8 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
     with pytest.raises(RepositoryStateError, match=r"stray\.md"):
         block_the_project_once_the_design_lands()
 
-    # The generator itself does not close a row on a raised error. A higher layer resolves open rows once
-    # `TurnFinished` arrives, so this row is left open here by design, not by omission.
+    # The generator does not close a row when an error occurs. A higher layer closes the open rows when
+    # `TurnFinished` arrives. This row stays open here on purpose.
     assert read_rows(rows)[-2:] == [
         ("ToolCallFinished", "architecture-1", "Designed the project architecture"),
         ("ToolCallStarted", "commit", "Saving the specifications to your project"),
@@ -562,9 +565,10 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
 def test_finishes_the_open_round_when_ambiguities_appear(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs(),
+            *explored(),
             *reported_issues("Unclear export.", "Missing errors."),
             *written_specs({}, unresolved=["JSON or plain text?"]),
         ],
@@ -584,9 +588,10 @@ def test_finishes_the_open_round_when_ambiguities_appear(tmp_path: Path, create_
 def test_names_the_issues_the_round_it_opens_answers(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs(),
+            *explored(),
             *reported_issues("Undefined totals.", "Unclear export.", "Missing errors."),
             *written_specs(),
             *reported_issues("Missing errors."),
@@ -616,9 +621,10 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs(),
+            *explored(),
             *reported_issues("Undefined totals.", "Unclear export."),
             *written_specs(),
             *designed_architecture(),
@@ -631,28 +637,30 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
     assert "functional/behavior.md" in revision
     assert summarize("functional/behavior.md") in revision
     assert "<architect_feedback>\n  - Undefined totals.\n  - Unclear export." in revision
-    # A round names the draft the architect rejected, and leaves its bodies out. The analyst reads the ones it wants.
+    # A round names the draft that the architect refused, and it leaves the bodies out. The analyst reads the
+    # bodies that it wants.
     assert FUNCTIONAL_FILES["functional/behavior.md"] not in revision
 
 
-# `Specs.write` touches only the files a round returns. A file the model does not resend keeps its prior content
-# and stays out of the next commit's diff, so a round need not restate every accepted file to leave it alone.
+# `Specs.write` changes only the files that a round returns. A file that the model does not send again keeps its
+# content, and it stays out of the diff of the next commit. A round does not send every accepted file again.
 def test_keeps_the_accepted_specification_a_round_left_out(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}), *designed_architecture()],
+        [],
+        parsed=[
+            *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+            *explored(),
+            *designed_architecture(),
+        ],
     )
     generate(client)
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Report the totals too."], "t1")
 
     _, result = generate(
-        FakeClient(
-            [streamed_reply("Repository report")],
-            parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture()],
-        )
+        FakeClient([], parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *explored(), *designed_architecture()])
     )
 
     assert isinstance(result, str)
@@ -670,9 +678,10 @@ def test_removes_the_specification_a_pass_deleted_beside_the_files_it_wrote(
     build_workspace(tmp_path, create_repository)
     generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+                *explored(),
                 *designed_architecture(),
             ],
         )
@@ -680,9 +689,10 @@ def test_removes_the_specification_a_pass_deleted_beside_the_files_it_wrote(
 
     _, result = generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs(UPDATED_FUNCTIONAL_FILES, ["functional/exports.md"]),
+                *explored(),
                 *designed_architecture(UPDATED_ARCHITECTURE_FILES),
             ],
         )
@@ -692,17 +702,18 @@ def test_removes_the_specification_a_pass_deleted_beside_the_files_it_wrote(
     assert not (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").exists()
 
 
-# A pass that removes a file and asks a question changed the project as much as one that wrote a file. Save that
-# work in the draft, and then put the question to the user.
+# A pass that removes a file and asks a question changes the project as much as a pass that writes a file. JRI
+# saves that work in the draft, and it then asks the question to the user.
 def test_keeps_the_specification_a_pass_deleted_before_it_asked(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
     generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+                *explored(),
                 *designed_architecture(),
             ],
         )
@@ -723,9 +734,10 @@ def test_removes_the_architecture_a_design_deleted_beside_the_files_it_wrote(
     build_workspace(tmp_path, create_repository)
     generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs(),
+                *explored(),
                 *designed_architecture({**ARCHITECTURE_FILES, "architecture/layers.md": "# Layers\n"}),
             ],
         )
@@ -733,9 +745,10 @@ def test_removes_the_architecture_a_design_deleted_beside_the_files_it_wrote(
 
     _, result = generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs(UPDATED_FUNCTIONAL_FILES),
+                *explored(),
                 *designed_architecture(UPDATED_ARCHITECTURE_FILES, ["architecture/layers.md"]),
             ],
         )
@@ -745,14 +758,15 @@ def test_removes_the_architecture_a_design_deleted_beside_the_files_it_wrote(
     assert not (tmp_path / paths.ARCHITECTURE_SPECS_DIR / "layers.md").exists()
 
 
-# A later round's prompt carries every current file, not only the one the architect flagged, so the model can
-# leave a file untouched while still seeing its content.
+# The prompt of a later round holds every current file, and not only the file that the architect named. The model
+# can read the content of a file and still not change it.
 def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+            *explored(),
             *reported_issues("Undefined totals."),
             *written_specs(UPDATED_FUNCTIONAL_FILES),
             *designed_architecture(),
@@ -779,8 +793,12 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     commit_specs()
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Report the totals too."], "t1")
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     generate(client)
@@ -805,10 +823,7 @@ def test_keeps_the_draft_a_run_that_reached_no_commit_wrote(
     queue_tail: list[object], tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(), *reported_issues("Unclear export."), *queue_tail],
-    )
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *reported_issues("Unclear export."), *queue_tail])
 
     with suppress(SpecsError):
         generate(client)
@@ -817,15 +832,14 @@ def test_keeps_the_draft_a_run_that_reached_no_commit_wrote(
     assert not (tmp_path / paths.SPECS_DIR).exists()
 
 
-# A pass that sends the functional specifications back still wrote what it settled. The run saves that work, so
-# the cycle that answers the issues designs on top of it instead of writing it again.
+# A pass that sends the functional specifications back still wrote what it settled. The run saves that work. The
+# cycle that answers the issues then designs on that work, and it does not write the work again.
 def test_keeps_the_architecture_a_pass_wrote_before_it_turned_back(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(), *reported_issues("Undefined totals.", files=ARCHITECTURE_FILES)],
+        [], parsed=[*written_specs(), *explored(), *reported_issues("Undefined totals.", files=ARCHITECTURE_FILES)]
     )
 
     _, result = generate(
@@ -840,7 +854,7 @@ def test_keeps_the_architecture_a_pass_wrote_before_it_turned_back(
 
 def test_keeps_the_draft_a_stopped_run_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
 
@@ -852,7 +866,7 @@ def test_keeps_the_draft_a_stopped_run_wrote(tmp_path: Path, create_repository: 
 
 def test_forgets_the_draft_a_run_committed(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client)
 
@@ -865,13 +879,21 @@ def test_resumes_the_draft_a_run_left_behind(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     stopped = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}), *designed_architecture()],
+        [],
+        parsed=[
+            *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+            *explored(),
+            *designed_architecture(),
+        ],
     )
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     rows, result = generate(client)
@@ -894,14 +916,15 @@ def test_counts_the_draft_rather_than_the_specifications_the_project_holds(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     commit_specs()
-    stopped = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture()],
-    )
+    stopped = FakeClient([], parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *explored(), *designed_architecture()])
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     rows, result = generate(client)
@@ -916,18 +939,27 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
     build_workspace(tmp_path, create_repository)
     commit_specs()
     stopped = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
-    # Re-committing behavior.md with the acceptance trailer moves the baseline the stopped draft's patch was built
-    # against, so the patch can no longer apply — the same as if a user edited a specification between runs.
+    # This commit of behavior.md with the acceptance trailer moves the baseline. JRI built the patch of the
+    # stopped draft against the baseline before it, so the patch no longer applies. A user who edits a
+    # specification between two runs makes the same failure.
     (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# Totals\nThe project reports totals.\n")
     run_git(tmp_path, "add", "--force", paths.FUNCTIONAL_SPECS_DIR)
     run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     rows, result = generate(client)
@@ -958,8 +990,12 @@ def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
     commit_specs()
     (tmp_path / paths.DRAFT_FILE).write_text(draft, encoding="utf-8", newline="\n")
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     rows, result = generate(client)
@@ -988,7 +1024,7 @@ def test_runs_through_a_draft_it_can_neither_read_nor_replace(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     (tmp_path / paths.DRAFT_FILE).mkdir(parents=True)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     rows, result = generate(client)
 
@@ -1003,7 +1039,7 @@ def test_runs_through_a_draft_it_can_neither_read_nor_replace(
 
 def test_opens_no_row_for_a_run_with_no_draft_to_pick_up(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     rows, _ = generate(client)
 
@@ -1012,18 +1048,19 @@ def test_opens_no_row_for_a_run_with_no_draft_to_pick_up(tmp_path: Path, create_
 
 def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    parsed: list[object] = [
+    parsed: list[object] = [*written_specs(), *explored(), *reported_issues("Unclear export.")]
+    parsed.extend(
         item
-        for _ in range(specs_generation.MAX_CYCLES - 1)
+        for _ in range(specs_generation.MAX_CYCLES - 2)
         for item in (*written_specs(), *reported_issues("Unclear export."))
-    ]
+    )
     parsed.extend([*written_specs(), *drafted_architecture()])
-    client = FakeClient([streamed_reply("Repository report")], parsed=parsed)
+    client = FakeClient([], parsed=parsed)
 
     rows, result = generate(client)
 
-    # The instructions that take every remaining decision reach the last cycle, and only it. Every earlier cycle
-    # keeps the instructions that let it send the functional specifications back instead.
+    # Only the last cycle gets the instructions that take every decision that stays. Each earlier cycle keeps the
+    # instructions that let it send the functional specifications back.
     last = str(cast("list[dict[str, object]]", client.responses.inputs[-1])[0]["content"])
     assert last.startswith(architect.Architect.FINAL_PROMPT)
     assert sum(item.startswith(architect.Architect.FINAL_PROMPT) for item in read_prompts(client)) == 1
@@ -1033,31 +1070,12 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
     assert isinstance(result, str)
 
 
-def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [
-            [*partial_reply("Draft notes"), *response(call("search", "search_web", query="ralph"))],
-            streamed_reply("Final report"),
-        ],
-        parsed=[*written_specs(), *designed_architecture()],
-    )
-
-    generate(client)
-
-    report = next(prompt for prompt in read_prompts(client) if "<repository_analysis_report>" in prompt)
-    assert report.endswith("<repository_analysis_report>\nFinal report\n</repository_analysis_report>")
-
-
 def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [[thought("Weighing which files to read."), *streamed_reply("Repository report")]],
-        parsed=[*written_specs(), *designed_architecture()],
+        [], parsed=[*written_specs(), *explored(thinking="Weighing which files to read."), *designed_architecture()]
     )
 
     events, result = generate(client)
@@ -1074,8 +1092,13 @@ def test_keeps_what_the_repository_study_writes_out_of_the_project(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [response(call("shell", "run_shell", command="touch uv.lock")), streamed_reply("Repository report")],
-        parsed=[*written_specs(), *designed_architecture()],
+        [],
+        parsed=[
+            *written_specs(),
+            response(call("shell", "run_shell", command="touch uv.lock")),
+            *explored(),
+            *designed_architecture(),
+        ],
     )
 
     _, result = generate(client)
@@ -1088,29 +1111,44 @@ def test_keeps_what_the_repository_study_writes_out_of_the_project(
 def test_studies_the_project_as_it_stands_on_disk(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [response(call("read", "read_files", paths=[paths.NOTEBOOK_FILE])), streamed_reply("Repository report")],
-        parsed=[*written_specs(), *designed_architecture()],
+        [],
+        parsed=[
+            *written_specs(),
+            response(call("read", "read_files", paths=[paths.NOTEBOOK_FILE])),
+            *explored(),
+            *designed_architecture(),
+        ],
     )
 
-    generate(client)
+    rows, _ = generate(client)
 
     instructions = read_explorer_prompt(client)
     directory = Path(instructions.split("<working_directory>\n")[1].split("\n</working_directory>")[0])
-    # The explorer works in a disposable copy of the repository, not the project directory itself. That copy stands
-    # in the run snapshot directory, so its own reported working directory is never the real project path.
+    # The explorer works in a copy of the repository that JRI can remove, and not in the project directory. JRI
+    # puts that copy in the snapshot directory of the run. The working directory that the explorer reports is
+    # never the real path of the project.
     assert directory == (tmp_path / paths.SNAPSHOT_DIR).resolve()
     assert any(str(directory / paths.NOTEBOOK_FILE) in output for output in read_tool_outputs(client))
+    # The study examines the full project, and each row that it opens is nested below the study row.
+    assert any(
+        "Study this repository generally. Report its structure, architecture, established patterns" in prompt
+        for prompt in read_prompts(client)
+    )
+    assert [
+        row.depth for row in rows if isinstance(row, ToolCallStarted | ToolCallFinished) and row.call_id == "read"
+    ] == [1, 1]
 
 
 def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([response(reply(""))], parsed=[*written_specs()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(report="")])
 
     with pytest.raises(SpecsError, match="produced no report"):
         generate(client)
 
 
-# A pass carries the files it settled and the questions it could not. Carrying neither is a pass that did nothing.
+# A pass gives the files that it settled and the questions that it could not settle. A pass that gives neither
+# does nothing.
 def test_refuses_an_analyst_that_writes_no_file_and_asks_nothing(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -1138,16 +1176,20 @@ def test_refuses_an_architect_that_deletes_every_architecture_specification(
     build_workspace(tmp_path, create_repository)
     commit_specs()
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture({}, list(ARCHITECTURE_FILES))],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture({}, list(ARCHITECTURE_FILES)),
+        ],
     )
 
     with pytest.raises(SpecsError, match="Architecture specifications cannot be empty"):
         generate(client)
 
 
-# A write that leaves its root writes nothing, and the model hears why while it can still write the file. The
-# pass that ends without writing one is the pass the run refuses.
+# A write outside its root writes no file, and the model reads the reason while it can still write the file. The
+# run refuses the pass that ends and writes no file.
 def test_refuses_functional_specifications_that_leave_their_root(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -1163,9 +1205,7 @@ def test_refuses_functional_specifications_that_leave_their_root(
 
 def test_refuses_an_architecture_that_leaves_its_root(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture(FUNCTIONAL_FILES)]
-    )
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture(FUNCTIONAL_FILES)])
 
     with pytest.raises(SpecsError, match="must change at least one file"):
         generate(client)

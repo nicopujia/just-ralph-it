@@ -12,7 +12,7 @@ from jri.lib import prompt
 from jri.lib.context import estimate_tokens, measure_item, measure_request
 from jri.lib.models_dot_dev import get_limit
 
-from .explorer import Explorer
+from .explorer import Exploration, Explorer
 
 if TYPE_CHECKING:
     from openai.types.responses import ResponseInputItemParam
@@ -20,14 +20,20 @@ if TYPE_CHECKING:
 
 class Interviewer(Agent):
     CONTEXT_THRESHOLD = 0.4
-    # A drop takes the request down to this share of the limit, and not to the threshold above it. It thus frees
-    # more than a third of the budget at one time. The interview fills that space again over many turns, and each
-    # of those turns starts with the same bytes as the turn before it, which the provider serves from its cache.
+    # A drop takes the request down to this share of the limit, and not to the threshold above it. It frees
+    # more than a third of the budget at one time. The interview fills that room again over many turns. Each of
+    # those turns starts with the same bytes as the turn before it, which the provider serves from its cache.
     # A drop that stopped at the threshold would free one turn, and the next turn would drop again.
     CONTEXT_TARGET = 0.25
     FALLBACK_CONTEXT_LIMIT = 100_000
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to make?"
+    # This record replaces an exploration report. No tool can read an exploration again. The record tells the
+    # model that the report is gone, and that only the summary below it is left.
+    EXPLORATION_RECORD = (
+        "[This exploration report was taken out of the message to make room. Nothing holds it now, and the "
+        "summary below is all that is left of it.]"
+    )
     EXCERPT_SCOPE = prompts.read("interviewer_excerpt_scope")
 
     def __init__(self, settings: Settings, notebook: Notebook) -> None:
@@ -47,6 +53,7 @@ class Interviewer(Agent):
 
     @override
     def get_context(self) -> ResponseInputParam:
+        self._summarize_explorations()
         pinned: ResponseInputItemParam = {
             "role": "system",
             "content": (
@@ -62,11 +69,11 @@ class Interviewer(Agent):
             turns[-1].append(raw_item)
         tools = [item.definition for item in self.get_tools()]
         limit = get_limit(self.profile.model, self.FALLBACK_CONTEXT_LIMIT)
-        # A rewind takes turns out of the history, and the count of dropped ones can then stand past its end.
+        # A rewind takes turns out of the history, and the count of dropped turns can then be larger than it.
         # Bring the count back to what the shorter history holds.
         self.dropped_turns = min(self.dropped_turns, max(len(turns) - self.MIN_CONTEXT_TURNS, 0))
-        # Weigh each turn once, and take the weight of a dropped turn off the total. Weighing the whole context
-        # again for each dropped turn would make this grow with the square of the interview length.
+        # Weigh each turn once, and take the weight of a dropped turn off the total. If JRI weighed the whole
+        # context again for each dropped turn, this cost would grow with the square of the interview length.
         weights = [sum(measure_item(item) for item in turn) for turn in turns]
         total = measure_request([self.history[0], pinned], tools) + sum(weights[self.dropped_turns :])
         # A turn that stays dropped keeps the start of each later request the same as the start of this one.
@@ -77,8 +84,8 @@ class Interviewer(Agent):
             ):
                 total -= weights[self.dropped_turns]
                 self.dropped_turns += 1
-        # The excerpt stands last, after the turns. It changes each time a note changes, and everything behind a
-        # changed item is new bytes that no cache holds. Behind it there is now nothing.
+        # The excerpt goes last, after the turns. It changes each time a note changes, and no cache holds the bytes
+        # that come after a changed item. Nothing comes after the excerpt now.
         return [self.history[0], *(item for turn in turns[self.dropped_turns :] for item in turn), pinned]
 
     # A generated project is one that JRI cannot change yet, so take the offer away once a run reports no ambiguities.
@@ -115,12 +122,16 @@ class Interviewer(Agent):
         replayed=False,
     )
     def explore(self, query: str) -> Stream:
-        report = yield from Explorer(self.settings, Workspace.find().root).report(query)
-        if not report:
+        exploration = yield from Explorer(self.settings, Workspace.find().root).report(query)
+        # An exploration that the user stopped has no result. It is the same as an exploration that found
+        # nothing.
+        exploration = exploration if exploration is not None else Exploration(report="", summary="", remaining="")
+        if not exploration.report:
             yield ToolOutput("Exploration produced no report.", "empty")
             return
         # A model creates this report from web content. Quote it because JRI text can follow a long report.
-        yield ToolOutput(prompt.render(exploration_report=report))
+        # The summary replaces the report in a turn when the full report no longer fits.
+        yield ToolOutput(prompt.render(exploration_report=exploration.report), summary=exploration.summary)
 
     @tool(
         (
@@ -273,8 +284,26 @@ class Interviewer(Agent):
     def disconnect_notes(self, connections: list[Connection]) -> str:
         return f"Disconnected {self.notebook.disconnect(connections)} relationship(s)."
 
-    # A model names a topic the way it names one everywhere else, so resolve a name or an ID here and let the
-    # notebook see an ID.
+    # Ten reports at the size limit of a tool output are too large for the interview. A drop of all the turns
+    # cannot free sufficient room. A report that stays whole also pushes the interview out of the request.
+    # Each recorded exploration but the newest becomes its summary, and the newest stays whole at any size.
+    # JRI replaces the report in the history, before it measures the request. A replaced report can then never
+    # come back, and turns drop only if the request is still too large. Each later request repeats these same
+    # bytes, which the provider gives from its cache.
+    def _summarize_explorations(self) -> None:
+        explorations = [
+            item
+            for item in cast("list[dict[str, Any]]", self.history)
+            if item.get("type") == "function_call_output" and item.get("call_id") in self.output_summaries
+        ]
+        # The summary comes from a model, so quote it. A later round renders it again and gets the same bytes.
+        # It then replaces a replaced report with the same record.
+        for item in explorations[:-1]:
+            summary = self.output_summaries[cast("str", item["call_id"])]
+            item["output"] = f"{self.EXPLORATION_RECORD}\n\n{prompt.render(exploration_summary=summary)}"
+
+    # A model names a topic the way it names one everywhere else, so accept a name or an ID here. Give the notebook
+    # an ID.
     def _resolve_topic(self, value: str) -> str:
         resolved = self.notebook.find_topic(value)
         if resolved is None:

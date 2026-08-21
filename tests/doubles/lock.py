@@ -11,8 +11,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 CHILD_SUFFIX = ".child"
-# A holder stays alive while its test reads the lock. A parallel run loads the machine, thus this window
-# must outlive the slowest test by a large margin. `hold` ends its holder when the test ends.
+# A holder stays alive while its test reads the lock. A parallel run loads the machine. This time must
+# be much longer than the slowest test. `hold` ends its holder when the test ends.
 HELD_FOR = 300
 HOLDER = f"""
 import multiprocessing, os, sys, time
@@ -25,8 +25,8 @@ def rest():
 path, ready, record, child = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
 assert Lock(path).take(str(os.getpid()) if record == "own" else record)
 if child:
-    # `fork` is asked for by name, so a release that stops making
-    # it the default cannot quietly retire what this holder is for.
+    # This asks for `fork` by name. A release that stops making it
+    # the default then cannot take away what this holder is for.
     started = multiprocessing.get_context("fork").Process(target=rest)
     started.start()
     Path(child).write_text(str(started.pid))
@@ -44,14 +44,14 @@ from jri.lib.lock import Lock
 with Lock(Path(sys.argv[1])):
     pass
 """
-# The death of a holder frees the lock, and the next taker gets it immediately. Only a lock that stays
-# held uses all of this time.
+# The death of a holder frees the lock, and the next taker gets it immediately. Only a lock that stays held
+# uses all of this time.
 TIMEOUT = 5
 
 
-# This is a process that holds a lock for the whole test. It writes the record the caller asks for, and nothing
-# when the caller asks for none. `session` gives it a session of its own, thus its process group holds only what it
-# starts, and `forking` gives it one such process.
+# This starts a process that holds a lock for the full test. It writes the record that the caller asks for. It
+# writes nothing when the caller asks for no record. `session` gives the process a session of its own, so its
+# process group holds only what it starts. `forking` gives it one such child process.
 @contextmanager
 def hold(
     path: Path, *, record: str = "", forking: bool = False, session: bool = False
@@ -93,7 +93,7 @@ def runs(pid: int) -> bool:
 
 
 def take(path: Path) -> bool:
-    # A separate process asks for the lock. A lock that never comes back becomes a failed result here.
+    # A separate process asks for the lock. This returns a failure when that lock never comes free.
     # The suite does not stop.
     try:
         taker = subprocess.run([sys.executable, "-c", TAKER, str(path)], timeout=TIMEOUT, check=False)
@@ -102,8 +102,8 @@ def take(path: Path) -> bool:
     return taker.returncode == 0
 
 
-# The end of a process is not one step: the operating system ends it, and its parent then reaps it. A reader that
-# looks one time can meet a process on its way out. Wait for the end itself.
+# A process does not end in one step. The operating system ends it, and its parent then reaps it. A reader that
+# looks one time can find a process that still ends. Wait for the full end.
 def watch_a_process_go(pid: int) -> bool:
     deadline = time.monotonic() + TIMEOUT
     while runs(pid):

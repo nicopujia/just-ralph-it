@@ -50,7 +50,7 @@ class Response:
         return [self.outputs_by_index[index] for index in sorted(self.outputs_by_index)]
 
 
-# A structured round ended with tool calls instead of a final, schema-matching result.
+# A structured round ends with tool calls, and not with a final result that matches the schema.
 @dataclass(frozen=True)
 class PendingToolCalls:
     outputs: list[dict[str, Any]]
@@ -78,7 +78,8 @@ class LLMRunner:
     def sampling(self) -> float | Omit:
         return omit if self.temperature is None else self.temperature
 
-    # Provider-library effort values are version-specific. Send the setting value and let the provider validate it.
+    # Each version of the provider library accepts different effort values. Send the value from the settings, and
+    # let the provider validate it.
     @property
     def reasoning(self) -> Reasoning:
         return Reasoning(effort=cast("ProviderReasoningEffort", self.reasoning_effort), summary="auto")
@@ -90,8 +91,8 @@ class LLMRunner:
 
     # A stopped structured response has no result. Check for a stop before each retry to avoid a call for a stopped run.
     # Store the result in `parsed` because callers cannot read a generator return value while they drain its events.
-    # A round that calls a tool returns `PendingToolCalls` instead of `output_type`; the caller runs the tools,
-    # extends `context` with their outputs, and calls `parse` again for the next round — mirroring `respond`.
+    # A round that calls a tool returns `PendingToolCalls`, and not `output_type`. The caller then runs the tools,
+    # adds their outputs to `context`, and calls `parse` again for the next round, as it does for `respond`.
     def parse(
         self,
         context: ResponseInputParam,
@@ -115,6 +116,12 @@ class LLMRunner:
                     raise self._read_failure(error) from error
                 self._wait_to_retry(error, attempt)
                 attempt += 1
+            # The provider library reads the structured answer during the stream. JRI reads it after the
+            # stream, when the library read none. Both reads fail on an answer that the schema does not accept.
+            # Both report it in the same way. A retry does not help, because the same request gets the same
+            # answer.
+            except ValidationError as error:
+                raise ModelError(f"Model response could not be read as {output_type.__name__}: {error}") from error
             else:
                 return parsed[-1]
         logger.info("parse_cancelled model=%s", self.model)
@@ -188,7 +195,7 @@ class LLMRunner:
                     case "response.completed":
                         _log_usage(event.response.usage)
                 # Check for a stop during structured streaming. Leaving this block closes the stream.
-                # Do not request a final response from an unfinished stream because that waits for completion.
+                # Do not ask an unfinished stream for a final response, because that request waits until it completes.
                 if cancelled.is_set():
                     logger.info("parse_cancelled model=%s", self.model)
                     parsed.append(None)
@@ -203,11 +210,7 @@ class LLMRunner:
         if response.output_parsed is not None:
             result = response.output_parsed
         elif text:
-            try:
-                result = output_type.model_validate_json(text)
-            except ValidationError as error:
-                # Recover from invalid model output. Do not recover from an error raised by the model library.
-                raise ModelError(f"Model response could not be read as {output_type.__name__}: {error}") from error
+            result = output_type.model_validate_json(text)
         else:
             raise ModelError("Model response did not contain a parsed output.")
         logger.info("parse_finished model=%s", self.model)

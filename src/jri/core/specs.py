@@ -32,13 +32,14 @@ WINDOWS_DEVICE_NAMES = frozenset({
     *(f"COM{port}" for port in "123456789"),
     *(f"LPT{port}" for port in "123456789"),
 })
-# A written file carries its summary as YAML frontmatter, so the index can never drift from the file it describes.
+# A file that JRI writes holds its summary as YAML frontmatter.
+# The index always agrees with the file that it describes.
 FRONTMATTER = re.compile(r"\A---\n(?P<meta>.*?)\n---\n\n?", re.DOTALL)
 
 logger = logging.getLogger(__name__)
 
 
-# What a model reads or writes: a specification's path, its full body, and a one-line summary for the index.
+# A model reads and writes the path of a specification, its full body, and a one-line summary for the index.
 class File(BaseModel):
     path: str
     content: str
@@ -53,13 +54,14 @@ class Baseline:
     accepted: str | None
     notebook: bytes
     accepted_notebook: bytes
-    # These are the specifications of the accepted commit, read from the two roots JRI writes.
-    # Reading the whole tree instead would carry a file that the user, not JRI, put beside them.
+    # These are the specifications of the accepted commit. JRI reads them from the two roots that it writes.
+    # If JRI read the whole tree, it would also read a file that the user, not JRI, put beside them.
     specifications: dict[str, bytes]
 
 
-# Record an acceptance before it changes the project. Undo uses the patch, prior acceptance commit, and indexed paths.
-# This record says nothing about a lock. It can outlive the run and cannot identify a past lock holder.
+# Record an acceptance before it changes the project.
+# An undo uses the patch, the commit of the last acceptance, and the indexed paths.
+# This record says nothing about a lock. It can stay after the run ends, and it cannot identify an old holder.
 class Acceptance(BaseModel):
     accepted: str | None
     patch: str
@@ -103,11 +105,11 @@ class Specs:
         return self.workspace.draft_file.exists()
 
     # A draft claims to apply to the current specifications. Git validates the whole patch before it writes any part.
-    # A moved specification tree remains as the checkout left it.
-    # Do not trust Git exit status; compare trees before and after.
-    # The draft is the delta, not the checked-out tree.
-    # Validate the changed tree like model output because a patch can create a link.
-    # Drop an invalid draft before it blocks every future run and forces the user to remove a JRI file.
+    # A specification tree that JRI moved stays as the checkout left it.
+    # Do not trust the Git exit status. Compare the trees before and after.
+    # The draft is the delta, not the tree that Git checked out.
+    # Validate the changed tree like model output, because a patch can create a link.
+    # Drop an invalid draft, because it blocks every future run and forces the user to remove a JRI file.
     def resume(self, repository: git.Repository) -> tuple[str, ...] | None:
         draft = self._read_draft()
         standing = self._read_specification_tree(repository.path)
@@ -138,19 +140,19 @@ class Specs:
         if not written and not deleted:
             raise SpecsError("Specifications must change at least one file.")
         # A null character makes Git treat a file as binary. A binary diff has no content, and `git apply` rejects it.
-        # Otherwise, JRI would blame its write for model text.
+        # Without this check, JRI would report a fault in its own write, but the model text made the failure.
         binary = next((path for path, content in sorted(written.items()) if "\x00" in content), None)
         if binary is not None:
             raise SpecsError(f"Specifications are text, and `{binary}` holds a null character.")
-        # A file with a summary and no body is a placeholder for work that no later pass comes back to do.
-        # Refuse it where the write happens, so the model hears about it while it can still write the file.
+        # A file with a summary and no body is a placeholder for work that no later pass does.
+        # Refuse the file here, in the write. The model then gets the refusal while it can still write the file.
         empty = next(
             (path for path, content in sorted(written.items()) if not cls._split_frontmatter(content)[1].strip()), None
         )
         if empty is not None:
             raise SpecsError(f"Specifications carry the behavior they name, and `{empty}` carries none.")
         root = repository.path / paths.SPECS_DIR
-        # A path in both lists is written and removed by the model. The removal takes precedence.
+        # The model can write a path and also remove it. JRI then removes that path.
         specifications: dict[Path, str | None] = {
             cls._locate_specification(repository.path, path, model_root): content for path, content in written.items()
         } | {cls._locate_specification(repository.path, path, model_root): None for path in deleted}
@@ -168,8 +170,9 @@ class Specs:
                 if content is not None:
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_text(content, encoding="utf-8", newline="")
-            # A file-system refusal can identify a model path: an invalid name or a directory where a file belongs.
-            # End the run with that path instead of reporting a JRI fault.
+            # A filesystem can refuse a model path.
+            # The name can be invalid, or a directory can be where a file belongs.
+            # End the run with that path. Do not report a fault in JRI.
             except (OSError, ValueError) as error:
                 logger.exception("specification_write_failed path=%s", destination)
                 raise SpecsError(
@@ -180,9 +183,9 @@ class Specs:
         cls._stage(repository, [destination.relative_to(repository.path).as_posix() for destination in specifications])
         logger.info("specifications_written root=%s files=%d deleted=%d", model_root, len(written), len(deleted))
 
-    # A specification must be a plain file. The file system and Git represent links differently.
+    # A specification must be a plain file. The filesystem and Git show links in different ways.
     # A Windows checkout can show a Git `120000` link as a normal file with target text.
-    # Check Git links as well as file-system links. A run reads this tree for the model and later commits it.
+    # Check Git links as well as filesystem links. A run reads this tree for the model and later commits it.
     # `selected` names files the same way `render`/`index` show them: relative to `paths.SPECS_DIR`, root included.
     # Omit it to read every specification under `directory`.
     @staticmethod
@@ -194,7 +197,7 @@ class Specs:
             relative = path.relative_to(repository.path).as_posix()
             if allowed is not None and relative.removeprefix(f"{paths.SPECS_DIR}/") not in allowed:
                 continue
-            # A link is not a specification to Git or the file system.
+            # A link is not a specification to Git or the filesystem.
             # Directories, pipes, and sockets are not specifications either.
             # Report the path inside the tree, not a temporary worktree path that the user did not request.
             if relative in linked or path.is_symlink() or not path.is_file():
@@ -206,12 +209,14 @@ class Specs:
                 raise SpecsError(f"JRI could not read the specification `{relative}`: {error.strerror}") from error
         return specifications
 
-    # Read the files a model named under one root, and refuse the read when a name matches none.
+    # Read the files that a model named under one root. Refuse the read when a name matches no file.
     # A model reads what it never wrote, so the names it gives are a request, not JRI data.
-    # Raise the failure the tool loop reports to that model, not a `SpecsError` about the specifications themselves.
-    # `cap` bounds one answer in tokens. A cut specification reads like a complete one, and the model would then
-    # design against the part that arrived, so refuse the batch and name what each file costs. A call that names
-    # one file answers with it whatever its size, because no smaller request for that file exists.
+    # Raise the failure that the tool loop reports to that model.
+    # Do not raise a `SpecsError` about the specifications themselves.
+    # `cap` is the token limit of one answer. A specification that JRI cut reads like a complete one.
+    # The model would then design from the part that arrived.
+    # Refuse the batch, and give the cost of each file.
+    # A call that names one file answers with that file at any size, because no smaller request for it exists.
     @staticmethod
     def read_selected(repository: git.Repository, model_root: str, selected: Sequence[str], cap: int) -> str:
         prefix = f"{paths.SPECS_DIR}/"
@@ -229,7 +234,7 @@ class Specs:
             )
         return Specs.render(found)
 
-    # Full content, frontmatter stripped, for files a model chose to read in full.
+    # This gives the full content of the files that a model chose to read, without the frontmatter.
     @staticmethod
     def render(files: dict[str, bytes]) -> str:
         rendered: list[str] = []
@@ -239,20 +244,21 @@ class Specs:
             rendered.append(prompt.render(file=name, content=body))
         return "\n\n".join(rendered) or "(empty)"
 
-    # Path and one-line summary only, for every file — cheap enough to always include in full.
+    # This gives only the path and the one-line summary of every file.
+    # It is small, so JRI always includes all of it.
     @staticmethod
     def index(files: dict[str, bytes]) -> str:
         entries = {name: summary or "(no summary)" for name, summary, _ in Specs._decode_all(files)}
         return prompt.render(specifications=entries) if entries else "(empty)"
 
-    # Frontmatter carries the summary a model gave a file when it wrote it.
+    # Frontmatter holds the summary that a model gave a file when it wrote it.
     @staticmethod
     def format(file: File) -> str:
         frontmatter = safe_dump({"summary": file.summary}, sort_keys=False, allow_unicode=True, width=10**9)
         return f"---\n{frontmatter}---\n\n{file.content}"
 
-    # Save the current run work for the next run and return the patch that this run would commit.
-    # Git creates a delta from the project specifications. Remove an empty draft because it carries no new work.
+    # Save the work of this run for the next run, and return the patch that this run would commit.
+    # Git creates a delta from the project specifications. Remove an empty draft, because it holds no new work.
     def save_draft(self, repository: git.Repository, baseline: Baseline) -> bytes:
         patch = repository.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
         if not patch:
@@ -264,8 +270,8 @@ class Specs:
         try:
             files.write_atomically(self.workspace.draft_file, patch.decode())
             logger.info("draft_saved characters=%d", len(patch))
-        # The draft preserves work.
-        # A failed draft write would lose that work and block every later run for the same reason.
+        # The draft keeps the work.
+        # If JRI could not write the draft, it would lose that work and block every later run for the same reason.
         except OSError:
             logger.exception("draft_write_failed path=%r", self.workspace.draft_file)
         return patch
@@ -283,22 +289,23 @@ class Specs:
         if self._read_notebook() != baseline.notebook:
             raise RepositoryStateError("The project notes changed during generation. Try again.")
         self._check_state()
-        # Record acceptance before changing the project. Undo must not infer this state from files left by a run.
+        # Record the acceptance before JRI changes the project.
+        # An undo must not guess this state from the files that a run left.
         acceptance = Acceptance(
             accepted=baseline.accepted,
             patch=patch.decode(),
             indexed=self.repository.read_staged_paths(paths.COMMITTED_PATHS),
         )
         self.workspace.open_generation_dir()
-        # Hold this lock only while acceptance runs. The operating system drops it if the process is killed.
-        # A later run can detect a live acceptance without trusting a reused PID.
+        # Hold this lock only while the acceptance runs. The operating system releases it if the process ends.
+        # A later run can find a live acceptance, and it does not have to trust a pid that the system gave again.
         with Lock(self.workspace.acceptance_lock_file):
             files.write_atomically(self.workspace.acceptance_file, acceptance.model_dump_json())
             try:
                 self.repository.apply_patch(patch)
             except git.Error as error:
                 # A disk, quota, or file-limit failure can stop Git during a specification write.
-                # Undo the partial JRI patch before another run sees it. Git error details are in the log.
+                # Undo the partial JRI patch before another run sees it. The log holds the Git error details.
                 logger.exception("acceptance_write_failed characters=%d", len(patch))
                 self._undo_acceptance(acceptance)
                 raise SpecsError(
@@ -318,7 +325,7 @@ class Specs:
             else:
                 self._drop_acceptance()
         # The commit completes the draft work.
-        # The project now holds these specifications, so resuming the delta would write them twice.
+        # The project now holds these specifications. A run that resumed the delta would write them twice.
         self.workspace.drop_draft()
         logger.info("specs_committed commit=%s", commit)
         return commit
@@ -331,8 +338,8 @@ class Specs:
             name = path.removeprefix(prefix)
             try:
                 body = content.decode()
-            # JRI writes UTF-8 here. Non-UTF-8 bytes from Git were not written by JRI.
-            # Deciding their model text belongs to the user.
+            # JRI writes UTF-8, so bytes that are not UTF-8 came from somewhere else.
+            # Only the user can decide what text a model reads from them. JRI refuses them.
             except UnicodeDecodeError as error:
                 raise SpecsError(f"Specifications are UTF-8 text, and `{name}` is not.") from error
             summary, body = Specs._split_frontmatter(body)
@@ -351,18 +358,20 @@ class Specs:
             return "", body
         return meta.get("summary", "") if isinstance(meta, dict) else "", body[match.end() :]
 
-    # A killed acceptance can leave JRI specifications in the worktree without a commit.
-    # Later runs refuse to start over them.
-    # The run offer remains active. Reconcile this state so the user need not delete JRI files.
+    # An acceptance that stopped can leave JRI specifications in the worktree without a commit.
+    # Later runs refuse to start while those specifications are there.
+    # The run offer stays active. Reconcile this state, so that the user does not have to delete JRI files.
     def _reconcile(self) -> None:
         if not self.workspace.acceptance_file.exists():
             return
-        # A held record lock means that acceptance is active. Its patch, index, and record belong to that run.
-        # The operating system releases the lock at exit, unlike a PID that it can reuse.
-        # Check the lock before reading the record. Do not settle a live acceptance when a temporary read fails.
+        # If a process holds the record lock, an acceptance is active.
+        # Its patch, index, and record belong to that run.
+        # The operating system releases the lock at exit, but it can give a pid to another process.
+        # Check the lock before you read the record. Do not settle a live acceptance when a temporary read fails.
         if Lock(self.workspace.acceptance_lock_file).is_held():
             return
-        # Settlement writes the index. Check locks first to avoid a Git error about a path inside `.git`.
+        # JRI writes the index when it settles an acceptance.
+        # Check the locks first, to avoid a Git error about a path inside `.git`.
         self._check_locks()
         acceptance = self._read_acceptance()
         if acceptance is None:
@@ -370,10 +379,10 @@ class Specs:
             return
         self._settle_acceptance(acceptance)
 
-    # The next Git command reports and stops on these files, with a `.git` path during a specification run.
-    # JRI only names them. A Git lock has no owner mark and the operating system does not release it.
-    # A stale JRI lock and an active user Git lock have the same disk shape.
-    # The user must decide after seeing their paths.
+    # The next Git command stops on these files and reports them, with a `.git` path during a specification run.
+    # JRI only names them. A Git lock does not say who holds it, and the operating system does not release it.
+    # An old JRI lock and a Git lock that a user command holds look the same on the disk.
+    # The user must see their paths and then decide.
     def _check_locks(self) -> None:
         blocking = self.repository.locks.blocking
         if blocking:
@@ -382,8 +391,9 @@ class Specs:
                 "Ralphing:\n" + "\n".join(f"- {path}" for path in blocking)
             )
 
-    # An unreadable record does not state what its run applied, staged, or previously accepted.
-    # It still proves that acceptance was in progress. A truncated, corrupt, or older record is settled, not removed.
+    # An unreadable record does not state what its run applied, staged, or accepted before.
+    # It still proves that an acceptance was in progress.
+    # JRI settles a record that is cut, corrupt, or old. JRI does not remove such a record.
     def _read_acceptance(self) -> Acceptance | None:
         try:
             return Acceptance.model_validate_json(self.workspace.acceptance_file.read_bytes())
@@ -391,7 +401,8 @@ class Specs:
             logger.exception("acceptance_unreadable path=%s", self.workspace.acceptance_file)
             return None
 
-    # This record is JRI-owned. A failed removal makes every later run read it again, so report this as a JRI failure.
+    # JRI owns this record. If JRI cannot remove it, every later run reads it again.
+    # Report this as a JRI failure.
     def _drop_acceptance(self) -> None:
         try:
             self.workspace.acceptance_file.unlink(missing_ok=True)
@@ -401,32 +412,35 @@ class Specs:
                 f"Could not remove the acceptance record `{self.workspace.acceptance_file}`: {error.strerror}"
             ) from error
 
-    # Git exit status does not state what Git wrote.
+    # The Git exit status does not state what Git wrote.
     # A process can fail after the reference transaction creates a commit.
-    # A full-run kill can return no status. Find the commit with the trailer instead of using Git status.
-    # Do not reverse an existing commit because it can delete user specifications.
-    # Ask Git once; another command can fail first.
+    # A kill of the whole run can return no status.
+    # Find the commit with the trailer. Do not use the Git status.
+    # Do not reverse a commit that exists, because that can delete user specifications.
+    # Ask Git one time, because another command can fail first.
     def _settle_acceptance(self, acceptance: Acceptance) -> str | None:
         accepted = self.repository.find_commit(ACCEPTANCE_TRAILER)
         if accepted == acceptance.accepted:
             self._undo_acceptance(acceptance)
             return None
-        # Git writes the commit from its own index before copying that index to the project.
-        # A failure between steps leaves every committed specification shown as deleted.
-        # After a commit, make the project index match it.
+        # Git writes the commit from its own index before it copies that index to the project.
+        # If Git fails between the two steps, it shows every committed specification as deleted.
+        # After a commit, make the project index agree with it.
         if accepted is not None:
             self.repository.unstage(paths.COMMITTED_PATHS)
         self._drop_acceptance()
         logger.info("acceptance_committed commit=%s", accepted)
         return accepted
 
-    # Settle an unreadable acceptance record without its patch, prior index paths, or prior acceptance commit.
-    # Do not undo worktree data or reset user-staged paths. Do not ask whether an unknown commit exists.
-    # A plain file that matches commit bytes differs only in the index, regardless of its author.
-    # Restore its index entry without changing disk data or any commit. A file-system link is not such a file.
-    # A Git-only link is such an entry because restoring its existing link mode changes nothing on disk.
+    # Settle an unreadable acceptance record.
+    # JRI has no patch, no earlier index paths, and no earlier acceptance commit.
+    # Do not undo worktree data or reset the paths that the user staged. Do not ask if an unknown commit exists.
+    # A plain file that matches the bytes of the commit differs only in the index, whoever wrote it.
+    # Restore its index entry, but change no data on the disk and no commit.
+    # A filesystem link is not such a file.
+    # A Git-only link is such an entry, because its link mode stays the same and the disk does not change.
     # Leave all other paths and the record for `_check_state` to report.
-    # Remove the record only when all specifications settle.
+    # Remove the record only when all the specifications settle.
     def _settle_unreadable_acceptance(self) -> None:
         settled: list[str] = []
         # A first acceptance can fail in a project with no commit. No worktree content can then match a commit.
@@ -452,11 +466,12 @@ class Specs:
         intended = self._rebuild_writes(acceptance)
         reversible: tuple[str, ...] | None = None
         if intended is not None:
-            # Repair a partial write first. Git validates only hunk context lines.
-            # Reversing a patch over a partial file can succeed and remove its remaining content.
+            # Repair a partial write first. Git validates only the context lines of a hunk.
+            # If JRI reverses a patch over a partial file, the reverse can succeed.
+            # It then removes the content that remains.
             self._repair_writes(acceptance.accepted, intended)
             # Check the whole patch next.
-            # A kill after application is normal, and Git validates the complete patch in one pass.
+            # A kill after Git applies the patch is normal, and Git validates the complete patch in one pass.
             reversible = (
                 (acceptance.patch,)
                 if self._can_apply(acceptance.patch, reverse=True)
@@ -468,7 +483,8 @@ class Specs:
             # Do not remove the path. Keep the record and let `_check_state` name what the user must resolve.
             logger.info("acceptance_undo_refused accepted=%s", acceptance.accepted)
             return
-        # Unstage only entries that acceptance staged. Unstaging a user-staged path can discard its content.
+        # Unstage only the entries that the acceptance staged.
+        # If JRI unstages a path that the user staged, it can discard the content of that path.
         # Git restores `HEAD` content, or no content when `HEAD` has no path.
         added = [
             path for path in self.repository.read_staged_paths(paths.COMMITTED_PATHS) if path not in acceptance.indexed
@@ -480,8 +496,9 @@ class Specs:
         self._drop_acceptance()
         logger.info("acceptance_undone unstaged=%d reversed=%d", len(added), len(reversible))
 
-    # A partial acceptance write contains no user data to preserve. Restore tracked paths from their commit.
-    # Remove untracked partial writes. Leave links for `_check_state` to report.
+    # A write that an acceptance did not complete holds no user data to keep.
+    # Restore the tracked paths from their commit. Remove the partial writes that Git does not track.
+    # Leave the links for `_check_state` to report.
     def _repair_writes(self, accepted: str | None, intended: dict[str, bytes]) -> None:
         tracked = self.repository.read_staged_paths((paths.COMMITTED_SPECS,))
         for path in (self.workspace.root / paths.SPECS_DIR).rglob("*.md"):
@@ -496,10 +513,10 @@ class Specs:
             self.repository.restore(accepted, unwritten)
             logger.info("part_written_specs_restored count=%d", len(unwritten))
 
-    # Rebuild intended writes from the recorded patch and prior commit.
-    # This is the worktree that acceptance would leave without interruption.
-    # A failed rebuild does not identify any path. An unreadable rebuilt tree does not identify one either.
-    # Do not undo when no path can be identified.
+    # Rebuild the intended writes from the recorded patch and the earlier commit.
+    # This is the worktree that the acceptance would leave if nothing stopped it.
+    # A rebuild that fails identifies no path. A rebuilt tree that JRI cannot read identifies no path either.
+    # Do not undo when JRI can identify no path.
     def _rebuild_writes(self, acceptance: Acceptance) -> dict[str, bytes] | None:
         try:
             with self._open_pre_image(acceptance.accepted) as pre_image:
@@ -509,7 +526,8 @@ class Specs:
             logger.exception("acceptance_rebuild_failed accepted=%s", acceptance.accepted)
             return None
 
-    # Open the commit named by the record in its own worktree. For a first acceptance, use an empty repository.
+    # Open the commit that the record names in its own worktree.
+    # For a first acceptance, use an empty repository.
     @contextmanager
     def _open_pre_image(self, accepted: str | None) -> Generator[git.Repository]:
         location = self.workspace.root / paths.PRE_IMAGE_DIR
@@ -518,18 +536,19 @@ class Specs:
                 yield worktree
             return
         files.remove_directory(location)
-        # Refuse a location that survived the removal above. An empty repository over stale specifications
-        # would rebuild writes that no acceptance made.
+        # Refuse a location that stays after the removal above.
+        # An empty repository over old specifications would rebuild writes that no acceptance made.
         location.mkdir(parents=True)
         try:
             yield git.Repository.init(location, nested=True)
         finally:
             files.remove_directory(location)
 
-    # A partial write leaves either no file or an initial part of the target.
-    # `git apply` removes a file before recreating it.
-    # Neither state is the intended or prior specification. A missing rebuilt path was meant for deletion.
-    # Do not restore data at a path that acceptance meant to remove.
+    # A partial write leaves no file, or it leaves the first part of the target.
+    # `git apply` removes a file before it makes the file again.
+    # Neither state is the intended specification or the earlier one.
+    # If the rebuilt tree has no such path, the acceptance meant to remove it.
+    # Do not restore data at a path that the acceptance meant to remove.
     @staticmethod
     def _holds_part_of(path: Path, intended: bytes | None) -> bool:
         if intended is None or path.is_symlink():
@@ -537,9 +556,11 @@ class Specs:
         content = path.read_bytes() if path.is_file() else b""
         return content != intended and intended.startswith(content)
 
-    # `git apply` validates the full patch and then writes files one by one. A kill can leave any patch prefix on disk.
-    # Check each file patch. A reversible patch was written; an applicable patch was never reached.
-    # A patch that is neither can have user edits. Do not undo any file when such a path requires user review.
+    # `git apply` validates the full patch and then writes the files one by one.
+    # A kill can leave any first part of the patch on the disk.
+    # Check each file patch. Git wrote a patch that JRI can reverse. Git never reached a patch that JRI can apply.
+    # A patch that is neither one can hold user edits.
+    # Do not undo any file when such a path needs the user to look at it.
     def _plan_undo(self, patch: str) -> tuple[str, ...] | None:
         reversible: list[str] = []
         for file_patch in self._split_patch(patch):
@@ -559,17 +580,17 @@ class Specs:
     @staticmethod
     def _split_patch(patch: str) -> list[str]:
         lines = patch.splitlines(keepends=True)
-        # Only patch metadata identifies a changed file. Every hunk body line has a prefix.
-        # A column-zero header is therefore a file header.
+        # Only the patch metadata identifies a changed file. Every line in the body of a hunk has a prefix.
+        # A header in column zero is a file header.
         bounds = [*(number for number, line in enumerate(lines) if line.startswith("diff --git ")), len(lines)]
         return ["".join(lines[start:end]) for start, end in pairwise(bounds)]
 
-    # A draft can reach a commit without current model output.
-    # It persists on the user disk and can be read by newer JRI.
-    # Newer rules can reject a name that an older draft allowed.
+    # A draft can reach a commit without model output from this run.
+    # It stays on the disk of the user, and a newer JRI can read it.
+    # Newer rules can refuse a name that an older draft allowed.
     # Validate its changes as `Specs.write` validates model output.
     # Check every added entry, not only Markdown. A patch can add files that no later round reads or commit names.
-    # Compare against the checkout. Existing names, case folds, and files are not changes that this draft must validate.
+    # Compare with the checkout. Names, case folds, and files that already exist are not changes of this draft.
     @classmethod
     def _check_specifications(
         cls, worktree: Path, standing: Mapping[str, bytes | None], placed: Mapping[str, bytes | None]
@@ -578,7 +599,8 @@ class Specs:
         added = {path.removeprefix(prefix) for path in placed.keys() - standing.keys()}
         for path, content in sorted(placed.items()):
             name = path.removeprefix(prefix)
-            # A root is JRI text for a model and a draft claim. The name must state its root before validation.
+            # A root is JRI text for a model and a draft claim.
+            # The name must state its root before JRI validates it.
             if name in added:
                 model_root = PurePosixPath(name).parts[0]
                 if model_root not in paths.SPECS_ROOTS:
@@ -594,11 +616,13 @@ class Specs:
                     "as one file."
                 )
 
-    # Remove everything that a refused draft placed. Git reverses what it can; an unapplied draft has nothing to remove.
-    # Restore specifications from the bytes that JRI read. Do not trust Git status.
-    # `git apply --reverse` can exit successfully after reversing only a repeated path section.
-    # Compare the restored worktree with the checkout. Do not let another round write to an unaccounted worktree.
-    # This temporary worktree belongs to this run and is removed when it ends.
+    # Remove everything that a refused draft placed. Git reverses what it can.
+    # A draft that Git did not apply has nothing to remove.
+    # Restore the specifications from the bytes that JRI read. Do not trust the Git status.
+    # `git apply --reverse` can exit with success after it reverses only one section of a repeated path.
+    # Compare the restored worktree with the checkout.
+    # Another round must not write in a worktree whose state JRI does not know.
+    # This temporary worktree belongs to this run, and the run removes it when it ends.
     def _restore_specifications(
         self,
         repository: git.Repository,
@@ -610,7 +634,7 @@ class Specs:
             repository.apply_patch(draft, index=True, reverse=True)
         try:
             self._stage(repository, self._write_specification_tree(repository.path, standing))
-        # A partial restore leaves an uncertain worktree. Read it below to determine its state.
+        # A partial restore leaves a worktree that JRI does not know. Read it below to find its state.
         except (OSError, git.Error):
             logger.exception("draft_restore_failed worktree=%s", repository.path)
         if self._read_specification_tree(repository.path) != standing or repository.read_status() != status:
@@ -619,9 +643,9 @@ class Specs:
                 "was committed. Your project keeps the specifications it already had. Try again."
             )
 
-    # Remove entries absent from `standing` and rewrite entries with different bytes.
+    # Remove the entries that `standing` does not hold, and write the entries with different bytes again.
     # Return each changed path for the index.
-    # Do not overwrite an entry with no `standing` bytes because JRI never read it.
+    # Do not overwrite an entry that has no `standing` bytes, because JRI never read it.
     @classmethod
     def _write_specification_tree(cls, worktree: Path, standing: Mapping[str, bytes | None]) -> list[str]:
         remaining = cls._read_specification_tree(worktree)
@@ -638,9 +662,10 @@ class Specs:
             touched.append(relative)
         return touched
 
-    # Read every specification-tree entry.
-    # Store bytes that JRI can restore and `None` for links, sockets, and unreadable files.
-    # `Specs.read` defines a specification. This method records what exists so restore removes only checkout additions.
+    # Read every entry of the specification tree.
+    # Store the bytes that JRI can restore, and `None` for links, sockets, and files that JRI cannot read.
+    # `Specs.read` defines a specification. This method records what exists.
+    # A restore removes only the files that appeared after the checkout.
     @staticmethod
     def _read_specification_tree(worktree: Path) -> dict[str, bytes | None]:
         tree: dict[str, bytes | None] = {}
@@ -656,9 +681,11 @@ class Specs:
             tree[path.relative_to(worktree).as_posix()] = content
         return tree
 
-    # `git diff` ignores untracked files. Stage every path touched by JRI before reading the acceptance diff.
-    # `git add` rejects a command with a missing path. Stage files left on disk and paths removed from Git.
-    # Force staging because JRI keeps `.jri` in Git despite project ignore rules.
+    # `git diff` ignores the files that Git does not track.
+    # Stage every path that JRI touched before it reads the acceptance diff.
+    # `git add` rejects a command with a missing path.
+    # Stage the files that stay on the disk and the paths that JRI removed from Git.
+    # Force the staging, because JRI keeps `.jri` in Git even when the project ignore rules exclude it.
     @staticmethod
     def _stage(repository: git.Repository, touched: Sequence[str]) -> None:
         if not touched:
@@ -690,9 +717,10 @@ class Specs:
 
     def _check_state(self) -> None:
         self._check_locks()
-        # Outside a branch, Git creates a commit reachable only from detached `HEAD`. Returning to the branch loses it.
-        # Stopped rebases, bisections, and commit or tag checkouts have this state.
-        # Rebase refs cannot identify it reliably.
+        # Outside a branch, Git makes a commit that only a detached `HEAD` can reach.
+        # A return to the branch loses that commit.
+        # A stopped rebase, a bisection, and a checkout of a commit or a tag have this state.
+        # Rebase refs cannot identify this state each time.
         if not self.repository.is_on_branch():
             raise RepositoryStateError(
                 "Git is not on a branch, so JRI's commit would be lost. Check out a branch before Ralphing."
@@ -701,19 +729,20 @@ class Specs:
         # `MERGE_HEAD` marks even a clean merge. A cherry-pick stops only at its conflict.
         if self.repository.has_conflicts() or self.repository.has_commit("MERGE_HEAD"):
             raise RepositoryStateError("Finish the merge or cherry-pick in progress before Ralphing.")
-        # Staging reaches ignored files, so this check must use the same scope.
-        # A user file under a JRI path remains user-owned.
-        # A check that ignores ignore rules could commit that file.
+        # JRI stages the ignored files too, so this check must use the same scope.
+        # A user file below a JRI path still belongs to the user.
+        # A check that does not read the ignore rules could commit that file.
         blockers = sorted(entry.path for entry in self.repository.read_status((paths.COMMITTED_SPECS,), ignored=True))
         if blockers:
             raise RepositoryStateError(
                 "Commit or remove these files before Ralphing:\n" + "\n".join(f"- {path}" for path in blockers)
             )
-        # JRI committed files must meet the same link rules as model paths. Git stores a link as target text.
-        # A linked notebook or specification can expose a file that JRI must not show a model.
-        # Check both the file system and Git.
-        # Each can report a link that the other cannot, especially Windows `120000` entries.
-        # Use file-system paths for the file-system check and Git paths for the Git check.
+        # The files that JRI commits must meet the same link rules as the model paths.
+        # Git stores a link as target text.
+        # A notebook or a specification that is a link can show a model a file that JRI must keep from it.
+        # Check both the filesystem and Git.
+        # Each one can report a link that the other cannot, above all a Windows `120000` entry.
+        # Use filesystem paths for the filesystem check, and Git paths for the Git check.
         committed = (
             self.workspace.settings_file,
             self.workspace.gitignore_file,
@@ -730,9 +759,11 @@ class Specs:
                 + "\n".join(f"- {path}" for path in links)
             )
 
-    # Case-insensitive file systems treat two case variants as one file. The committed tree must work on every platform.
-    # Windows and macOS cannot retain both names. A case-only rename writes and then removes the same file.
-    # Compare written names with existing `*.md` names. A `Path` gives the same case fold on a case-insensitive system.
+    # A case-insensitive filesystem reads two variants of the same name as one file.
+    # The committed tree must work on every platform, and Windows and macOS cannot keep both names.
+    # A rename that changes only the case writes the file and then removes it.
+    # Compare the new names with the `*.md` names that exist.
+    # A `Path` gives the same case fold on a case-insensitive system.
     @staticmethod
     def _find_folded_names(root: Path, model_root: str, written: Iterable[str]) -> tuple[str, str] | None:
         standing = {path.relative_to(root).as_posix() for path in (root / model_root).rglob("*.md")}
@@ -743,8 +774,9 @@ class Specs:
                 return first, name
         return None
 
-    # Locate a model path only as a Markdown file in its own root. It must meet `_names_a_file` rules and avoid links.
-    # Validate every model-written file here.
+    # Locate a model path only as a Markdown file in its own root.
+    # It must meet the `_names_a_file` rules, and it must not be a link.
+    # Validate here every file that a model writes.
     @classmethod
     def _locate_specification(cls, worktree: Path, raw_path: str, model_root: str) -> Path:
         path = PurePosixPath(raw_path)
@@ -752,7 +784,8 @@ class Specs:
         try:
             # A link between the worktree and file bypasses the path rules below.
             # Resolve from the Git worktree to detect this link.
-            # This also detects a link where a JRI directory belongs. An unresolvable name is not a specification.
+            # This also finds a link where a JRI directory belongs.
+            # A name that JRI cannot resolve is not a specification.
             located = destination.resolve().parent.is_relative_to(worktree.resolve() / paths.SPECS_DIR / model_root)
         except (OSError, ValueError):
             located = False
@@ -760,9 +793,11 @@ class Specs:
             raise SpecsError(f"Specifications cannot change `{raw_path}`.")
         return destination
 
-    # Every path part must avoid traversal, file-system roots, and a directory that a specification glob matches.
-    # `Specs.read` reads every `*.md` match. Case-insensitive systems can treat `notes.MD` as the `notes.md` directory.
-    # Each name must work on all platforms and must not be a Git pathspec pattern.
+    # A part of a path must not move up the tree or name a filesystem root.
+    # It also must not name a directory that a specification glob matches.
+    # `Specs.read` reads every `*.md` match.
+    # A case-insensitive system can read `notes.MD` as the `notes.md` directory.
+    # Each name must work on all platforms, and it must not be a Git pathspec pattern.
     @staticmethod
     def _names_a_file(path: PurePosixPath) -> bool:
         if path.is_absolute() or ".." in path.parts or any(part.lower().endswith(".md") for part in path.parts[:-1]):

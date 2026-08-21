@@ -9,7 +9,7 @@ from jri.tui import styles
 
 class MessagesContainer(VerticalScroll):
     # Tab moves between the message input and the buttons in the turns.
-    # A scroll area that accepts focus becomes an unwanted stop.
+    # A scroll area that accepts the focus becomes an unwanted Tab stop.
     # The reader scrolls with the mouse and with the anchor that follows a reply.
     can_focus = False
 

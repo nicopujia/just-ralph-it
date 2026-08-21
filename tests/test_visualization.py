@@ -7,8 +7,7 @@ from jri.core.notes import Connection, Graph, Note, Topic
 from jri.core.visualization import DRAW_ERROR, LOAD_ERROR, render
 
 # Read the tracker URL from the project declaration.
-# Do not keep a second copy of the same URL.
-# This prevents the URL values from becoming inconsistent.
+# Do not keep a second copy of the same URL, because two copies can disagree.
 PYPROJECT = Path(__file__).parent.parent / "pyproject.toml"
 
 
@@ -25,8 +24,8 @@ def read_diagram(page: str) -> str:
     return page.split('<pre class="mermaid">')[1].split("</pre>", maxsplit=1)[0]
 
 
-# Mermaid reads the diagram type from the first line, and a topic box painted by a class needs that class
-# declared. A page missing either shows a parse error instead of the graph.
+# Mermaid reads the diagram type from the first line. A class gives a topic box its colors, and the diagram must
+# declare that class. A page without the type or without the class shows a parse error in place of the graph.
 def test_opens_the_diagram_with_its_type_and_the_topic_style() -> None:
     diagram = read_diagram(render(build_graph()))
 
@@ -50,8 +49,8 @@ def test_draws_a_topic_that_has_no_summary_without_a_separator() -> None:
     assert 'subgraph t1["Delivery [open]"]' in diagram
 
 
-# A note sits in the box of its topic and a topic sits in the box of the topic above it, so the drawing states
-# where every note stands without an edge for it.
+# Mermaid draws a note in the box of its topic. It draws a topic in the box of the topic above it. The drawing
+# thus shows the place of every note, and it needs no edge for it.
 def test_draws_a_note_and_a_subtopic_inside_the_topic_that_holds_them() -> None:
     graph = Graph(
         topics=[
@@ -112,8 +111,8 @@ def test_draws_a_topic_whose_name_holds_a_delimiter() -> None:
     assert 'subgraph t1["Delivery #124; Packaging [open] — How it ships"]' in diagram
 
 
-# The page embeds CSS and JavaScript, and both use `%` and `{}`. A `%`-format or `str.format` substitution would
-# read those characters as its own placeholders and corrupt the page.
+# The page holds CSS and JavaScript, and both use `%` and `{}`. A `%` format or a `str.format` call reads those
+# characters as its own placeholders, and it makes the page wrong.
 def test_leaves_the_percentages_and_braces_of_the_page_alone() -> None:
     page = render(build_graph())
 
@@ -121,8 +120,8 @@ def test_leaves_the_percentages_and_braces_of_the_page_alone() -> None:
     assert "mermaid.initialize({" in page
 
 
-# Mermaid draws 500 edges and 50,000 characters of diagram at the most, and a notebook passes both numbers while a
-# browser still draws it. A diagram cannot raise either limit, so the page states them where Mermaid reads them.
+# Mermaid draws 500 edges and 50,000 characters of diagram at the most. A notebook goes above both numbers, and a
+# browser still draws it. A diagram cannot increase a limit, so the page states both where Mermaid reads them.
 def test_raises_the_sizes_mermaid_draws_up_to() -> None:
     page = render(build_graph())
 
@@ -130,8 +129,8 @@ def test_raises_the_sizes_mermaid_draws_up_to() -> None:
     assert "maxTextSize: 100000," in page
 
 
-# Above its limits Mermaid puts a red box in the place of the graph, or it stops with an error that the page
-# reports as a JRI failure. JRI counts the connections first, so the page states the size instead.
+# Above its limits, Mermaid puts a red box in the place of the graph. Or it stops with an error, and the page
+# reports that error as a JRI failure. JRI counts the connections first, and the page states the size.
 def test_says_the_notebook_is_too_large_when_it_holds_more_connections_than_the_viewer_draws() -> None:
     graph = Graph(
         topics=[Topic(id="t1", name="Delivery", status="open")],
@@ -146,7 +145,7 @@ def test_says_the_notebook_is_too_large_when_it_holds_more_connections_than_the_
 
     assert "It has 601 connections and " in page
     assert "draws 600 connections and 100000 characters at the most" in page
-    # The message stands alone in the body. A drawing that ran would report a failure over it.
+    # The message is the only content of the body. A drawing that runs puts a failure message over it.
     assert '<pre class="mermaid">' not in page
     assert 'if (document.querySelector(".mermaid"))' in page
 
@@ -164,11 +163,11 @@ def test_says_the_notebook_is_too_large_when_its_diagram_is_longer_than_the_view
     assert '<pre class="mermaid">' not in page
 
 
-# These colors must remain together.
-# Mermaid uses `#333` edges and black topic text.
-# They require the light canvas that they were selected for.
-# The browser color scheme must not change that canvas.
-# This test verifies both required color settings.
+# These colors must stay together.
+# Mermaid draws `#333` edges and black topic text.
+# They need the light background that JRI selected them for.
+# The browser color scheme must not change that background.
+# This test examines both color settings.
 def test_pins_the_page_to_the_scheme_the_graph_is_drawn_for() -> None:
     page = render(build_graph())
 
@@ -177,25 +176,25 @@ def test_pins_the_page_to_the_scheme_the_graph_is_drawn_for() -> None:
     assert 'theme: "default"' in page
 
 
-# A notebook graph is wider than it is tall. Centring it would split the leftover viewport height into a band
-# above and a band below; anchoring it at the top spends that height once, past the last note.
+# A notebook graph is wider than it is tall. If the page puts the graph in the middle, the unused height of the
+# viewport makes a band above it and a band below it. At the top, all that height stays below the last note.
 def test_opens_the_graph_at_its_top_instead_of_its_middle() -> None:
     page = render(build_graph())
 
     assert "center: false," in page
 
 
-# A viewer that cannot draw can still provide an address.
+# A viewer that cannot draw can still give an address.
 # The message can use different words around that address.
 # A failure message without a destination does not help the user.
-# It has the same problem as a name without a contact channel.
+# The user cannot report the failure to anybody.
 def test_names_the_tracker_the_project_declares_for_reports() -> None:
     tracker = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["urls"]["Issues"]
 
     assert tracker in render(build_graph())
 
 
-# The page has two failure paths and one place to write a message in.
+# The page can fail in two ways, and it has one place for a message.
 # A viewer that could not fetch its libraries must read the necessary user action.
 # It must not read a request to report a drawing failure that did not occur.
 # The message can use different words around that action.
