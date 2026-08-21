@@ -5,7 +5,7 @@ from jri.core.paths import SPECS_DIR
 from tests.doubles.openai import call, response
 
 
-# Specification files as an earlier pass left them in the project, named the way a model names them.
+# This writes specification files as an earlier pass left them in the project. A model names its files this way.
 def install_specifications(repository_path: Path, files: Mapping[str, str]) -> None:
     for path, content in files.items():
         specification = repository_path / SPECS_DIR / path
@@ -17,7 +17,7 @@ def summarize(path: str) -> str:
     return f"Specification for {path}."
 
 
-# A pass writes its files with tool calls, and then returns what stays outside them.
+# A pass writes its files with tool calls. It then returns the text that stays outside those calls.
 def write_files(role: str, files: Mapping[str, str]) -> list[object]:
     if not files:
         return []

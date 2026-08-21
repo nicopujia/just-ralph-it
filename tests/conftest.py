@@ -24,9 +24,10 @@ CONTRACT_MARKER = "contract"
 # This file gives `jri chat` its API keys.
 # A live call uses the same credential as the product.
 ENV_FILE = Path(__file__).parent.parent / ".env"
-# These are the ways out of this process. A child process has ways of its own, and no guard here reaches them.
-# `httpx.get` is not among these: the catalog double below serves it, and a guard here would only be replaced by
-# that double in the same fixture.
+# These functions open a connection from this process. A child process has functions of its own, and no guard
+# here reaches them.
+# `httpx.get` is not in this list. The catalog double below replaces `httpx.get` in the same fixture, so a guard
+# on it would do nothing.
 NETWORK = ((socket, "getaddrinfo"), (socket, "create_connection"), (socket, "socket"))
 
 
@@ -74,7 +75,7 @@ def create_repository(run_git: RunGit) -> CreateRepository:
 
 
 # The repository provides all external responses for these tests.
-# Therefore, normal tests do not need network access.
+# Normal tests do not need network access.
 # A double cannot verify its own wire contract.
 # Only a `contract` test calls the real endpoint.
 @pytest.fixture(autouse=True)
@@ -133,10 +134,10 @@ def isolate_logging() -> Iterator[None]:
     logger.handlers, logger.level, logger.propagate = existing, level, propagate
 
 
-# `GIT_DIR` overrides the repository that a command's `-C` flag names. A test that inherits it from the
-# calling shell would run Git against that repository instead of its own `tmp_path` one.
-# Git also looks for a repository in every parent directory. On a machine whose temporary directory is inside a
-# repository, each test would find that one. The ceiling stops the search at the directory that holds the test tree.
+# `GIT_DIR` overrides the repository that the `-C` flag of a command names. A test that inherits `GIT_DIR` from
+# the calling shell would run Git against that repository, and not against its own repository in `tmp_path`.
+# Git also looks for a repository in every parent directory. Some machines keep the temporary directory inside a
+# repository, and each test would then find that repository. The ceiling stops the search at the test tree.
 @pytest.fixture(autouse=True)
 def isolate_git(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
     config = tmp_path_factory.mktemp("git") / "config"

@@ -10,12 +10,12 @@ from jri.lib.browser import open_page
 # This browser represents the browser that the machine would start.
 # It records that it ran and the page that it received.
 # `-c` excludes the script from `sys.argv`.
-# Therefore, the marker is the first argument and the page is the second.
+# So the marker is the first argument and the page is the second.
 BROWSER = "import pathlib, sys; pathlib.Path(sys.argv[1]).write_text(sys.argv[2], encoding='utf-8')"
 POLL = 0.01
 PAGE = "file:///tmp/notes.html"
-# An unchecked spawn requires the assertion to wait.
-# The wait allows for a slow interpreter start.
+# JRI starts the browser and does not wait for it.
+# The assertion must wait instead, and a slow interpreter can use all of this time to start.
 RUNS_WITHIN = 30.0
 
 
@@ -70,7 +70,7 @@ def test_leaves_a_browser_that_would_take_this_terminal_unstarted(
 # It runs in the terminal when it does not display the page already.
 # The `background` value controls this behavior.
 # This command replaces the browser command for the test.
-# A missing declaration check would create the marker.
+# A JRI that did not read that value would start the browser, and the browser would make the marker.
 def test_leaves_a_unix_browser_that_stays_in_the_foreground_unstarted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

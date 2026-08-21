@@ -21,17 +21,18 @@ class ModelError(Error): ...
 class UsageLimitError(ModelError): ...
 
 
-# The provider refused the request. Retrying the same request gives the same refusal until JRI changes its request.
+# The provider refused the request. It refuses the same request again, until JRI changes that request.
 class ProviderRefusalError(ModelError): ...
 
 
-# The provider gave no usable answer but can answer later. This includes an unreachable address and a provider fault.
+# The provider gave no usable answer, but it can answer later.
+# This includes an address that JRI cannot reach, and a fault at the provider.
 class ProviderUnavailableError(ModelError): ...
 
 
 class RunDetached(BaseException):
-    # This is not an `Error` or an `Exception`. A closing window does not end a turn.
-    # Treating it as a failure would report a live run as stopped.
+    # This is not an `Error` or an `Exception`. A window that closes does not end a turn.
+    # JRI would report a live run as stopped if it read this as a failure.
     ...
 
 
@@ -39,5 +40,5 @@ class RunDetached(BaseException):
 # that asked for it. Only the run records that it did stop.
 class RunStopped(BaseException):
     # This is not an `Error` or an `Exception`. A stop that the user asked for is not a failure.
-    # Treating it as one would roll the turn back and report a crash.
+    # JRI would roll the turn back and report a crash if it read this as a failure.
     ...

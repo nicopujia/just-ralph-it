@@ -36,10 +36,10 @@ FAILURE_RECORD = "THE BUG HAPPENED HERE"
 FILLED_TIMES = 4
 FILLER_LINE_BYTES = 1024
 FILLING_RECORD_BYTES = 32 * 1024
-# This is the time a record that must not reach the file gets to reach it. A record that waits for the lock lands
-# only after the run beside it releases that lock.
+# The test gives a record this much time to reach the file, and that record must not reach it.
+# A record that waits for the lock reaches the file only after the run beside it releases that lock.
 HELD_SECONDS = 2
-# A lone surrogate is how Python represents a git ref byte sequence that is not valid UTF-8 (`surrogateescape`).
+# Python represents the bytes of a git ref that are not valid UTF-8 with a lone surrogate (`surrogateescape`).
 LONE_SURROGATE_NAME = "refs/heads/caf\udce9.lock"
 OPENING_RECORD = "THE SESSION OPENED HERE"
 OVERSIZED_PADDING = "y" * (logs.RECORD_BYTES * 4)
@@ -64,8 +64,8 @@ SABOTAGED_PATHS_TO_CONTAIN = tuple(
 SMALL_FILE_BYTES = 64 * 1024
 SMALL_RECORDS = 2000
 STAMP = re.compile(r"^\[([\d-]+ [\d:,]+)\]", re.MULTILINE)
-# The line a trim leaves in place of the records it dropped. The test writes it out, so a change to the shipped
-# wording shows here as a failure.
+# A trim leaves this line in place of the records that it dropped.
+# The test states the wording, so a change to the wording that JRI ships fails this test.
 TRIM_NOTICE = "[earlier records dropped]"
 TURN_RECORDS = 3
 TURNS = 2
@@ -203,10 +203,10 @@ def test_writes_nothing_outside_the_workspace_directory_when_a_path_the_log_need
     assert read_user_files(tmp_path) == planted
 
 
-# Windows has no `O_NOFOLLOW`, thus an open there follows a link that stands on the log file. The size read is the
-# only step that finds that link before a record goes down it. This machine is not Windows, thus the two changes
-# below give the log module the answer and the open of that platform. They stay inside that module, because
-# `jri.lib.lock` calls on Windows what only Windows has.
+# Windows has no `O_NOFOLLOW`, so an open on Windows follows a link where the log file must be.
+# The read of the size is the only step that finds that link before a record goes into it.
+# This machine is not Windows. The two changes below give the log module the answer and the open of Windows.
+# They stay inside that module, because `jri.lib.lock` calls on Windows what only Windows has.
 def test_writes_nothing_outside_the_workspace_directory_where_an_open_follows_a_link(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -235,7 +235,8 @@ def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path)
     logs.configure(settings)
     logger = logging.getLogger("jri")
     logger.info("THE BUG HAPPENED HERE")
-    # A fetched response is a realistic source of a record this large: a call can return an oversized body in one line.
+    # A response that JRI fetched is a real source of a record this large.
+    # One call can return a body of that size in one line.
     logger.info("fetch_response response_body=%r", "z" * (logs.FILE_BYTES * 2))
 
     files = list_log_files(tmp_path)
@@ -246,7 +247,8 @@ def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path)
     assert len(written.encode()) <= logs.RECORD_BYTES
     notice = re.search(r"\[(\d+) bytes dropped\]", written)
     assert notice
-    # Confirm the dropped count is honest, not merely present, by checking it against the record's real size.
+    # The count of dropped bytes must be correct, and not only present.
+    # Compare it with the real size of the record.
     assert len(written.encode()) + int(notice.group(1)) > logs.FILE_BYTES * 2
 
 
@@ -254,8 +256,8 @@ def test_reads_back_in_the_order_two_runs_of_a_session_wrote(tmp_path: Path, mon
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([]), level="INFO")
     monkeypatch.setattr(logs, "FILE_BYTES", SMALL_FILE_BYTES)
-    # Fill the file to its bound so the first records the runs write force a trim, instead of waiting for one.
-    # A trim keeps the newest records, so write the record that must survive it last.
+    # Fill the file to its bound. The first records that the runs write then cause a trim immediately.
+    # A trim keeps the newest records, so write the record that must stay after it last.
     filler = f"{'.' * (FILLER_LINE_BYTES - 1)}\n" * (SMALL_FILE_BYTES // FILLER_LINE_BYTES)
     (tmp_path / paths.LOG_FILE).write_text(f"{filler}{EARLIER_RUN}\n")
     logs.configure(settings)
@@ -394,7 +396,8 @@ def test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_d
 
     logger.info(OPENING_RECORD)
 
-    # `jri chat` owns the terminal and redraws it live. Writing anything here would corrupt that screen.
+    # `jri chat` owns the terminal and redraws it while it runs.
+    # A write to the terminal here would corrupt that screen.
     assert capsys.readouterr() == ("", "")
     (tmp_path / paths.WORKSPACE_DIR).unlink()
     logger.info(FAILURE_RECORD)

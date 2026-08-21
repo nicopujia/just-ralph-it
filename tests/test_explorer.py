@@ -57,9 +57,9 @@ while True:
     time.sleep(0.01)
 """
 HEARTBEAT_WINDOW = 1.0
-# An input space this small is below each request. The first round of a segment is already at the limit.
+# An input room this small is below each request. The first round of a segment is already at the limit.
 CRAMPED_CATALOG = {"test": {"limit": {"input": 1}}}
-# This input space puts the limit at exactly the tokens of the request in the test below.
+# This input room puts the limit at exactly the tokens of the request in the test below.
 MARKED_CATALOG = {"test": {"limit": {"input": 50}}}
 # This is the segment limit the explorer applies. Write it here too: a test that reads the constant accepts
 # every change to the constant.
@@ -72,7 +72,7 @@ FINAL_LIMIT_RECORD = (
     "No more tool output fits in it, and no segment follows it."
 )
 # A catalog that names a different model gives no limit for this model. The explorer then uses the fallback
-# input space.
+# input room.
 UNNAMED_MODEL_CATALOG = {"other": {"limit": {"context": 400_000}}}
 # This much of a report replaces the report when the model writes no summary. Write it here too: a test that
 # reads the constant accepts every change to the constant.
@@ -81,8 +81,9 @@ SUMMARY_LENGTH = 200
 LONG_REPORT = "Cats are mammals. " * 20
 
 
-# `run_shell` starts a login shell, and a login shell reads the profile of whoever runs the suite. Give each test a
-# home of its own, so no machine can add its own words to the output these tests compare.
+# `run_shell` starts a login shell, and a login shell reads the profile of the user that runs the suite.
+# Give each test a home of its own.
+# No machine can then add its own words to the output that these tests compare.
 @pytest.fixture(autouse=True)
 def isolate_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
@@ -105,8 +106,9 @@ def find_read_files(explorer: Explorer) -> Tool:
     return next(capability for capability in explorer.tools if capability.name == "read_files")
 
 
-# A crafted directory name could fake the prompt's own section headers and talk the model into granting
-# `run_shell` unrestricted power. The block around it must survive that.
+# A directory name can imitate the section headers of the prompt.
+# The model could then read that name as an order that gives `run_shell` unlimited power.
+# The block around the name must stop this.
 @pytest.mark.skipif(sys.platform == "win32", reason="a name holding a line break or a backtick is one Windows refuses")
 def test_quotes_a_working_directory_named_like_a_section_of_the_prompt(tmp_path: Path) -> None:
     # A path cannot hold a closing tag, which holds a separator. An opening tag also identifies a block.
@@ -199,8 +201,9 @@ def test_reads_an_image_as_an_image_input(tmp_path: Path) -> None:
     }
 
 
-# Pick an image bigger than `Invocation.MAX_OUTPUT_LENGTH` so this proves images skip that text-truncation budget,
-# not merely that a small image fits under it.
+# Use an image larger than `Invocation.MAX_OUTPUT_LENGTH`.
+# The test then proves that JRI does not cut an image to the limit that it applies to text.
+# A small image would show only that it fits below that limit.
 def test_reads_a_screenshot_at_the_size_a_screen_makes_one(tmp_path: Path) -> None:
     path = tmp_path / "screenshot.png"
     data = PNG_HEADER + b"\x00" * (150 * KILOBYTE)
@@ -228,7 +231,8 @@ def test_reads_undecodable_bytes_as_a_file_input(tmp_path: Path) -> None:
     }
 
 
-# The tool offers to read files, plural, of every kind in one call. Each body must follow the header that names it.
+# The tool reads more than one file, of every kind, in one call.
+# Each body must come after the header that names it.
 def test_reads_every_file_a_call_names(tmp_path: Path) -> None:
     (tmp_path / "notes.md").write_bytes(b"Notes\n")
     (tmp_path / "diagram.png").write_bytes(PNG_HEADER)
@@ -427,8 +431,8 @@ def test_keeps_a_cut_page_from_wording_itself_as_the_notice(monkeypatch: pytest.
 def test_reports_a_page_the_host_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_pages(monkeypatch, lambda _request: httpx.Response(404, text="Not found"))
 
-    # The row already names the URL, so the raised message must not repeat it. Anchor the match to catch a
-    # regression that would.
+    # The row already names the URL, and the message must not repeat it.
+    # The pattern matches the whole message, so a message that repeats the URL fails this test.
     with pytest.raises(RuntimeError, match=r"^404 Not Found$"):
         build_explorer().fetch_web_page("https://example.test/missing")
 
@@ -473,8 +477,8 @@ def test_names_a_read_row_after_the_files_it_covers() -> None:
     )
 
 
-# `PlainSerializer` reshapes `paths` only for the row's label. The invocation must still read the model's own
-# path list, not that label text.
+# `PlainSerializer` changes `paths` for the label of the row only.
+# The invocation must still read the paths that the model gave, and not that label.
 def test_reads_the_paths_a_call_names_rather_than_the_row_describing_them(tmp_path: Path) -> None:
     path = tmp_path / "example.txt"
     path.write_bytes(b"one\n")
@@ -516,8 +520,8 @@ def test_records_a_request_that_stands_at_its_size_limit(
     ]
 
 
-# The limit keeps the remaining space for the report that the segment writes. A request exactly at the limit
-# still has that space, and the segment continues.
+# The limit keeps the remaining room for the report that the segment writes. A request exactly at the limit
+# still has that room, and the segment continues.
 def test_gathers_on_from_a_request_that_stands_exactly_on_the_mark(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch, MARKED_CATALOG)
     explorer = build_explorer()
@@ -528,7 +532,7 @@ def test_gathers_on_from_a_request_that_stands_exactly_on_the_mark(monkeypatch: 
     assert explorer.get_context() == [{"role": "user", "content": "x" * 67}]
 
 
-# A request far below the limit leaves space for the segment to collect more. It keeps its tools, and no
+# A request far below the limit leaves room for the segment to collect more. It keeps its tools, and no
 # record tells the model that the segment ends.
 @pytest.mark.parametrize("catalog", [CATALOG, UNNAMED_MODEL_CATALOG], ids=["published-room", "fallback-room"])
 def test_gathers_on_while_a_request_sits_under_its_size_limit(
@@ -658,7 +662,7 @@ def test_answers_with_the_beginning_of_a_report_the_model_wrote_no_summary_for(
 
 # A segment gives its remaining work to the segment that follows. The exploration is one job. That segment
 # reads the query, the summaries of the segments before it, and their remaining work. It reads the summaries
-# and not the reports, because the segment before it had no more space.
+# and not the reports, because the segment before it had no more room.
 def test_carries_the_query_and_the_summaries_so_far_into_the_next_segment(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch, CRAMPED_CATALOG)
     client = FakeClient(
@@ -679,7 +683,7 @@ def test_carries_the_query_and_the_summaries_so_far_into_the_next_segment(monkey
     assert "Cats are mammals." not in message
 
 
-# A segment exists for size only, and each segment costs a full request. A segment that had space does its
+# A segment exists for size only, and each segment costs a full request. A segment that had room does its
 # remaining work in a further round, and no segment follows it.
 def test_starts_no_further_segment_after_a_segment_that_still_had_room() -> None:
     client = FakeClient(

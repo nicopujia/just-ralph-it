@@ -120,7 +120,7 @@ STOP_NO_RUN = "No run is going, so nothing was asked to stop."
 THINKING_BLOCKS = "Thinking blocks"
 THINKING_BLOCKS_COMMAND = "Toggle model's chain-of-thought (reasoning) text blocks."
 TITLE = "Just Ralph It"
-# The header is a breadcrumb: the app name, then the project name.
+# The header shows the app name first and the project name after it. This mark divides the two names.
 TITLE_SEPARATOR = " / "
 TOOL_CALL_DETAILED = "{label} — {detail}"
 TOOL_CALL_EMPTY_SYMBOL = "○"

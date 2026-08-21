@@ -87,8 +87,10 @@ def test_reports_the_lock_a_holder_still_running_has(tmp_path: Path) -> None:
         assert Lock(path).is_held()
 
 
-# The operating system, not the holder, frees the lock of a process it ended, and Windows can take a moment
-# over it. Wait for it as `Hold.evict` does, rather than reading the lock one time and calling the wait a holder.
+# The operating system frees the lock of a process that it ended, and the holder does not.
+# Windows can need a short time to do it.
+# Wait for the lock as `Hold.evict` does.
+# A single read of the lock would find a holder that the kill already removed.
 def test_reports_no_holder_for_a_lock_a_killed_holder_left(tmp_path: Path) -> None:
     path = tmp_path / "lock"
 
@@ -104,7 +106,7 @@ def test_reports_no_holder_for_a_lock_a_killed_holder_left(tmp_path: Path) -> No
 
 def test_reports_no_holder_for_a_lock_nothing_ever_took(tmp_path: Path) -> None:
     assert not Lock(tmp_path / "lock").is_held()
-    # Checking a lock does not take the lock.
+    # The check above does not take the lock, so this process can still take it.
     assert take(tmp_path / "lock")
 
 
@@ -136,8 +138,8 @@ def test_hands_back_the_record_the_holder_wrote(tmp_path: Path) -> None:
 
     assert lock.take("12345")
 
-    # Read through an independent handle while the lock is held.
-    # This is how a second process reads the lock record.
+    # Read through an independent handle while this process holds the lock.
+    # A second process reads the lock record in this way.
     assert Lock(path).holder == "12345"
     lock.release()
 
@@ -162,10 +164,11 @@ def test_keeps_the_record_of_a_holder_that_let_the_lock_go(tmp_path: Path) -> No
 
     lock.release()
 
-    # The operating system frees the lock of a process that dies, and no code of that holder runs to erase its
-    # record. A record that a release erased would therefore promise what a kill can always break. The record stays,
-    # and a check of the lock keeps it, so a reader that wants the process holding the lock now must find the lock
-    # held and read the record under an exclusion of its own.
+    # The operating system frees the lock of a process that dies, and no code of that holder erases its record.
+    # A release that erased the record would thus make a promise that a kill can always break.
+    # The record stays, and a check of the lock keeps it.
+    # A reader that wants the process that holds the lock now must find the lock held.
+    # It must then read the record under an exclusion of its own.
     assert not Lock(path).is_held()
     assert Lock(path).holder == "12345"
 
@@ -184,8 +187,9 @@ def test_hands_back_no_record_from_a_write_that_stopped_halfway(
         halfway.setattr(os, "write", lambda descriptor, data: write(descriptor, data[: len(data) // 2]))
         assert second.take("4242")
 
-    # A record cut short still reads as a number, and whoever reads it would take it for the holder and end
-    # whatever process wears it. No record at all says only that the holder wrote none.
+    # A record that is cut short still reads as a number.
+    # A reader would take that number for the holder, and end the process that has it.
+    # No record at all tells the reader only that the holder wrote none.
     assert not Lock(path).holder
     second.release()
 
@@ -214,6 +218,7 @@ def test_keeps_a_lock_file_out_of_reach_of_the_other_users_of_the_machine(tmp_pa
     with Lock(path):
         pass
 
-    # Another user who can write this file can take the project away from JRI, or name any process it wants as
-    # the holder. Exclusion would then be settled outside the project.
+    # Another user that can write this file can take the project from JRI.
+    # That user can also name any process as the holder.
+    # A person outside the project would then control the exclusion.
     assert not stat.S_IMODE(path.stat().st_mode) & 0o077

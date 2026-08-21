@@ -9,13 +9,14 @@ from textual.widgets import Button, Static
 from jri.tui import copy, styles
 
 # The dialog gives this answer to its caller. The caller stops the run only for `stop`.
-# A boolean answer would read as a trap to the linter, both here and at the caller.
+# A boolean answer would cause a linter alert, both here and at the caller.
 type RunCancellationAnswer = Literal["stop", "keep"]
 
 
-# A run takes a long time, and a stop cannot be undone. Ask for an answer here instead of accepting a key press.
+# A run takes a long time, and JRI cannot undo a stop. Ask the user for an answer here.
+# Do not accept a key press as the answer.
 class RunCancellationDialog(ModalScreen[RunCancellationAnswer]):
-    # The app puts the focus on its message input, which is not on this screen. Give the answers the keys.
+    # The app puts the focus on its message input, which is not on this screen. Give the buttons the focus.
     AUTO_FOCUS = "Button"
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss('keep')", copy.RUN_CANCELLATION_DECLINE, show=False)

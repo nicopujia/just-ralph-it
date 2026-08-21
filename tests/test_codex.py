@@ -108,8 +108,9 @@ def test_refreshes_a_login_whose_expiry_cannot_be_read(
 @pytest.mark.parametrize(
     ("expires", "refreshes"), [(NOW + 30, 1), (NOW + 31, 0)], ids=["within-the-skew", "beyond-the-skew"]
 )
-# The check treats a token as expired 30 seconds early, so a request begun just before real expiry does not fail
-# mid-flight. Pin the exact boundary so a change to that skew does not go unnoticed.
+# JRI reads a token as expired 30 seconds before it expires.
+# A request that starts just before that time does not fail while it runs.
+# This test states the exact boundary, so a change to those 30 seconds fails it.
 def test_treats_a_login_about_to_expire_as_expired(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expires: int, refreshes: int
 ) -> None:
@@ -189,8 +190,8 @@ def test_retries_a_rejected_request_with_a_refreshed_login(tmp_path: Path, monke
 
     client.responses.with_raw_response.create(model="gpt-5.6-sol", input="Hello.")
 
-    # The backend rejects a request that names no account, so both attempts must carry the account id beside the
-    # token that the attempt uses.
+    # The provider rejects a request that names no account.
+    # Each attempt must send the account id beside the token that it uses.
     assert [(request.headers["Authorization"], request.headers["chatgpt-account-id"]) for request in requests] == [
         (f"Bearer {build_token(DISTANT_FUTURE)}", "account"),
         (f"Bearer {refreshed['access_token']}", "account"),
@@ -215,7 +216,8 @@ def test_adopts_the_login_a_sibling_process_refreshed(tmp_path: Path, monkeypatc
 
     client.responses.with_raw_response.create(model="gpt-5.6-sol", input="Hello.")
 
-    # A refresh token works once. Reusing the one a sibling already spent would get this process rejected too.
+    # A refresh token works one time only.
+    # The provider would also reject this process if it sent the token that a sibling spent.
     assert provider.calls == []
     assert requests[1].headers["Authorization"] == f"Bearer {sibling['access_token']}"
     assert json.loads((tmp_path / "auth.json").read_text())["tokens"] == {**sibling, "account_id": "account"}
@@ -295,8 +297,9 @@ def test_reports_a_login_a_sibling_process_replaced_with_a_malformed_one(
     with pytest.raises(codex.AuthError, match="is invalid"):
         retry_after_rejection(codex.Auth(ORIGINATOR), lambda: write_login(tmp_path, ["not", "an", "object"]))
 
-    # A refresh token works once. Spending it on a login that JRI then rejects leaves the user with a login that no
-    # refresh can repair, because the file still holds the token the provider has replaced.
+    # A refresh token works one time only.
+    # JRI must not spend it on a login that JRI then rejects.
+    # The file would keep the token that the provider replaced, and no refresh could repair that login.
     assert provider.calls == []
 
 
@@ -313,8 +316,9 @@ def test_reports_a_refresh_the_sibling_process_left_without_an_account(
     with pytest.raises(codex.AuthError, match="incomplete"):
         retry_after_rejection(codex.Auth(ORIGINATOR), lambda: write_login(tmp_path, sibling))
 
-    # The account id must gate the write. Without it, the freshly exchanged tokens would replace the sibling's
-    # record with an equally incomplete one, instead of leaving it for a later, valid refresh to fix.
+    # The account id must permit the write.
+    # Without it, JRI would replace the record of the sibling with new tokens that are also incomplete.
+    # JRI must leave that record for a later, valid refresh to repair.
     assert json.loads((tmp_path / "auth.json").read_text())["tokens"] == sibling
 
 
@@ -385,8 +389,9 @@ def test_stops_asking_for_a_login_after_a_second_rejection(tmp_path: Path, monke
     rejections = [httpx.codes.UNAUTHORIZED, httpx.codes.UNAUTHORIZED]
     client = build_client(tmp_path, monkeypatch, requests, statuses=rejections)
 
-    # The flow retries once, not forever, so an account whose login is actually broken fails fast instead of
-    # hammering the token endpoint.
+    # JRI retries one time only.
+    # An account with a login that is truly broken thus fails immediately.
+    # More retries would send many requests to the token endpoint and get nothing.
     with pytest.raises(openai.AuthenticationError, match="Error code: 401"):
         client.responses.with_raw_response.create(model="gpt-5.6-sol", input="Hello.")
 

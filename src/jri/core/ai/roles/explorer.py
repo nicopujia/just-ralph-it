@@ -45,16 +45,16 @@ class Explorer(Agent):
     # Each segment costs a full request. If ten segments do not answer the query, more segments do not answer
     # it either.
     MAX_SEGMENTS = 10
-    # A segment ends when its request is larger than this part of the input space. The remaining space holds the
+    # A segment ends when its request is larger than this part of the input room. The remaining room holds the
     # report and the reasoning that the model writes.
     INPUT_SHARE = 0.8
-    # The input space that a segment measures against when the catalog gives no limit for the model.
+    # The input room that a segment measures against when the catalog gives no limit for the model.
     FALLBACK_INPUT_ROOM = 100_000
     # A model that finds no tools can think that it lost them. Tell it that the segment is at its size limit.
     INPUT_LIMIT_RECORD = (
         "This request is at its size limit. No more tool output fits in this segment of the exploration."
     )
-    # No segment comes after the last one. Its own record tells the model that no more space follows.
+    # No segment comes after the last one. Its own record tells the model that no more room follows.
     FINAL_LIMIT_RECORD = (
         "This request is at its size limit, and this is the last segment of the exploration. "
         "No more tool output fits in it, and no segment follows it."
@@ -72,7 +72,7 @@ class Explorer(Agent):
             max_input_size=self.MAX_INPUT_SIZE,
             prompt=ai.prompts.read("explorer", working_directory=prompt.render(working_directory=str(directory))),
         )
-        # Do not advertise a capability that this run lacks.
+        # Do not offer a capability that this run does not have.
         # Each round builds its tool definitions from `tools`.
         if not settings.brave_search.api_key:
             self.tools = [capability for capability in self.tools if capability.name != "search_web"]
@@ -137,11 +137,11 @@ class Explorer(Agent):
             summaries.append(exploration.summary.strip() or prompt.truncate(exploration.report, self.SUMMARY_LENGTH))
             remaining = exploration.remaining
             # A segment follows only if JRI recorded the size limit and the model named remaining work. If the
-            # space was sufficient, a further round of the same segment does that work. A segment costs a full
+            # room was sufficient, a further round of the same segment does that work. A segment costs a full
             # request.
             if not self.at_input_limit or not remaining.strip():
                 break
-            # The segment that follows starts with space again. If it is the last segment, its record of the
+            # The segment that follows starts with room again. If it is the last segment, its record of the
             # size limit tells it so.
             self.at_input_limit = False
             self.final_segment = segment + 1 == self.MAX_SEGMENTS
@@ -221,7 +221,8 @@ class Explorer(Agent):
         symbol="📄",
         replayed=False,
     )
-    # The read row describes file paths as prose. Format only its label. Call this method with the model path list.
+    # The read row shows the file paths as prose, so the serializer formats the label only. Give this method the
+    # list of paths that the model sent.
     def read_files(
         self,
         paths: Annotated[list[str], PlainSerializer(files.describe_paths)],
@@ -325,7 +326,7 @@ class Explorer(Agent):
         return output
 
 
-# A segment ends because its request has no more space. The segment that follows gets the summaries and not
+# A segment ends because its request has no more room. The segment that follows gets the summaries and not
 # the reports, which are too large.
 def _render(query: str, summaries: list[str], remaining: str) -> str:
     return ai.prompts.read(
@@ -350,7 +351,7 @@ def _stamp_rows(
 
 def _stop_process_tree(pid: int) -> None:
     if sys.platform != "win32":
-        # A session leader PID is also its process-group ID. It identifies child processes after the shell exits.
+        # A session leader pid is also its process-group ID. It identifies child processes after the shell exits.
         with contextlib.suppress(ProcessLookupError):
             os.killpg(pid, signal.SIGKILL)
         return

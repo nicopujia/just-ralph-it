@@ -11,8 +11,8 @@ from tests.doubles.openai import FakeClient, call, reply, response, thought
 from tests.doubles.settings import build_settings
 from tests.doubles.specs import install_specifications
 
-# This is a first pass: the project holds no accepted baseline and no specifications,
-# so it receives no diff, no index, and no feedback.
+# This is a first pass. The project holds no accepted baseline and no specifications.
+# The pass receives no diff, no index, and no feedback.
 BEHAVIOR = File(path="functional/behavior.md", content="# Behavior\n", summary="How the product behaves.")
 CONTEXT = functional_analyst.Input(notebook="Deploy from the main branch.")
 SPECIFICATIONS = functional_analyst.Specifications(deleted_paths=[], unresolved=[])
@@ -41,7 +41,8 @@ def write(
     return drain(analyst.write(context, Event()))
 
 
-# The files of a pass go out in calls of their own, so what it returns is what stands outside them.
+# A pass writes its files in calls of its own.
+# The value that it returns holds only what those calls do not carry.
 def test_returns_the_removals_and_questions_a_pass_leaves_beside_its_files(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -51,8 +52,9 @@ def test_returns_the_removals_and_questions_a_pass_leaves_beside_its_files(
     assert write(build_analyst(client, tmp_path), CONTEXT)[1] == SPECIFICATIONS
 
 
-# Each set of rules speaks about input. A first pass has no notebook diff, no specification index, and no round to
-# answer, so every set would describe what the pass never receives.
+# Each set of rules tells the model about an input.
+# A first pass has no notebook diff, no specification index, and no round to answer.
+# Each set would thus describe an input that the pass does not receive.
 def test_keeps_the_diff_index_and_feedback_rules_out_of_a_first_pass(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -112,8 +114,9 @@ def test_sends_the_feedback_rules_with_the_feedback_they_speak_about(
     assert functional_analyst.FunctionalAnalyst.FEEDBACK_PROMPT in read_instructions(client)
 
 
-# JRI can put a record where a written body stood, and that record tells the model to read the file back with a
-# tool. The instructions must name the same tool, or the model reads the record as the file itself.
+# JRI can replace a written body with a record, and that record tells the model to read the file with a tool.
+# The instructions must name the same tool.
+# If they name a different tool, the model reads the record as the file itself.
 def test_names_the_tool_that_reads_a_functional_body_back(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     client = FakeClient([], parsed=[SPECIFICATIONS])
@@ -137,8 +140,8 @@ def test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote(
     assert result == SPECIFICATIONS
 
 
-# The files and the questions travel together, so a pass reports both without choosing between them.
-# Answer with the model's own JSON, because the schema that reads it is where the two could become alternatives.
+# A pass reports its files and its questions together, and it does not select one of the two.
+# The test answers with the JSON of the model, because the schema that reads that JSON could make them alternatives.
 def test_reports_the_questions_beside_the_specifications_it_wrote(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -196,8 +199,9 @@ def test_revises_the_specifications_as_they_stand_against_the_architect_feedback
     assert "<architect_feedback>\n  - Undefined totals." in request
 
 
-# The index carries only a summary. A pass that judges a file relevant reads its full body with the tool instead
-# of guessing it from the summary alone.
+# The index carries only a summary.
+# A pass that finds a file relevant reads the full body of that file with the tool.
+# It does not guess that body from the summary.
 def test_reads_the_full_body_of_a_specification_it_judges_relevant(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:

@@ -54,8 +54,8 @@ def test_keeps_output_of_exactly_the_maximum_length() -> None:
     assert invocation.output == "x" * Invocation.MAX_OUTPUT_LENGTH
 
 
-# A cut that leaves the quoted block open would place the truncation notice, JRI's own words, inside untrusted tool
-# output. The model could then read injected text in that output as text JRI wrote.
+# If a cut leaves the quoted block open, JRI puts its own notice about the cut inside untrusted tool output. The
+# model can then read text that an attacker put in that output as text that JRI wrote.
 def test_ends_the_block_a_cut_output_leaves_open() -> None:
     quoted = prompt.render(content=f"{FORGED_TAG}\n" + "x" * Invocation.MAX_OUTPUT_LENGTH)
 
@@ -153,7 +153,7 @@ def test_reports_invalid_arguments_to_the_model() -> None:
     list(invocation)
 
     assert invocation.outcome == "failed"
-    # The model corrects its own call from this text alone, so it must name what the argument needed.
+    # The model corrects its own call from this text alone, thus the text must name what the argument needs.
     assert invocation.output == "<tool_call_failed>\nInput should be a valid string.\n</tool_call_failed>"
 
 
@@ -202,7 +202,7 @@ def test_reports_the_reason_a_call_failed() -> None:
 
     list(invocation)
 
-    # A row shows this detail on one line. An error message of unbounded length would overflow it.
+    # A row shows this detail on one line. An error message with no limit on its length does not fit in a line.
     assert invocation.detail == "x" * 120
     assert cast("str", invocation.output).startswith("partial: x\n\n<tool_call_failed>")
 
@@ -216,7 +216,7 @@ def test_reports_an_output_that_says_nothing_as_empty() -> None:
     assert invocation.output == "nothing found: one"
 
 
-# `replace` would raise here: `ReasoningDelta` carries no `depth` field, unlike the other events a call can yield.
+# `replace` fails here, because `ReasoningDelta` has no `depth` field. The other events of a call have one.
 def test_carries_a_sub_agent_thought_without_failing_the_call() -> None:
     invocation = build_tool("think_aloud").invoke('{"text": "one"}')
 
@@ -256,7 +256,7 @@ def test_skips_a_tool_that_is_not_replayed() -> None:
     assert toolbox.recorded == ["two"]
 
 
-# Replay has no model to read the rendered failure text `invoke` would produce, so it must raise the reason instead.
+# A replay has no model that can read the failure text of `invoke`. A replay raises the reason instead.
 def test_reports_a_replayed_call_that_could_not_be_made_again() -> None:
     tools = build_tools(Toolbox())
 
@@ -295,7 +295,8 @@ def test_offers_the_model_a_tool_that_takes_every_argument() -> None:
     }
 
 
-# A strict schema demands every argument. A tool whose arguments the model can omit asks for a loose schema instead.
+# A strict schema makes the model give every argument. A tool that lets the model omit an argument needs a loose
+# schema.
 def test_offers_the_model_a_loose_tool_that_takes_the_arguments_it_wants() -> None:
     assert build_tool("scan").definition == {
         "type": "function",

@@ -18,7 +18,7 @@ from .repository import ACCEPTANCE_TRAILER, Repository
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-# A PID is a 32-bit number on both platforms. A larger value identifies no process and is not a JRI record.
+# A pid is a 32-bit number on both platforms. A larger value identifies no process and is not a JRI record.
 MAX_PID = 2**31 - 1
 
 logger = logging.getLogger(__name__)
@@ -26,9 +26,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Workspace:
-    # These are the workspace files that stay out of Git. An installation writes them all before it commits.
+    # These are the workspace files that stay out of Git. JRI writes all these rules before it commits.
     # A chat and a run then find each rule already there, and no clone gets this file with a rule missing.
-    # A rooted name applies only to the file below the workspace, not to a same-named file in a specification tree.
+    # A rooted name applies only to the file below the workspace.
+    # It does not apply to a file with the same name in a specification tree.
     # A slash ends a directory name.
     WORKSPACE_IGNORES: ClassVar[tuple[str, ...]] = (
         Path(paths.SESSION_FILE).name,
@@ -99,9 +100,9 @@ class Workspace:
     def draft_file(self) -> Path:
         return self.root / paths.DRAFT_FILE
 
-    # A draft states its base. Each resumed run validates that claim with Git before it uses the draft.
-    # Refuse a draft that cannot be removed. Report a failed removal instead of raising it.
-    # Otherwise, a stopped run could force the user to delete a file that JRI created.
+    # A draft states its base. Each run that resumes validates that claim with Git before it uses the draft.
+    # Refuse a draft that JRI cannot remove. Write that failure to the log instead of raising an error.
+    # If JRI raised an error, a run that stopped could force the user to delete a file that JRI made.
     def drop_draft(self) -> None:
         try:
             self.draft_file.unlink(missing_ok=True)
@@ -128,16 +129,17 @@ class Workspace:
         self._ignore()
         return self.root / paths.WORKTREE_DIR
 
-    # Return a reset only after every refusal check passes. Check both conditions before return.
+    # Return a reset only after every refusal check passes. Make both checks before you return.
     # A `--force` warning then appears only when JRI can perform the reset.
 
-    # A reset can remove data written by two live processes. The window writes notes, session, and logs.
+    # A reset can remove data that two live processes wrote. The window writes notes, session, and logs.
     # A separate runner writes the run directory. Take the project hold and check the runner lock.
-    # Removing that directory from a live runner would let the next run start beside it on a separate inode.
+    # If JRI removed that directory from a live runner, the next run would start beside it on a separate inode.
 
     # Hold the project while the caller owns this reset.
     # Another window cannot start, and a runner starts only under this hold.
-    # The checks cannot change from no to yes while held. A run that ends then only reduces data at risk.
+    # While JRI holds the project, the checks cannot change from no to yes.
+    # A run that ends then only decreases the data at risk.
     @contextmanager
     def open_reset(self) -> "Generator[Reset]":
         generation_lock = self.root / paths.GENERATION_LOCK_FILE
@@ -150,7 +152,7 @@ class Workspace:
             )
         try:
             # A missing lock file has no holder.
-            # Taking it to check would recreate the run directory before this reset removes it.
+            # A check that took the lock would make the run directory again before this reset removes it.
             if generation_lock.exists() and Lock(generation_lock).is_held():
                 raise PersistenceError(
                     "A Just Ralph It run is still going in this project, in a process of its own. A reset takes "
@@ -161,10 +163,10 @@ class Workspace:
         finally:
             hold.release()
 
-    # Receive rendered settings instead of loading `Settings`.
-    # Finding a workspace never depends on settings loading.
+    # Receive rendered settings. Do not load `Settings` here.
+    # JRI must find a workspace even when it cannot load the settings.
     # A reset requires a `Reset` from `open_reset` under the project hold.
-    # A caller cannot request deletion with a flag alone.
+    # A caller cannot ask JRI to delete files with a flag alone.
     def install(self, settings: str, *, reset: "Reset | None" = None) -> "Installation":
         repository_created = git.find_root(self.root) is None
         repository = Repository.init(self.root)
@@ -191,24 +193,26 @@ class Workspace:
     # Commit what the installation wrote. The project then holds its settings, notes, and ignore rules from its
     # first commit, and a clone gets the same workspace.
     # Name the paths. The commit holds no user work, staged or not, and it changes none.
-    # Git refuses a partial commit during a merge or a cherry-pick, and a commit off a branch stays reachable only
-    # from a detached HEAD. Leave the files in the worktree in both states. The user commits them after that work.
+    # Git refuses a partial commit during a merge or a cherry-pick.
+    # A commit that JRI makes outside a branch stays reachable only from a detached HEAD.
+    # Leave the files in the worktree in both states. The user commits them after that work.
     def _commit(self, repository: Repository, *, reset: bool) -> str | None:
         if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
             logger.info("installation_uncommitted")
             return None
-        # A workspace can sit under the repository root. Git reads a pathspec from that root.
+        # A workspace can be below the repository root. Git reads a pathspec from that root.
         prefix = self.root.resolve().relative_to(repository.path)
         installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
-        # A reset removes the specifications of the project it replaces from the disk. Git still holds them and the
-        # commit that accepted them, so commit the removal and accept an empty tree. Without both, the first run stops.
+        # A reset removes from the disk the specifications of the project that it replaces.
+        # Git still holds those specifications and the commit that accepted them.
+        # Commit the removal and accept an empty tree. Without both, the first run stops.
         removed = repository.read_staged_paths(((prefix / paths.SPECS_DIR).as_posix(),)) if reset else ()
         committed = (*installed, *removed)
         trailers = (ACCEPTANCE_TRAILER,) if reset else ()
         try:
             # Stage intent only, because Git commits a named path only after the index knows it.
             # Force it, because a project can ignore `.jri`. JRI keeps its workspace in Git anyway.
-            # A removed path is already tracked, so it needs no staging.
+            # A removed path is already tracked, so JRI does not stage it.
             repository.stage(installed, intent_to_add=True, force=True)
             # A second installation of an unchanged workspace has nothing to commit.
             # Git reports that state as a failure.
@@ -216,7 +220,8 @@ class Workspace:
                 return None
             commit = repository.commit("jri: initialize project", trailers=trailers, paths=committed)
         # A project hook can refuse this commit, and Git can fail for a reason outside JRI.
-        # The workspace is written and ready, so report the commit that did not happen instead of ending on it.
+        # JRI wrote the workspace and it is ready.
+        # Report the commit that did not occur instead of raising an error.
         except git.Error:
             logger.exception("installation_commit_failed")
             return None
@@ -228,9 +233,11 @@ class Workspace:
     def _reset_paths(self) -> tuple[Path, ...]:
         return tuple(self.root / path for path in paths.RESET_PATHS)
 
-    # A run worktree holds the files Git writes read-only, and Windows refuses to remove one. Remove a directory
-    # through `files`, which clears that attribute. A path that still will not go stays, and the reset goes on:
-    # the workspace the user asked for is written, and nothing here removes what another process can hold.
+    # A run worktree holds the files that Git writes read-only, and Windows refuses to remove such a file.
+    # Remove a directory through `files`, which clears that attribute.
+    # If JRI still cannot remove a path, leave that path and continue the reset.
+    # JRI then writes the workspace that the user asked for.
+    # Nothing here removes a file that another process can hold.
     def _clear(self) -> None:
         for path in self._reset_paths:
             if path.is_dir():
@@ -238,9 +245,9 @@ class Workspace:
             else:
                 path.unlink(missing_ok=True)
 
-    # Read and add rules on every call. An existing file can lose a rule after replacement.
-    # JRI commits this file, so Git reports a missing rule.
-    # A rule inside the hidden directory would hide its own absence.
+    # Read and add the rules on every call. An existing file can lose a rule when a user replaces it.
+    # JRI commits the project `.gitignore`, so Git reports a rule that goes missing.
+    # A `.gitignore` inside the hidden directory would be ignored itself, and nothing would report the loss.
     def _ignore(self) -> None:
         content = self.gitignore_file.read_text(encoding="utf-8") if self.gitignore_file.exists() else ""
         missing = [pattern for pattern in self.WORKSPACE_IGNORES if pattern not in content.splitlines()]
@@ -258,7 +265,7 @@ class Installation:
     commit: str | None
 
 
-# This is a reset that JRI can perform and the paths it replaces at check time.
+# This is a reset that JRI can perform. It holds the paths that it replaces, as they were at the time of the check.
 # Only `Workspace.open_reset` creates it under the project hold. Its caller has passed both refusal checks.
 @dataclass(frozen=True)
 class Reset:
@@ -266,16 +273,17 @@ class Reset:
 
 
 class Hold:
-    # Hold the claim across lock acquisition and holder recording.
-    # A claim held longer than this cannot be waited out here.
+    # Hold the claim while JRI takes the lock and writes the holder.
+    # JRI does not wait here for another process that holds the claim longer than this time.
     CLAIMED_WITHIN = 1.0
-    # A nonresponsive window can still hold the project.
-    # A takeover waits for the operating system to release a dead process lock.
+    # A window that does not answer can still hold the project.
+    # JRI waits this long for the operating system to release the lock of a process that ended.
     FREED_WITHIN = 5.0
-    # The operating system frees the lock of a window it ended, and Windows takes a moment over it. That lock
-    # still records the window that left, and the operating system can already have given its number to another
-    # process. A lock still held after this long has a window behind it, and a signal reaches that window.
-    # Keep this below `FREED_WITHIN`, which the signal needs the rest of to work.
+    # The operating system frees the lock of a window that it ended, and Windows needs a short time to do it.
+    # That lock still records the window that left.
+    # The operating system can also have given the number of that window to another process.
+    # A process that still holds the lock after this time is a live window, and a signal reaches it.
+    # Keep this value below `FREED_WITHIN`, because the signal needs the remaining time to work.
     SIGNALLED_AFTER = 1.0
     POLL = 0.05
 
@@ -284,34 +292,38 @@ class Hold:
         self.claim = Lock(workspace.root / paths.CLAIM_FILE)
         self.holder: int | None = None
 
-    # This states which process holds the project now, and nothing when no process holds it.
-    # The record alone is not the answer: only the operating system says whether a holder is alive, and the record
-    # stays after its window has left. Take the lock to find that out, and release a lock that this call takes.
-    # A project without a lock file has no window, and finding that out must not make one.
+    # This states which process holds the project now. It states nothing when no process holds it.
+    # The record alone is not the answer. Only the operating system says if a holder is alive.
+    # The record also stays after its window left.
+    # Take the lock to find this out, and release a lock that this call takes.
+    # A project without a lock file has no window, and this check must not make a lock file.
     def find_holder(self) -> int | None:
         if not self.lock.path.exists():
             return None
-        # Take the lock with no record of this process. A reader answers what stands here, and it must leave the
-        # record for the window that takes the project next.
+        # Take the lock, but write no record of this process.
+        # A reader only tells what holds the project now.
+        # It must leave the record for the window that takes the project next.
         if self._take(""):
             self.release()
             return None
         return self.holder
 
-    # This states whether this process holds the project. When it does not, it records the holding JRI PID.
-    # The lock proves that the holder is running because the operating system releases it at exit.
-    # The lock record identifies the process and is read under its claim.
+    # This states if this process holds the project. If it does not, this records the pid of the JRI that holds it.
+    # The lock proves that the holder is running, because the operating system releases the lock at exit.
+    # The lock record identifies the process, and JRI reads that record under the claim.
     def take(self) -> bool:
         return self._take(str(os.getpid()))
 
-    # Kill the other window instead of asking it to close. A nonresponsive window cannot process the request.
-    # A free lock, not a sent signal, proves that the operating system ended the process.
+    # Kill the other window. Do not ask it to close, because a window that does not answer cannot obey.
+    # A free lock proves that the operating system ended the process. A signal that JRI sent does not prove it.
     def evict(self) -> bool:
         signalled: int | None = None
         started = time.monotonic()
         deadline = started + self.FREED_WITHIN
-        # Signal the PID read under the current claim, not a PID read before the user chose eviction.
-        # A PID can be reused when its process exits. Signal only the process holding the project now.
+        # Signal the pid that JRI reads under the current claim.
+        # Do not signal a pid that JRI read before the user chose to evict the window.
+        # The operating system can give a pid to another process after the first process exits.
+        # Signal only the process that holds the project now.
         while not self.take():
             holder = self.holder
             if signalled is None and holder is not None and time.monotonic() - started >= self.SIGNALLED_AFTER:
@@ -321,7 +333,8 @@ class Hold:
                     # Its runner uses another session, and the user terminal uses this session.
                     os.kill(holder, signal.SIGTERM)
                 except OSError:
-                    # A window can exit between the lock read and this signal. It then requires no further termination.
+                    # A window can exit between the moment JRI reads the lock and the moment it sends this signal.
+                    # JRI then does not have to end that window.
                     logger.exception("hold_kill_failed holder=%d", holder)
                 signalled = holder
             if time.monotonic() >= deadline:

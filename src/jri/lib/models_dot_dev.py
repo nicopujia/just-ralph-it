@@ -11,9 +11,9 @@ ENDPOINT = "https://models.dev/models.json"
 logger = logging.getLogger(__name__)
 
 
-# This is the room a request has. A catalog entry states it, or states the window and the largest answer that a
-# model can write into it, which leaves the rest of the window to the request. An entry whose answer fills the
-# whole window leaves the request nothing, and it says as little about the model as an entry JRI cannot read.
+# The room is the part of a model window that one request can use. A catalog entry states the room, or states
+# the window and the largest answer, which leaves the rest as room. An answer that fills the whole window leaves
+# no room. JRI uses the fallback for such an entry, and for an entry it cannot read.
 def get_input_room(model: str, fallback: int) -> int:
     limits = _get_limits(model)
     room = limits.get("input")
@@ -36,9 +36,10 @@ def get_limit(model: str, fallback: int | None = None) -> int | None:
     return fallback if published is None else published
 
 
-# Cache every limit of a model together, and not one limit at a time: a caller reads several of them for one
-# answer, and a catalog it reads one at a time is a catalog it fetches once for each. The caller owns the
-# fallback. `cache` does not store exceptions. JRI retries a failed catalog read on the next call.
+# Cache all the limits of a model together, and not one limit at a time. A caller reads several limits for one
+# answer. A cache of one limit fetches the catalog again for each other limit. The caller holds the fallback,
+# so this function does not cache it. `cache` does not store an exception. JRI reads the catalog again on the
+# next call after a failure.
 @cache
 def read_limits(model: str) -> dict[str, int]:
     catalog = _fetch_catalog()

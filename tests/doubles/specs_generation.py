@@ -74,8 +74,8 @@ def generate_streaming(_settings: "Settings", _cancelled: Event | None = None) -
     return COMMIT
 
 
-# A run spends most of its minutes in a model call that says nothing. A stop must reach the run there, and not at
-# the next thing that the run writes down.
+# A run spends most of its time in a model call that sends nothing. A stop must reach the run during that call,
+# and not at the next event that the run writes.
 def generate_silently(_settings: "Settings", cancelled: Event | None = None) -> Generator[object, None, str | None]:
     assert cancelled is not None
     assert cancelled.wait(STOPS_WITHIN), "the stop never reached the run"
@@ -83,9 +83,9 @@ def generate_silently(_settings: "Settings", cancelled: Event | None = None) -> 
     yield
 
 
-# The workflow answers a stop with no result at all. A run in a process of its own hears about a stop only after the
-# file that the follower writes reaches its watcher. This double waits for the stop. A test of the flag at this
-# point would find no stop, because no stop could have arrived yet.
+# The workflow answers a stop with no result at all. A run in a process of its own learns of a stop only after
+# the watcher reads the file that the follower writes. This double waits for the stop. A test that reads the flag
+# at this point would find no stop, because the stop cannot have arrived yet.
 def generate_stopped(_settings: "Settings", cancelled: Event | None = None) -> Generator[object, None, str | None]:
     yield STARTED_ROW
     assert cancelled is not None
