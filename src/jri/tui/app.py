@@ -11,6 +11,7 @@ from textual.app import ComposeResult, SystemCommand
 from textual.binding import ActiveBinding, Binding, BindingType
 from textual.command import CommandPalette as TextualCommandPalette
 from textual.containers import Container, Horizontal, Vertical
+from textual.content import Content
 from textual.reactive import Reactive
 from textual.screen import Screen as TextualScreen
 from textual.theme import Theme
@@ -147,6 +148,8 @@ class App(TextualApp[None]):
     def __init__(self, conversation: Conversation) -> None:
         super().__init__()
         self.conversation = conversation
+        # The header paints after this method, thus it shows the project name from its first paint.
+        self._sync_project_name()
         # Set this event when the window closes. It signals a run that continues after the window.
         self.detached = Event()
         self.restored_turns = conversation.restore()
@@ -188,6 +191,12 @@ class App(TextualApp[None]):
         yield self.input_box
         yield self.shortcut_hints
         yield self.footer
+
+    # Textual dims the second half of the title and joins with an em dash. The project name is the half that
+    # the reader looks for, thus dim the app name and its separator instead.
+    @override
+    def format_title(self, title: str, sub_title: str) -> Content:
+        return Content.assemble((f"{title}{copy.TITLE_SEPARATOR}", "dim"), Content(sub_title))
 
     @override
     def get_default_screen(self) -> Screen:
@@ -424,6 +433,8 @@ class App(TextualApp[None]):
             if isinstance(self.screen, RunCancellationDialog):
                 self.screen.dismiss("keep")
         self._follow_bottom(turn_state)
+        # A turn that failed puts the notebook back as it was, and with it the project name.
+        self._sync_project_name()
         self.active_turn_state = None
         App.ALLOW_SELECT = True
         await self._sync_ralph_button()
@@ -481,6 +492,8 @@ class App(TextualApp[None]):
                 await self._render_tool_call_started(turn_state, agent_event)
             case ToolCallFinished():
                 await self._render_tool_call_finished(turn_state, agent_event)
+        # The interviewer can rename the project during a turn.
+        self._sync_project_name()
         self._follow_bottom(turn_state)
 
     async def _render_interviewer_status(self, turn_state: InterviewerTurnState, content: str, classes: str) -> None:
@@ -709,6 +722,8 @@ class App(TextualApp[None]):
                 self.notify(str(error), severity="error", markup=False)
                 await self._sync_ralph_button()
                 return
+            # The rewind puts the notebook back as it was, and with it the project name.
+            self._sync_project_name()
             await self._remove_turns(history_index)
             self.restored_turns = self.restored_turns[:history_index]
             self.restored_turn_index = min(self.restored_turn_index, history_index)
@@ -754,6 +769,9 @@ class App(TextualApp[None]):
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
         self._run_turn(self.conversation.ralph(turn_state.cancelled, self.detached), turn_state)
+
+    def _sync_project_name(self) -> None:
+        self.sub_title = self.conversation.notebook.initial_topic.name
 
     async def _sync_ralph_button(self) -> None:
         if self.ralph_button.is_mounted:
