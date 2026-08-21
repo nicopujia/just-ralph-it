@@ -5,7 +5,7 @@ from threading import Event
 from typing import TYPE_CHECKING, ClassVar, TypeVar, cast
 
 from openai import OpenAI
-from openai.types.responses import ResponseInputParam
+from openai.types.responses import FunctionToolParam, ResponseInputParam
 from pydantic import BaseModel
 
 from jri.core import ai
@@ -25,9 +25,13 @@ Result = TypeVar("Result", bound=BaseModel)
 
 @dataclass(kw_only=True)
 class Agent:
-    MAX_ROUNDS: ClassVar[int] = 50
+    MAX_ROUNDS: ClassVar[int] = 100
+    # The room a request has when the catalog states none for the model. Two roles measure the same room.
+    FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
     # A stopped reply ends where the user stopped it. Record the stop, because the text alone reads as a full reply.
     CANCELLATION_RECORD: ClassVar[str] = "User stopped last reply. Items before this message are all that happened."
+    # The last round carries no tools. Record that, because a model with no tools reads them as lost, not as spent.
+    EXHAUSTION_RECORD: ClassVar[str] = "Response rounds are spent. No tool is available for the rest of this reply."
 
     prompt: InitVar[str]
     initial_context: InitVar[ResponseInputParam | None] = None
@@ -41,9 +45,12 @@ class Agent:
     history: ResponseInputParam = field(init=False)
     runner: "ai.LLMRunner" = field(init=False)
     failed_call_ids: list[str] = field(init=False, default_factory=list)
+    output_summaries: dict[str, str] = field(init=False, default_factory=dict)
+    remaining_rounds: int = field(init=False)
 
     def __post_init__(self, prompt: str, initial_context: ResponseInputParam | None) -> None:
         self.tools = Tool.discover(self)
+        self.remaining_rounds = self.MAX_ROUNDS
         self.runner = ai.LLMRunner(
             client=self.client,
             model=self.profile.model,
@@ -70,11 +77,12 @@ class Agent:
     def respond(self, cancelled: Event | None = None) -> Generator["ai.AgentEvent"]:
         cancelled = cancelled or Event()
         logger.info("message_started agent=%s model=%s", type(self).__name__, self.profile.model)
+        # A reply gets the whole budget. Only a job of many `parse` calls shares one.
+        self.remaining_rounds = self.MAX_ROUNDS
 
-        tool_definitions = [tool.definition for tool in self.get_tools()]
-
-        for _ in range(self.MAX_ROUNDS):
+        while True:
             partial_text: list[str] = []
+            tool_definitions = self._spend_round()
             context = self.get_context()
             logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(context))
             response = self.runner.respond(context, tool_definitions)
@@ -106,7 +114,11 @@ class Agent:
             if cancelled.is_set():
                 self._record_cancellation()
                 return
-        raise ModelError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
+            # The round that spends the budget is the last one, whatever the model answered with. Each further
+            # round is one more request the user pays for.
+            if not self.remaining_rounds:
+                logger.info("message_finished agent=%s", type(self).__name__)
+                return
 
     # A structured-output sibling to `respond`, for an agent that must both call tools and return a typed result.
     # Each call starts a fresh turn from the system prompt alone, discarding any history from an earlier call.
@@ -119,9 +131,8 @@ class Agent:
         self.history.append({"role": "user", "content": message})
         logger.info("parse_started agent=%s model=%s", type(self).__name__, self.profile.model)
 
-        tool_definitions = [tool.definition for tool in self.get_tools()]
-
-        for _ in range(self.MAX_ROUNDS):
+        while True:
+            tool_definitions = self._spend_round()
             context = self.get_context()
             logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(context))
             result = yield from self.runner.parse(context, output_type, cancelled, tools=tool_definitions)
@@ -143,12 +154,25 @@ class Agent:
             if cancelled.is_set():
                 self._record_cancellation()
                 return None
-        raise ModelError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
+            # The round that spends the budget is the last chance at a result. A result never came, so the turn
+            # failed. `None` is the answer for a stopped run alone.
+            if not self.remaining_rounds:
+                raise ModelError(f"Agent spent all {self.MAX_ROUNDS} response rounds without a result.")
 
     # A history item states what happened, not what to do next. The prompt owns what the agent does with a stop.
     def _record_cancellation(self) -> None:
         self.history.append({"role": "system", "content": self.CANCELLATION_RECORD})
         logger.info("message_cancelled agent=%s", type(self).__name__)
+
+    # A round costs one round of the budget. The round that spends it carries no tools, so the agent has nothing left
+    # to do but answer with what it has. Read the tools each round, because a round can take them away.
+    def _spend_round(self) -> list[FunctionToolParam]:
+        self.remaining_rounds = max(self.remaining_rounds - 1, 0)
+        if self.remaining_rounds:
+            return [tool.definition for tool in self.get_tools()]
+        self.history.append({"role": "system", "content": self.EXHAUSTION_RECORD})
+        logger.info("rounds_spent agent=%s", type(self).__name__)
+        return []
 
     def _invoke(
         self, output: dict[str, object], cancelled: Event
@@ -181,6 +205,8 @@ class Agent:
                 break
         if invocation.outcome == "failed":
             self.failed_call_ids.append(call_id)
+        if invocation.summary:
+            self.output_summaries[call_id] = invocation.summary
         self.history.append({"type": "function_call_output", "call_id": call_id, "output": invocation.output})
         if opened:
             yield ai.ToolCallFinished(

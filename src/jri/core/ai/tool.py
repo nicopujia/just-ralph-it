@@ -44,6 +44,8 @@ def tool(
 class ToolOutput:
     value: str | ResponseFunctionCallOutputItemListParam
     outcome: "ai.Outcome" = "done"
+    # A short stand-in a tool offers for its own output, for a reader that cannot hold the whole of it.
+    summary: str = ""
 
 
 class Invocation:
@@ -59,6 +61,7 @@ class Invocation:
         self.stream = output if isinstance(output, Iterator) else iter((ToolOutput(output),))
         self._failed = failed
         self._detail = detail
+        self._summary = ""
         self._outcome: ai.Outcome = "done"
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
@@ -84,6 +87,7 @@ class Invocation:
             if isinstance(item, ToolOutput):
                 self._output = item.value
                 self._outcome = item.outcome
+                self._summary = item.summary
                 logger.debug("stream_output output=%r", item.value)
             # A thought is sub-agent reasoning, not a call step. It has no row or depth.
             # Adding depth raises here and reports a working call as failed.
@@ -97,6 +101,10 @@ class Invocation:
     def detail(self) -> str:
         # Get the reason from the exception, not rendered output. Rendered output is quoted in a block.
         return self._detail.partition("\n")[0][: self.MAX_DETAIL_LENGTH]
+
+    @property
+    def summary(self) -> str:
+        return self._summary
 
     @property
     def outcome(self) -> "ai.Outcome":

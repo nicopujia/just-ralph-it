@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from jri.core.ai import Agent, ToolCallFinished, ToolCallStarted, ToolOutput, tool
 from jri.core.exceptions import ModelError
 from jri.core.settings import AgentProfile
+from tests.doubles.agents import drain
 from tests.doubles.openai import FakeClient, Round, call, partial_reply, reply, response
 
 if TYPE_CHECKING:
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
 # This is the round limit the agent applies.
 # Write it here too: a test that reads the constant accepts every change to the constant.
-MAX_ROUNDS = 50
+MAX_ROUNDS = 100
 
 
 def build_agent(rounds: Iterable[Round]) -> "ToolAgent":
@@ -25,6 +26,10 @@ def build_agent(rounds: Iterable[Round]) -> "ToolAgent":
 
 def read_outputs(agent: Agent) -> list[object]:
     return [item["output"] for item in cast("list[dict[str, object]]", agent.history) if "output" in item]
+
+
+def repeat_calls(count: int) -> list[Round]:
+    return [response(call(f"call-{index}", "echo", text="again")) for index in range(count)]
 
 
 def test_resumes_the_tool_loop_until_the_model_replies_with_text() -> None:
@@ -40,23 +45,73 @@ def test_resumes_the_tool_loop_until_the_model_replies_with_text() -> None:
     assert read_outputs(agent) == ["echo: one", "echo: two"]
 
 
-def test_stops_a_tool_loop_that_never_replies() -> None:
-    client = FakeClient(response(call(f"call-{index}", "echo", text="again")) for index in range(MAX_ROUNDS + 1))
-    agent = ToolAgent(cast("OpenAI", client))
+# A model that keeps calling tools spends the rounds. It then answers with what it has, instead of losing the turn.
+def test_answers_with_what_it_has_when_the_rounds_run_out() -> None:
+    agent = build_agent([*repeat_calls(MAX_ROUNDS - 1), response(reply("Done."))])
 
-    with pytest.raises(ModelError, match=f"limit of {MAX_ROUNDS} response rounds"):
-        list(agent.send_message("Go."))
+    list(agent.send_message("Go."))
 
-    assert len(client.responses.inputs) == MAX_ROUNDS
+    history = cast("list[dict[str, object]]", agent.history)
+    assert history[-2] == {"role": "system", "content": Agent.EXHAUSTION_RECORD}
+    assert history[-1] == reply("Done.")
 
 
-# A structured run has no text round to end on, so only this limit can stop a model that keeps calling tools.
-def test_stops_a_parsing_tool_loop_that_never_returns_a_result() -> None:
-    rounds = [response(call(f"call-{index}", "echo", text="again")) for index in range(MAX_ROUNDS + 1)]
-    agent = ToolAgent(cast("OpenAI", FakeClient([], parsed=rounds)))
+# The round that spends the budget is the last round, whatever the model answers with. Each further round is one
+# more request the user pays for.
+def test_ends_the_reply_when_the_rounds_run_out_on_a_tool_call() -> None:
+    agent = build_agent(repeat_calls(MAX_ROUNDS))
 
-    with pytest.raises(ModelError, match=f"limit of {MAX_ROUNDS} response rounds"):
-        list(agent.parse("Go.", Answer))
+    list(agent.send_message("Go."))
+
+    record = {"role": "system", "content": Agent.EXHAUSTION_RECORD}
+    assert agent.calls == ["again"] * MAX_ROUNDS
+    assert [item for item in agent.history if item == record] == [record]
+
+
+# A structured run has no text round to end on. A model that keeps calling tools to the last round leaves the turn
+# without its result, and a failure says so. A missing result would read as a stop.
+def test_fails_a_parse_that_spends_the_rounds_without_a_result() -> None:
+    agent = ToolAgent(cast("OpenAI", FakeClient([], parsed=repeat_calls(MAX_ROUNDS))))
+
+    with pytest.raises(ModelError, match=f"spent all {MAX_ROUNDS} response rounds without a result"):
+        drain(agent.parse("Go.", Answer))
+
+    assert agent.calls == ["again"] * MAX_ROUNDS
+
+
+# One job runs many `parse` calls, one for each segment of its work. They share one budget, so the job as a whole
+# has an end.
+def test_shares_one_round_budget_across_the_parse_calls_of_a_job() -> None:
+    parsed = [*repeat_calls(MAX_ROUNDS - 1), Answer(text="first"), Answer(text="second")]
+    agent = ToolAgent(cast("OpenAI", FakeClient([], parsed=parsed)))
+
+    drain(agent.parse("Go.", Answer))
+    result = drain(agent.parse("Again.", Answer))[1]
+
+    assert result == Answer(text="second")
+    assert cast("list[dict[str, object]]", agent.history)[-1] == {"role": "system", "content": Agent.EXHAUSTION_RECORD}
+
+
+# A reply that spent every round leaves the next reply the whole budget again, so it starts with its tools.
+def test_refills_the_round_budget_for_each_reply() -> None:
+    spent = [*repeat_calls(MAX_ROUNDS - 1), response(reply("Done."))]
+    agent = build_agent([*spent, response(reply("Done again."))])
+
+    list(agent.send_message("Go."))
+    list(agent.send_message("More."))
+
+    assert cast("list[dict[str, object]]", agent.history)[-2:] == [
+        {"role": "user", "content": "More."},
+        reply("Done again."),
+    ]
+
+
+def test_records_the_summary_a_tool_offers_for_its_output() -> None:
+    agent = build_agent([response(call("summarized", "summarize", text="one")), response(reply("Done."))])
+
+    list(agent.send_message("Go."))
+
+    assert agent.output_summaries == {"summarized": "one in short"}
 
 
 def test_keeps_the_partial_text_of_a_cancelled_response() -> None:
@@ -226,6 +281,11 @@ class ToolAgent(Agent):
     def fail(self, text: str) -> str:
         self.calls.append(text)
         raise RuntimeError(f"no can do: {text}")
+
+    @tool("Summarize the given text.", started_label="Summarizing {text}", finished_label="Summarized {text}")
+    def summarize(self, text: str) -> Generator[ToolOutput]:
+        self.calls.append(text)
+        yield ToolOutput(f"summarize: {text}", summary=f"{text} in short")
 
     @tool("Narrate progress.", started_label="Narrating {text}", finished_label="Narrated {text}")
     def narrate(self, text: str) -> Generator[ToolCallStarted | ToolOutput]:
