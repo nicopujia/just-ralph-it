@@ -1,8 +1,20 @@
 from collections.abc import Generator
 
-from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted
+from jri.core.ai import Exploration, ReasoningDelta, ToolCallFinished, ToolCallStarted
+from tests.doubles.openai import reply, response, thought
 
 type Progress = ReasoningDelta | ToolCallStarted | ToolCallFinished
+
+EXPLORATION_SUMMARY = "The project, in two lines."
+
+
+# An exploration that answers its query in one segment, and leaves nothing for another one. A segment that thinks
+# out loud answers over a round of its own, because a thought arrives before the result and not with it.
+def explored(report: str = "Repository report", thinking: str = "") -> list[object]:
+    exploration = Exploration(report=report, summary=EXPLORATION_SUMMARY, remaining="")
+    if not thinking:
+        return [exploration]
+    return [[thought(thinking), *response(reply(exploration.model_dump_json()))]]
 
 
 # An agent streams its progress while it works and returns its result at the end. A caller that wants either one

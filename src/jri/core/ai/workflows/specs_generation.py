@@ -94,17 +94,16 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 # Study a disposable copy of the current project, not JRI's current commit.
                 snapshot = specs.workspace.root / paths.SNAPSHOT_DIR
                 with specs.repository.open_worktree(None, location=snapshot) as project:
-                    explorer_report = (
-                        yield from ai.Explorer(settings, project.path).report(
-                            "Study this repository generally. Report its structure, architecture, established "
-                            "patterns, development commands, and the constraints that new work in it must respect.",
-                            depth=1,
-                            cancelled=cancelled,
-                        )
-                    ).strip()
+                    exploration = yield from ai.Explorer(settings, project.path).report(
+                        "Study this repository generally. Report its structure, architecture, established "
+                        "patterns, development commands, and the constraints that new work in it must respect.",
+                        depth=1,
+                        cancelled=cancelled,
+                    )
                 # A cancelled study can be incomplete. Do not report the run as broken for that reason.
-                if cancelled.is_set():
+                if exploration is None:
                     return None
+                explorer_report = exploration.report.strip()
                 if not explorer_report:
                     raise SpecsError("Repository exploration produced no report.")
                 yield ai.ToolCallFinished("explorer", "Studied your existing project", "done")

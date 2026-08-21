@@ -12,7 +12,7 @@ from .events import (
     TurnFinished,
 )
 from .llm_runner import BLOCK_NOTICE, LLMRunner, PendingToolCalls
-from .roles import Explorer, Interviewer, architect, functional_analyst
+from .roles import Exploration, Explorer, Interviewer, architect, functional_analyst
 from .tool import DEFAULT_SYMBOL, Invocation, Tool, ToolOutput, tool
 from .workflows import specs_generation
 
@@ -22,6 +22,7 @@ __all__ = [
     "Agent",
     "AgentEvent",
     "Ending",
+    "Exploration",
     "Explorer",
     "Interviewer",
     "Invocation",

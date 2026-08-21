@@ -45,9 +45,10 @@ from tests.doubles.acceptance import (
     read_git_locks,
     read_the_git_in_the_window,
 )
+from tests.doubles.agents import explored
 from tests.doubles.generation import run_in_thread
 from tests.doubles.lock import hold, take, watch_a_process_go
-from tests.doubles.openai import FakeClient, read_tool_outputs, reply, response, streamed_reply
+from tests.doubles.openai import FakeClient, read_tool_outputs, reply, response
 from tests.doubles.settings import build_settings
 from tests.doubles.specs import write_files
 from tests.doubles.workspace import install_workspace
@@ -441,10 +442,11 @@ def build_client(
     architecture_deleted: Sequence[str] = (),
 ) -> FakeClient:
     return FakeClient(
-        [streamed_reply("Repository report"), response(reply("Specifications ready."))],
+        [response(reply("Specifications ready."))],
         parsed=[
             *write_files("functional", functional),
             functional_analyst.Specifications(deleted_paths=list(functional_deleted), unresolved=[]),
+            *explored(),
             *write_files("architecture", architecture),
             architect.Output(
                 result=architect.Architecture(outcome="architecture", deleted_paths=list(architecture_deleted))

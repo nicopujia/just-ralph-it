@@ -28,6 +28,12 @@ class Interviewer(Agent):
     FALLBACK_CONTEXT_LIMIT = 100_000
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to make?"
+    # This stands where an exploration report stood. No tool reads an exploration back, so the record says that the
+    # report is gone and that the summary beside it is all that is left of it.
+    EXPLORATION_RECORD = (
+        "[This exploration report was taken out of the message to make room. Nothing holds it now, and the "
+        "summary below is all that is left of it.]"
+    )
     EXCERPT_SCOPE = prompts.read("interviewer_excerpt_scope")
 
     def __init__(self, settings: Settings, notebook: Notebook) -> None:
@@ -47,6 +53,7 @@ class Interviewer(Agent):
 
     @override
     def get_context(self) -> ResponseInputParam:
+        self._summarize_explorations()
         pinned: ResponseInputItemParam = {
             "role": "system",
             "content": (
@@ -115,12 +122,13 @@ class Interviewer(Agent):
         replayed=False,
     )
     def explore(self, query: str) -> Stream:
-        report = yield from Explorer(self.settings, Workspace.find().root).report(query)
-        if not report:
+        exploration = yield from Explorer(self.settings, Workspace.find().root).report(query)
+        if exploration is None or not exploration.report:
             yield ToolOutput("Exploration produced no report.", "empty")
             return
         # A model creates this report from web content. Quote it because JRI text can follow a long report.
-        yield ToolOutput(prompt.render(exploration_report=report))
+        # The summary stands for the report in a turn that the whole of it no longer fits in.
+        yield ToolOutput(prompt.render(exploration_report=exploration.report), summary=exploration.summary)
 
     @tool(
         (
@@ -272,6 +280,24 @@ class Interviewer(Agent):
     )
     def disconnect_notes(self, connections: list[Connection]) -> str:
         return f"Disconnected {self.notebook.disconnect(connections)} relationship(s)."
+
+    # Ten reports at the limit of a tool output weigh more than a drop of every turn can free, and a report that
+    # stays whole crowds out the interview it serves. Each recorded exploration but the newest thus stands as its
+    # summary, and the newest stands whole whatever the request weighs. The swap happens in place, before the
+    # weights are measured, so a swapped report never comes back, turns drop only if the request is still too
+    # heavy, and every later request repeats the bytes of this one, which the provider serves from its cache.
+    def _summarize_explorations(self) -> None:
+        items = [cast("dict[str, Any]", raw_item) for raw_item in self.history]
+        explorations = [
+            item
+            for item in items
+            if item.get("type") == "function_call_output" and item.get("call_id") in self.output_summaries
+        ]
+        # The summary comes from a model, so quote it. Rendering it again gives the same bytes, so a later round
+        # swaps a swapped report for the record it already holds.
+        for item in explorations[:-1]:
+            summary = self.output_summaries[cast("str", item["call_id"])]
+            item["output"] = f"{self.EXPLORATION_RECORD}\n\n{prompt.render(exploration_summary=summary)}"
 
     # A model names a topic the way it names one everywhere else, so resolve a name or an ID here and let the
     # notebook see an ID.

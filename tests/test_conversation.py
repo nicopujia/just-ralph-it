@@ -22,6 +22,7 @@ from jri.core.exceptions import PersistenceError, RunDetached
 from jri.core.generation import Generation, Header, RowOpened
 from jri.core.notes import Graph, Notebook, Topic
 from tests.conftest import CreateRepository
+from tests.doubles.agents import explored
 from tests.doubles.generation import run_in_thread
 from tests.doubles.lock import hold
 from tests.doubles.openai import (
@@ -231,11 +232,13 @@ def test_closes_the_rows_a_killed_run_left_open_from_the_inside_out() -> None:
 
 def test_keeps_a_turn_alive_when_a_provider_failure_hits_a_tool() -> None:
     conversation = build_conversation(
-        FakeClient([
-            response(call("explore", "explore", query="deployment options")),
-            rejection(),
-            streamed_reply("I could not look that up."),
-        ])
+        FakeClient(
+            [
+                response(call("explore", "explore", query="deployment options")),
+                streamed_reply("I could not look that up."),
+            ],
+            parsed=[rejection()],
+        )
     )
 
     events = list(conversation.chat("What are the deployment options?"))
@@ -358,12 +361,13 @@ def test_records_a_turn_in_the_order_its_events_arrived(monkeypatch: pytest.Monk
 
 def test_keeps_two_thoughts_a_nested_call_stands_between_apart() -> None:
     conversation = build_conversation(
-        FakeClient([
-            response(call("explore", "explore", query="deployment options")),
-            [thought("Which files? "), *response(call("nested", "search_web", query="deployments"))],
-            [thought("Read it."), *streamed_reply("Deployments run from main.")],
-            streamed_reply("It deploys from main."),
-        ])
+        FakeClient(
+            [response(call("explore", "explore", query="deployment options")), streamed_reply("It deploys from main.")],
+            parsed=[
+                [thought("Which files? "), *response(call("nested", "search_web", query="deployments"))],
+                *explored("Deployments run from main.", thinking="Read it."),
+            ],
+        )
     )
 
     list(conversation.chat("How does it deploy?"))
@@ -379,12 +383,13 @@ def test_keeps_two_thoughts_a_nested_call_stands_between_apart() -> None:
 
 def test_leaves_the_rows_nested_under_a_call_out_of_the_recording() -> None:
     conversation = build_conversation(
-        FakeClient([
-            response(call("explore", "explore", query="deployment options")),
-            response(call("nested", "search_web", query="deployments")),
-            streamed_reply("Deployments run from main."),
-            streamed_reply("It deploys from main."),
-        ])
+        FakeClient(
+            [response(call("explore", "explore", query="deployment options")), streamed_reply("It deploys from main.")],
+            parsed=[
+                response(call("nested", "search_web", query="deployments")),
+                *explored("Deployments run from main."),
+            ],
+        )
     )
 
     events = list(conversation.chat("How does it deploy?"))
@@ -400,10 +405,10 @@ def test_leaves_the_rows_nested_under_a_call_out_of_the_recording() -> None:
 def test_closes_a_stopped_call_without_closing_its_nested_row_again() -> None:
     cancelled = Event()
     conversation = build_conversation(
-        FakeClient([
-            response(call("explore", "explore", query="deployment options")),
-            response(call("nested", "search_web", query="deployments")),
-        ])
+        FakeClient(
+            [response(call("explore", "explore", query="deployment options"))],
+            parsed=[response(call("nested", "search_web", query="deployments"))],
+        )
     )
 
     events = conversation.chat("How does it deploy?", cancelled)
@@ -1531,13 +1536,15 @@ def test_drops_the_draft_a_rewind_moved_past() -> None:
 
 def test_skips_tool_calls_that_are_not_replayed_when_rewinding() -> None:
     conversation = build_conversation(
-        FakeClient([
-            response(call("explore", "explore", query="deployment options")),
-            streamed_reply("Deployments run from the main branch."),
-            streamed_reply("Here is what I found."),
-            streamed_reply("Understood."),
-            streamed_reply("Anything else?"),
-        ])
+        FakeClient(
+            [
+                response(call("explore", "explore", query="deployment options")),
+                streamed_reply("Here is what I found."),
+                streamed_reply("Understood."),
+                streamed_reply("Anything else?"),
+            ],
+            parsed=explored("Deployments run from the main branch."),
+        )
     )
     list(conversation.chat("What are the deployment options?"))
     list(conversation.chat("Thanks."))

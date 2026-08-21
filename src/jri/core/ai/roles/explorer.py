@@ -13,24 +13,51 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryFile
 from threading import Event
-from typing import Annotated, cast
+from typing import Annotated, ClassVar, cast, override
 
 import httpx
 from markdownify import MarkdownConverter
-from openai.types.responses import ResponseFunctionCallOutputItemListParam
-from pydantic import PlainSerializer
+from openai.types.responses import ResponseFunctionCallOutputItemListParam, ResponseInputParam
+from pydantic import BaseModel, PlainSerializer
 
 from jri.core import ai
 from jri.core.ai.agent import Agent
-from jri.core.ai.tool import Invocation, tool
+from jri.core.ai.tool import Invocation, Tool, tool
 from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, files, prompt, youtube
+from jri.lib.context import estimate_tokens, measure_request
+from jri.lib.models_dot_dev import get_input_room
 
 logger = logging.getLogger(__name__)
 
 
+# What one segment of an exploration answers with. The report is the whole of the findings, the summary stands for
+# it where the whole does not fit, and the remaining work is what a further segment takes up.
+class Exploration(BaseModel):
+    report: str
+    summary: str
+    remaining: str
+
+
 class Explorer(Agent):
     MAX_INPUT_SIZE = 10 * 1024 * 1024
+    # An exploration runs at most this many segments. Each one costs a full request, and a query that ten of them
+    # do not answer is one that no further segment answers either.
+    MAX_SEGMENTS: ClassVar[int] = 10
+    # End a segment past this share of the room the model reads. The rest of that room holds the report that the
+    # segment writes, and the reasoning the model keeps while it writes it.
+    INPUT_SHARE: ClassVar[float] = 0.8
+    # A segment ends where its request runs out of room. Record that, because a model with no tool reads it as a
+    # tool it lost, not as a segment that ends.
+    INPUT_LIMIT_RECORD: ClassVar[str] = (
+        "This request is at its size limit. No more tool output fits in this segment of the exploration."
+    )
+    # The last segment has no segment after it, so a record of its own says that no room follows this one either.
+    FINAL_LIMIT_RECORD: ClassVar[str] = (
+        "This request is at its size limit, and this is the last segment of the exploration. "
+        "No more tool output fits in it, and no segment follows it."
+    )
+    FINAL_SEGMENT_PROMPT = ai.prompts.read("explorer_final_segment")
 
     def __init__(self, settings: Settings, directory: Path) -> None:
         self.settings = settings
@@ -42,28 +69,47 @@ class Explorer(Agent):
             prompt=ai.prompts.read("explorer", working_directory=prompt.render(working_directory=str(directory))),
         )
         # Do not advertise a capability that this run lacks.
-        # `respond` builds tool definitions from `tools` for every call.
+        # Each round builds its tool definitions from `tools`.
         if not settings.brave_search.api_key:
             self.tools = [capability for capability in self.tools if capability.name != "search_web"]
+        self.at_input_limit = False
+        self.final_segment = False
 
-    # Use only the final continuous text as the report. Text before a tool call is intermediate work.
-    # Pass reasoning through, but do not add it to the report. The architect receives only the report.
+    # Measure the request that the round about to start sends. Past the mark, record that the segment stands at
+    # its limit, so that round reports the findings it has instead of gathering more.
+    @override
+    def get_context(self) -> ResponseInputParam:
+        if not self.at_input_limit:
+            size = measure_request(self.history, [item.definition for item in self.get_tools()])
+            room = get_input_room(self.profile.model, self.FALLBACK_INPUT_ROOM)
+            if estimate_tokens(size) > room * self.INPUT_SHARE:
+                self.at_input_limit = True
+                record = self.FINAL_LIMIT_RECORD if self.final_segment else self.INPUT_LIMIT_RECORD
+                self.history.append({"role": "system", "content": record})
+                logger.info("exploration_limit_reached tokens=%d room=%d", estimate_tokens(size), room)
+        return self.history
+
+    # A segment at its limit has nothing left to gather. Take its tools away, so the rounds it has left write the
+    # report rather than fill the request further.
+    @override
+    def get_tools(self) -> list[Tool]:
+        return [] if self.at_input_limit else self.tools
+
+    # One exploration runs in segments, and each segment is a call of its own that starts from the query, the
+    # findings so far, and what is left. They share one round budget, because `parse` never refills it.
     def report(
         self, query: str, depth: int = 0, cancelled: Event | None = None
-    ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, str]:
-        output: list[str] = []
-        for event in self.send_message(query, cancelled):
-            match event:
-                case ai.ToolCallStarted():
-                    output.clear()
-                    yield replace(event, depth=depth)
-                case ai.ToolCallFinished():
-                    yield replace(event, depth=depth)
-                case ai.ReasoningDelta():
-                    yield event
-                case ai.TextDelta():
-                    output.append(event.text)
-        return "".join(output)
+    ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Exploration | None]:
+        exploration = None
+        for segment in range(1, self.MAX_SEGMENTS + 1):
+            self.at_input_limit = False
+            self.final_segment = segment == self.MAX_SEGMENTS
+            # The first segment carries the query alone, which the caller wrote for a model to read whole.
+            message = query if exploration is None else self._render(query, exploration)
+            exploration = yield from _stamp_rows(self.parse(message, Exploration, cancelled), depth)
+            if exploration is None or not exploration.remaining.strip():
+                return exploration
+        return exploration
 
     @tool(
         "Explore the web with a search engine.",
@@ -241,6 +287,29 @@ class Explorer(Agent):
             raise RuntimeError(f"Command exited with status {process.returncode}:\n{output}".rstrip())
         logger.info("shell_finished return_code=%d output_characters=%d", process.returncode, len(output))
         return output
+
+    def _render(self, query: str, exploration: Exploration) -> str:
+        return ai.prompts.read(
+            "explorer_segment",
+            final_rule=f"\n{self.FINAL_SEGMENT_PROMPT}\n" if self.final_segment else "",
+            context=prompt.render(
+                exploration_query=query, findings_so_far=exploration.report, remaining_work=exploration.remaining
+            ),
+        )
+
+
+# `yield from` passes on each event as it is, and every row of a segment carries the depth of the caller of the
+# exploration. Drain the segment here, stamp each row it opens, and give the result back to the caller.
+def _stamp_rows(
+    segment: Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Exploration | None],
+    depth: int,
+) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, Exploration | None]:
+    while True:
+        try:
+            event = next(segment)
+        except StopIteration as stop:
+            return cast("Exploration | None", stop.value)
+        yield event if isinstance(event, ai.ReasoningDelta) else replace(event, depth=depth)
 
 
 def _stop_process_tree(pid: int) -> None:

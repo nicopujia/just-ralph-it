@@ -19,16 +19,15 @@ from jri.core.exceptions import RepositoryStateError, SpecsError
 from jri.core.notes import Notebook
 from jri.core.repository import ACCEPTANCE_TRAILER
 from tests.conftest import CreateRepository, RunGit
+from tests.doubles.agents import explored
 from tests.doubles.openai import (
     FakeClient,
-    Round,
     call,
-    partial_reply,
     read_tool_outputs,
     reply,
     response,
     stopped_stream,
-    streamed_reply,
+    stopped_thinking,
     thought,
 )
 from tests.doubles.settings import build_settings
@@ -114,7 +113,7 @@ def generate(
 
 
 def commit_specs() -> None:
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
     _, commit = generate(client)
     assert isinstance(commit, str)
 
@@ -250,10 +249,7 @@ def test_resumes_the_specifications_a_pass_wrote_before_it_asked(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     generate(FakeClient([], parsed=[*written_specs(unresolved=["JSON or plain text?"])]))
-    client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture()],
-    )
+    client = FakeClient([], parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *explored(), *designed_architecture()])
 
     rows, result = generate(client)
 
@@ -274,7 +270,7 @@ def test_writes_specifications_from_the_topics_the_user_kept(
     discarded = notebook.add_topic("Discarded", "t1", "What discarded covers.")
     notebook.add(["Build a rocket instead."], discarded.id)
     notebook.trash([discarded.id])
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     generate(client)
 
@@ -295,8 +291,12 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
     commit_specs()
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Export the data as CSV."], "t1")
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     _, result = generate(client)
@@ -311,7 +311,7 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
 def test_writes_a_first_generation_without_a_notebook_diff(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Ship a web app."], "t1")
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client)
 
@@ -330,7 +330,7 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
     (tmp_path / paths.NOTEBOOK_FILE).unlink()
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Ship a web app."], "t1")
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client)
 
@@ -351,7 +351,7 @@ def test_reports_a_generation_that_changed_nothing(
     build_workspace(tmp_path, create_repository)
     commit_specs()
     accepted = run_git(tmp_path, "rev-parse", "HEAD")
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     rows, result = generate(client)
 
@@ -379,7 +379,7 @@ def test_stops_a_run_without_touching_the_project(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     head = run_git(tmp_path, "rev-parse", "HEAD")
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     rows, result = generate(client, stop_at)
 
@@ -394,7 +394,10 @@ def test_stops_a_run_without_touching_the_project(
 
 @pytest.mark.parametrize(
     "queue_responses",
-    [lambda cancelled: [stopped_stream(cancelled)], lambda cancelled: [*written_specs(), stopped_stream(cancelled)]],
+    [
+        lambda cancelled: [stopped_stream(cancelled)],
+        lambda cancelled: [*written_specs(), *explored(), stopped_stream(cancelled)],
+    ],
     ids=["writing", "designing"],
 )
 def test_stops_a_run_while_a_model_is_still_answering(
@@ -406,7 +409,7 @@ def test_stops_a_run_while_a_model_is_still_answering(
     build_workspace(tmp_path, create_repository)
     head = run_git(tmp_path, "rev-parse", "HEAD")
     cancelled = Event()
-    client = FakeClient([streamed_reply("Repository report")], parsed=queue_responses(cancelled))
+    client = FakeClient([], parsed=queue_responses(cancelled))
 
     _, result = generate(client, cancelled=cancelled)
 
@@ -417,23 +420,18 @@ def test_stops_a_run_while_a_model_is_still_answering(
     assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
 
 
-# A stop reaches the study before it reports anything, and after it reports its first words. Both end the run
-# where they arrive, and neither designs against the part of a report that the study reached.
-@pytest.mark.parametrize(
-    "study",
-    [response(call("read", "read_files", paths=["README.md"])), partial_reply("Draft notes")],
-    ids=["silent", "reporting"],
-)
+# A stop reaches the study while it is still answering. It ends the run where it arrives, and nothing designs
+# against the part of a report that the study reached.
 def test_stops_the_repository_study_without_calling_it_a_failure(
-    study: Round, tmp_path: Path, create_repository: CreateRepository
+    tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([study], parsed=[*written_specs(), *designed_architecture()])
+    cancelled = Event()
+    client = FakeClient([], parsed=[*written_specs(), stopped_thinking(cancelled), *designed_architecture()])
 
-    rows, result = generate(client, ToolCallStarted("explorer", "Studying your existing project", "🔎"))
+    rows, result = generate(client, cancelled=cancelled)
 
-    # Cancellation is checked before the empty-report check, so stopping the explorer early reads as a clean stop,
-    # not a broken report.
+    # A study a stop cut short reads as a clean stop, not as a broken report.
     assert result is None
     # The design row is the one that would follow. Its absence states that the stop ended the run at the study.
     assert read_rows(rows)[-1] == ("ToolCallStarted", "explorer", "Studying your existing project")
@@ -442,9 +440,10 @@ def test_stops_the_repository_study_without_calling_it_a_failure(
 def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs(),
+            *explored(),
             *reported_issues("Undefined totals.", "Unclear export.", "Missing errors."),
             *written_specs(),
             *reported_issues("Unclear export."),
@@ -502,9 +501,10 @@ def test_carries_the_thinking_of_a_call_between_its_two_rows(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *build_thinking_call(written_specs(), "Weighing the totals."),
+            *explored(),
             *build_thinking_call(designed_architecture(), "Weighing the layers."),
         ],
     )
@@ -537,7 +537,7 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
     rows: list[Progress] = []
 
     def block_the_project_once_the_design_lands() -> None:
@@ -562,9 +562,10 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
 def test_finishes_the_open_round_when_ambiguities_appear(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs(),
+            *explored(),
             *reported_issues("Unclear export.", "Missing errors."),
             *written_specs({}, unresolved=["JSON or plain text?"]),
         ],
@@ -584,9 +585,10 @@ def test_finishes_the_open_round_when_ambiguities_appear(tmp_path: Path, create_
 def test_names_the_issues_the_round_it_opens_answers(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs(),
+            *explored(),
             *reported_issues("Undefined totals.", "Unclear export.", "Missing errors."),
             *written_specs(),
             *reported_issues("Missing errors."),
@@ -616,9 +618,10 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs(),
+            *explored(),
             *reported_issues("Undefined totals.", "Unclear export."),
             *written_specs(),
             *designed_architecture(),
@@ -642,17 +645,18 @@ def test_keeps_the_accepted_specification_a_round_left_out(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}), *designed_architecture()],
+        [],
+        parsed=[
+            *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+            *explored(),
+            *designed_architecture(),
+        ],
     )
     generate(client)
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Report the totals too."], "t1")
 
     _, result = generate(
-        FakeClient(
-            [streamed_reply("Repository report")],
-            parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture()],
-        )
+        FakeClient([], parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *explored(), *designed_architecture()])
     )
 
     assert isinstance(result, str)
@@ -670,9 +674,10 @@ def test_removes_the_specification_a_pass_deleted_beside_the_files_it_wrote(
     build_workspace(tmp_path, create_repository)
     generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+                *explored(),
                 *designed_architecture(),
             ],
         )
@@ -680,9 +685,10 @@ def test_removes_the_specification_a_pass_deleted_beside_the_files_it_wrote(
 
     _, result = generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs(UPDATED_FUNCTIONAL_FILES, ["functional/exports.md"]),
+                *explored(),
                 *designed_architecture(UPDATED_ARCHITECTURE_FILES),
             ],
         )
@@ -700,9 +706,10 @@ def test_keeps_the_specification_a_pass_deleted_before_it_asked(
     build_workspace(tmp_path, create_repository)
     generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+                *explored(),
                 *designed_architecture(),
             ],
         )
@@ -723,9 +730,10 @@ def test_removes_the_architecture_a_design_deleted_beside_the_files_it_wrote(
     build_workspace(tmp_path, create_repository)
     generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs(),
+                *explored(),
                 *designed_architecture({**ARCHITECTURE_FILES, "architecture/layers.md": "# Layers\n"}),
             ],
         )
@@ -733,9 +741,10 @@ def test_removes_the_architecture_a_design_deleted_beside_the_files_it_wrote(
 
     _, result = generate(
         FakeClient(
-            [streamed_reply("Repository report")],
+            [],
             parsed=[
                 *written_specs(UPDATED_FUNCTIONAL_FILES),
+                *explored(),
                 *designed_architecture(UPDATED_ARCHITECTURE_FILES, ["architecture/layers.md"]),
             ],
         )
@@ -750,9 +759,10 @@ def test_removes_the_architecture_a_design_deleted_beside_the_files_it_wrote(
 def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
+        [],
         parsed=[
             *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+            *explored(),
             *reported_issues("Undefined totals."),
             *written_specs(UPDATED_FUNCTIONAL_FILES),
             *designed_architecture(),
@@ -779,8 +789,12 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     commit_specs()
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Report the totals too."], "t1")
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     generate(client)
@@ -805,10 +819,7 @@ def test_keeps_the_draft_a_run_that_reached_no_commit_wrote(
     queue_tail: list[object], tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(), *reported_issues("Unclear export."), *queue_tail],
-    )
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *reported_issues("Unclear export."), *queue_tail])
 
     with suppress(SpecsError):
         generate(client)
@@ -824,8 +835,7 @@ def test_keeps_the_architecture_a_pass_wrote_before_it_turned_back(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(), *reported_issues("Undefined totals.", files=ARCHITECTURE_FILES)],
+        [], parsed=[*written_specs(), *explored(), *reported_issues("Undefined totals.", files=ARCHITECTURE_FILES)]
     )
 
     _, result = generate(
@@ -840,7 +850,7 @@ def test_keeps_the_architecture_a_pass_wrote_before_it_turned_back(
 
 def test_keeps_the_draft_a_stopped_run_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
 
@@ -852,7 +862,7 @@ def test_keeps_the_draft_a_stopped_run_wrote(tmp_path: Path, create_repository: 
 
 def test_forgets_the_draft_a_run_committed(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client)
 
@@ -865,13 +875,21 @@ def test_resumes_the_draft_a_run_left_behind(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     stopped = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}), *designed_architecture()],
+        [],
+        parsed=[
+            *written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}),
+            *explored(),
+            *designed_architecture(),
+        ],
     )
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     rows, result = generate(client)
@@ -894,14 +912,15 @@ def test_counts_the_draft_rather_than_the_specifications_the_project_holds(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     commit_specs()
-    stopped = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture()],
-    )
+    stopped = FakeClient([], parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *explored(), *designed_architecture()])
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     rows, result = generate(client)
@@ -916,8 +935,12 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
     build_workspace(tmp_path, create_repository)
     commit_specs()
     stopped = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
     # Re-committing behavior.md with the acceptance trailer moves the baseline the stopped draft's patch was built
@@ -926,8 +949,12 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
     run_git(tmp_path, "add", "--force", paths.FUNCTIONAL_SPECS_DIR)
     run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     rows, result = generate(client)
@@ -958,8 +985,12 @@ def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
     commit_specs()
     (tmp_path / paths.DRAFT_FILE).write_text(draft, encoding="utf-8", newline="\n")
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
     )
 
     rows, result = generate(client)
@@ -988,7 +1019,7 @@ def test_runs_through_a_draft_it_can_neither_read_nor_replace(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     (tmp_path / paths.DRAFT_FILE).mkdir(parents=True)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     rows, result = generate(client)
 
@@ -1003,7 +1034,7 @@ def test_runs_through_a_draft_it_can_neither_read_nor_replace(
 
 def test_opens_no_row_for_a_run_with_no_draft_to_pick_up(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     rows, _ = generate(client)
 
@@ -1012,13 +1043,14 @@ def test_opens_no_row_for_a_run_with_no_draft_to_pick_up(tmp_path: Path, create_
 
 def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    parsed: list[object] = [
+    parsed: list[object] = [*written_specs(), *explored(), *reported_issues("Unclear export.")]
+    parsed.extend(
         item
-        for _ in range(specs_generation.MAX_CYCLES - 1)
+        for _ in range(specs_generation.MAX_CYCLES - 2)
         for item in (*written_specs(), *reported_issues("Unclear export."))
-    ]
+    )
     parsed.extend([*written_specs(), *drafted_architecture()])
-    client = FakeClient([streamed_reply("Repository report")], parsed=parsed)
+    client = FakeClient([], parsed=parsed)
 
     rows, result = generate(client)
 
@@ -1033,31 +1065,12 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
     assert isinstance(result, str)
 
 
-def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [
-            [*partial_reply("Draft notes"), *response(call("search", "search_web", query="ralph"))],
-            streamed_reply("Final report"),
-        ],
-        parsed=[*written_specs(), *designed_architecture()],
-    )
-
-    generate(client)
-
-    report = next(prompt for prompt in read_prompts(client) if "<repository_analysis_report>" in prompt)
-    assert report.endswith("<repository_analysis_report>\nFinal report\n</repository_analysis_report>")
-
-
 def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [[thought("Weighing which files to read."), *streamed_reply("Repository report")]],
-        parsed=[*written_specs(), *designed_architecture()],
+        [], parsed=[*written_specs(), *explored(thinking="Weighing which files to read."), *designed_architecture()]
     )
 
     events, result = generate(client)
@@ -1074,8 +1087,13 @@ def test_keeps_what_the_repository_study_writes_out_of_the_project(
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [response(call("shell", "run_shell", command="touch uv.lock")), streamed_reply("Repository report")],
-        parsed=[*written_specs(), *designed_architecture()],
+        [],
+        parsed=[
+            *written_specs(),
+            response(call("shell", "run_shell", command="touch uv.lock")),
+            *explored(),
+            *designed_architecture(),
+        ],
     )
 
     _, result = generate(client)
@@ -1088,8 +1106,13 @@ def test_keeps_what_the_repository_study_writes_out_of_the_project(
 def test_studies_the_project_as_it_stands_on_disk(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [response(call("read", "read_files", paths=[paths.NOTEBOOK_FILE])), streamed_reply("Repository report")],
-        parsed=[*written_specs(), *designed_architecture()],
+        [],
+        parsed=[
+            *written_specs(),
+            response(call("read", "read_files", paths=[paths.NOTEBOOK_FILE])),
+            *explored(),
+            *designed_architecture(),
+        ],
     )
 
     generate(client)
@@ -1104,7 +1127,7 @@ def test_studies_the_project_as_it_stands_on_disk(tmp_path: Path, create_reposit
 
 def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient([response(reply(""))], parsed=[*written_specs()])
+    client = FakeClient([], parsed=[*written_specs(), *explored(report="")])
 
     with pytest.raises(SpecsError, match="produced no report"):
         generate(client)
@@ -1138,8 +1161,12 @@ def test_refuses_an_architect_that_deletes_every_architecture_specification(
     build_workspace(tmp_path, create_repository)
     commit_specs()
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *designed_architecture({}, list(ARCHITECTURE_FILES))],
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture({}, list(ARCHITECTURE_FILES)),
+        ],
     )
 
     with pytest.raises(SpecsError, match="Architecture specifications cannot be empty"):
@@ -1163,9 +1190,7 @@ def test_refuses_functional_specifications_that_leave_their_root(
 
 def test_refuses_an_architecture_that_leaves_its_root(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [streamed_reply("Repository report")], parsed=[*written_specs(), *designed_architecture(FUNCTIONAL_FILES)]
-    )
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture(FUNCTIONAL_FILES)])
 
     with pytest.raises(SpecsError, match="must change at least one file"):
         generate(client)

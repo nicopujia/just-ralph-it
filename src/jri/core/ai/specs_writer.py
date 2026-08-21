@@ -31,7 +31,6 @@ class SpecsWriter(Agent):
     # One batched read answers with at most this share of that room. What a read brings in stays for the whole
     # pass, unlike a written body, which compaction can take back out.
     READ_SHARE: ClassVar[float] = 0.1
-    FALLBACK_INPUT_ROOM: ClassVar[int] = 100_000
     # This stands where a written body stood. It says where the file is and how to read it, because the model
     # reads its own call back and must never read this as the file it wrote.
     WRITTEN_FILE_RECORD: ClassVar[str] = (
