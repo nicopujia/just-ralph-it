@@ -1,5 +1,4 @@
 import logging
-import unicodedata
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass, field
 from threading import Event
@@ -199,7 +198,7 @@ class App(TextualApp[None]):
     # the project name. Dim the app name and its separator instead.
     @override
     def format_title(self, title: str, sub_title: str) -> Content:
-        return Content.assemble((f"{title}{copy.TITLE_SEPARATOR}", "dim"), Content(_flatten(sub_title)))
+        return Content.assemble((f"{title}{copy.TITLE_SEPARATOR}", "dim"), Content(sub_title))
 
     @override
     def get_default_screen(self) -> Screen:
@@ -804,13 +803,6 @@ class App(TextualApp[None]):
             self.shortcut_hints.update(self._build_shortcut_hints())
         self.shortcut_hints.display = is_open
         self.footer.display = not is_open
-
-
-# A model writes the name of a topic. A control character in that name moves the cursor of the terminal, or
-# starts an escape sequence that the header shows as damage. The header holds one line, so replace every
-# control character with a space.
-def _flatten(text: str) -> str:
-    return "".join(" " if unicodedata.category(character) == "Cc" else character for character in text)
 
 
 # Handle every ending here. The live and restored views then use the same result.

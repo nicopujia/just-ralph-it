@@ -1,4 +1,5 @@
 import logging
+import unicodedata
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
@@ -19,6 +20,10 @@ OVERVIEW_TOPIC_ID = "t1"
 # One more level sends one more body with each request.
 # A deeper tree also makes the correct topic for a note more difficult to find.
 MAX_DEPTH = 3
+# A model writes the name of a topic, and JRI shows that name in a terminal header and in a web page.
+# A control character moves the cursor of a terminal. A format character changes the direction of the text.
+# A line separator ends the line. JRI replaces every one of them with a space.
+UNSAFE_NAME_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
 
 logger = logging.getLogger(__name__)
 
@@ -233,18 +238,17 @@ class Notebook:
         return added
 
     def add_topic(self, name: str, parent_id: str, summary: str) -> Topic:
-        if not name.strip():
+        name = _read_name(name)
+        if not name:
             raise ValueError("Topic name cannot be blank.")
         if not summary.strip():
             raise ValueError("Topic summary cannot be blank.")
         graph = self.graph.model_copy(deep=True)
-        if any(topic.name.strip().casefold() == name.strip().casefold() for topic in graph.topics):
-            raise ValueError(f"Topic `{name.strip()}` already exists.")
+        if any(topic.name.strip().casefold() == name.casefold() for topic in graph.topics):
+            raise ValueError(f"Topic `{name}` already exists.")
         self._find_topic(graph, parent_id)
         next_number = max(int(topic.id[1:]) for topic in graph.topics) + 1
-        topic = Topic(
-            id=f"t{next_number}", parent_id=parent_id, name=name.strip(), summary=summary.strip(), status="open"
-        )
+        topic = Topic(id=f"t{next_number}", parent_id=parent_id, name=name, summary=summary.strip(), status="open")
         graph.topics.append(topic)
         self._save(graph)
         logger.info("add_topic_finished topic_id=%s parent_id=%s", topic.id, parent_id)
@@ -267,13 +271,14 @@ class Notebook:
         graph = self.graph.model_copy(deep=True)
         if summary is not None and not summary.strip():
             raise ValueError("Topic summary cannot be blank.")
-        if name is not None and not name.strip():
+        name = None if name is None else _read_name(name)
+        if name is not None and not name:
             raise ValueError("Topic name cannot be blank.")
         topic = self._find_topic(graph, topic_id)
         if name is not None and any(
-            item.id != topic.id and item.name.strip().casefold() == name.strip().casefold() for item in graph.topics
+            item.id != topic.id and item.name.strip().casefold() == name.casefold() for item in graph.topics
         ):
-            raise ValueError(f"Topic `{name.strip()}` already exists.")
+            raise ValueError(f"Topic `{name}` already exists.")
         if parent_id is not None:
             if topic.id == OVERVIEW_TOPIC_ID:
                 raise ValueError(f"The overview topic `{topic.id}` cannot stand under another topic.")
@@ -286,7 +291,7 @@ class Notebook:
         if summary is not None:
             topic.summary = summary.strip()
         if name is not None:
-            topic.name = name.strip()
+            topic.name = name
         self._save(graph)
         logger.info("update_topic_finished topic_id=%s status=%s", topic.id, topic.status)
         return topic
@@ -551,3 +556,10 @@ class Notebook:
             if topic.id == topic_id:
                 return topic
         raise ValueError(f"Unknown topic `{topic_id}`.")
+
+
+# Read a name a model wrote. Replace every character that damages a display, then take the space off the ends.
+def _read_name(name: str) -> str:
+    return "".join(
+        " " if unicodedata.category(character) in UNSAFE_NAME_CATEGORIES else character for character in name
+    ).strip()

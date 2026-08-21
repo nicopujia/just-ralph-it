@@ -37,6 +37,39 @@ def test_advances_topic_and_note_ids_independently(tmp_path: Path) -> None:
 
 # JRI only adds a topic at the end, so a gap between topic IDs comes from a file that a user edited. If JRI
 # counts the topics, it gives a new topic an ID that a later topic already holds.
+# A model writes the name of a topic, and JRI shows that name in a terminal header and in a web page. A
+# control character moves the cursor of a terminal. A format character changes the direction of the text.
+@pytest.mark.parametrize(
+    ("written", "held"),
+    [
+        ("Alpha\nBeta", "Alpha Beta"),
+        ("Alpha\x1b[31mBeta", "Alpha [31mBeta"),
+        ("Alpha\u202eBeta", "Alpha Beta"),
+        ("Alpha\u2028Beta", "Alpha Beta"),
+        ("\n Padded \t", "Padded"),
+    ],
+    ids=["a newline", "an escape", "a direction mark", "a line separator", "space at the ends"],
+)
+def test_takes_the_characters_that_damage_a_display_out_of_a_topic_name(
+    tmp_path: Path, written: str, held: str
+) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
+    renamed = Notebook(tmp_path / "renamed.yaml", "Acme")
+
+    assert notebook.add_topic(written, "t1", "What it covers.").name == held
+    assert renamed.update_topic("t1", name=written).name == held
+
+
+# A name of such characters alone names nothing. It is as blank as a name of space alone.
+def test_refuses_a_topic_name_that_holds_no_character_a_display_shows(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml", "Acme")
+
+    with pytest.raises(ValueError, match="cannot be blank"):
+        notebook.add_topic("\u202e\n", "t1", "What it covers.")
+    with pytest.raises(ValueError, match="cannot be blank"):
+        notebook.update_topic("t1", name="\u202e\n")
+
+
 def test_allocates_a_topic_id_after_the_highest_one_in_the_file(tmp_path: Path) -> None:
     path = tmp_path / "notebook.yaml"
     path.write_text(
