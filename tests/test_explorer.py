@@ -719,6 +719,24 @@ def test_carries_the_query_and_the_summaries_so_far_into_the_next_segment(monkey
     assert "Cats are mammals." not in message
 
 
+# A segment that found nothing writes a blank summary. A blank line names no segment, so leave it out of the
+# message that the next segment reads.
+def test_leaves_a_blank_summary_out_of_the_message_of_the_next_segment(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."),
+            Exploration(report="  ", summary="  ", remaining="Where cats sleep."),
+            Exploration(report="Cats sleep anywhere.", summary="Sleepers.", remaining=""),
+        ],
+    )
+
+    drain(build_explorer(client=client).report("cats"))
+
+    assert "<summaries_so_far>\nMammals.\n</summaries_so_far>" in read_message(client)
+
+
 # A segment exists for size only, and each segment costs a full request. A segment that had room does its
 # remaining work in a further round, and no segment follows it.
 def test_starts_no_further_segment_after_a_segment_that_still_had_room() -> None:

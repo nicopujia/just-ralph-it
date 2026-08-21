@@ -69,26 +69,46 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     assert list((tmp_path / paths.LOGS_DIR).iterdir()) == []
 
 
-# A directory can refuse a write, and a file can stand where JRI writes a directory. Name the workspace and the
-# reason. A reader of a Python traceback learns neither.
+# A directory can refuse a write, and a file can stand where JRI writes a directory. Name the workspace that
+# JRI could not write. A user must never read a Python traceback.
 @pytest.mark.parametrize(
-    ("prepare", "reason"),
+    "prepare",
     [
-        (lambda root: (root / paths.WORKSPACE_DIR).write_text("", encoding="utf-8"), "File exists"),
-        (lambda root: root.chmod(0o500), "Permission denied"),
+        lambda root: (root / paths.WORKSPACE_DIR).write_text("", encoding="utf-8"),
+        pytest.param(
+            lambda root: root.chmod(0o500),
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="Windows holds an access list that `chmod` does not write"
+            ),
+        ),
     ],
     ids=["a file stands where the workspace goes", "the project refuses a write"],
 )
-def test_reports_a_workspace_it_could_not_write(
-    tmp_path: Path, prepare: "Callable[[Path], object]", reason: str
-) -> None:
+def test_reports_a_workspace_it_could_not_write(tmp_path: Path, prepare: "Callable[[Path], object]") -> None:
     git.Repository.init(tmp_path)
     prepare(tmp_path)
 
-    with pytest.raises(PersistenceError, match=f"Could not write the workspace at .*{paths.WORKSPACE_DIR}.*{reason}"):
-        Workspace(tmp_path).install(Settings.render())
+    try:
+        with pytest.raises(PersistenceError, match=f"Could not write the workspace at .*{paths.WORKSPACE_DIR}"):
+            Workspace(tmp_path).install(Settings.render())
+    finally:
+        tmp_path.chmod(0o700)
 
-    tmp_path.chmod(0o700)
+
+# A project hook refuses a commit, and Git fails for reasons outside JRI. JRI wrote the workspace and it is
+# ready, so the installation stands and names the refusal. A reader must learn that no commit holds it.
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows holds an access list that `chmod` does not write")
+def test_names_a_commit_that_git_refused(tmp_path: Path) -> None:
+    git.Repository.init(tmp_path)
+    hook = tmp_path / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+
+    installation = Workspace(tmp_path).install(Settings.render())
+
+    assert installation.created
+    assert installation.commit is None
+    assert installation.refusal
 
 
 def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tmp_path: Path) -> None:

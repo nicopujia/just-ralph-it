@@ -44,6 +44,10 @@ HIDE_THINKING_BLOCKS = "Hide thinking blocks"
 INIT_COMMITTED = "Committed the workspace files to Git."
 INIT_CREATED = "Created a JRI workspace at {directory}, with its settings, notebook, logs, and Git ignores."
 INIT_EXISTING = "A JRI workspace already exists at {directory}."
+INIT_UNCOMMITTED = (
+    "Git did not accept the commit of the workspace:\n\n{reason}\n\n"
+    "The workspace is ready. Commit it yourself after you set Git up."
+)
 INIT_NEXT_STEPS = "Open {settings_file} and follow its comments, then run `jri chat`."
 INIT_RECREATED = (
     "Re-created the JRI workspace at {directory}, replacing its settings, notes, conversation, logs, "

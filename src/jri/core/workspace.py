@@ -174,7 +174,7 @@ class Workspace:
         if reset is not None:
             self._clear()
         try:
-            self._write(settings, settings_file=created or reset is not None)
+            self._write(settings, write_settings=created or reset is not None)
         # The directory can refuse a write, and a file can stand where JRI writes a directory.
         except OSError as error:
             raise PersistenceError(f"Could not write the workspace at `{self.directory}`: {error.strerror}") from error
@@ -182,17 +182,22 @@ class Workspace:
         # An existing workspace can hold notes a chat wrote and settings the user changed.
         # That work belongs to the commit of the turn that made it, not to this one.
         written = created or repository_created or reset is not None
+        commit, refusal = None, ""
+        try:
+            commit = self._commit(repository, reset=reset is not None) if written else None
+        # A project hook can refuse this commit, and Git can fail for a reason outside JRI. JRI wrote the
+        # workspace and it is ready. Report the commit that did not occur instead of raising an error.
+        except git.Error as error:
+            logger.exception("installation_commit_failed")
+            refusal = str(error)
         return Installation(
-            self,
-            created=created,
-            repository_created=repository_created,
-            commit=self._commit(repository, reset=reset is not None) if written else None,
+            self, created=created, repository_created=repository_created, commit=commit, refusal=refusal
         )
 
-    # Write the files of a workspace. An installation that finds a settings file keeps the settings it holds.
-    def _write(self, settings: str, *, settings_file: bool) -> None:
+    # Write the files of a workspace. Write the settings file only when the caller asks for it.
+    def _write(self, settings: str, *, write_settings: bool) -> None:
         self.directory.mkdir(exist_ok=True, parents=True)
-        if settings_file:
+        if write_settings:
             self.settings_file.write_text(settings, encoding="utf-8", newline="\n")
         Notebook(self.notebook_file, self.root.name)
         self.logs_dir.mkdir(exist_ok=True)
@@ -217,22 +222,15 @@ class Workspace:
         removed = repository.read_staged_paths(((prefix / paths.SPECS_DIR).as_posix(),)) if reset else ()
         committed = (*installed, *removed)
         trailers = (ACCEPTANCE_TRAILER,) if reset else ()
-        try:
-            # Stage intent only, because Git commits a named path only after the index knows it.
-            # Force it, because a project can ignore `.jri`. JRI keeps its workspace in Git anyway.
-            # A removed path is already tracked, so JRI does not stage it.
-            repository.stage(installed, intent_to_add=True, force=True)
-            # A second installation of an unchanged workspace has nothing to commit.
-            # Git reports that state as a failure.
-            if not repository.read_status(committed):
-                return None
-            commit = repository.commit("jri: initialize project", trailers=trailers, paths=committed)
-        # A project hook can refuse this commit, and Git can fail for a reason outside JRI.
-        # JRI wrote the workspace and it is ready.
-        # Report the commit that did not occur instead of raising an error.
-        except git.Error:
-            logger.exception("installation_commit_failed")
+        # Stage intent only, because Git commits a named path only after the index knows it.
+        # Force it, because a project can ignore `.jri`. JRI keeps its workspace in Git anyway.
+        # A removed path is already tracked, so JRI does not stage it.
+        repository.stage(installed, intent_to_add=True, force=True)
+        # A second installation of an unchanged workspace has nothing to commit.
+        # Git reports that state as a failure.
+        if not repository.read_status(committed):
             return None
+        commit = repository.commit("jri: initialize project", trailers=trailers, paths=committed)
         logger.info("installation_committed commit=%s", commit)
         return commit
 
@@ -271,6 +269,8 @@ class Installation:
     created: bool
     repository_created: bool
     commit: str | None
+    # Git names why it did not accept the commit. An installation that Git accepted names nothing.
+    refusal: str = ""
 
 
 # This is a reset that JRI can perform. It holds the paths that it replaces, as they were at the time of the check.
