@@ -12,6 +12,7 @@ from pydantic_core import InitErrorDetails, PydanticCustomError
 from jri.lib.providers import codex, gateway
 
 from . import paths
+from .exceptions import PersistenceError
 from .workspace import Workspace
 
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -152,7 +153,7 @@ class Settings(BaseModel):
 
     @classmethod
     def load(cls) -> Self:
-        values = yaml.safe_load(Workspace.find().settings_file.read_text(encoding="utf-8"))
+        values = yaml.safe_load(_read(Workspace.find().settings_file))
         settings = cls.model_validate({} if values is None else values)
         settings.validate_api_key_variables()
         return settings
@@ -162,7 +163,7 @@ class Settings(BaseModel):
         settings_file = Path(paths.GLOBAL_SETTINGS_FILE).expanduser()
         if not settings_file.exists():
             return None
-        values = yaml.safe_load(settings_file.read_text(encoding="utf-8"))
+        values = yaml.safe_load(_read(settings_file))
         if isinstance(values, dict):
             values = _merge(cls.model_validate({}).model_dump(), values)
         # A blank file names no setting. The model rejects a file that is not a mapping.
@@ -277,6 +278,15 @@ def _render_settings(
     # A blank line separates a comment from the setting above it. Settings with no comment stay together.
     lines = [line for comment, entry in entries for line in (["", *comment, *entry] if comment else entry)]
     return lines[1:] if lines and not lines[0] else lines
+
+
+# JRI reads two settings files the same way. A file that JRI cannot read holds no setting to fix, so report the
+# file and the reason instead.
+def _read(settings_file: Path) -> str:
+    try:
+        return settings_file.read_text(encoding="utf-8")
+    except OSError as error:
+        raise PersistenceError(f"Could not read the settings file `{settings_file}`: {error.strerror}") from error
 
 
 # The global settings can name only some of the settings of a section. Each setting that they do not name keeps

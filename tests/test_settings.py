@@ -1,6 +1,7 @@
 import re
+import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -8,9 +9,13 @@ from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from jri.core import paths
+from jri.core.exceptions import PersistenceError
 from jri.core.settings import AgentProfile, Settings
 from jri.lib.providers import codex, gateway
 from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 SETTING_PATTERN = re.compile(r"(# )?[a-z_]+:( .*)?")
 
@@ -358,6 +363,24 @@ def test_takes_every_setting_from_the_settings_file(tmp_path: Path, monkeypatch:
     assert settings.agents.interviewer.model == "file-model"
     assert settings.agents.interviewer.reasoning_effort == "low"
     assert settings.logging.level == "INFO"
+
+
+# A settings file that JRI cannot read holds no setting that a user can fix. Name the file and the reason.
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows holds an access list that `chmod` does not write")
+@pytest.mark.parametrize("read", [Settings.load, Settings.load_global], ids=["a project", "a home directory"])
+def test_reports_a_settings_file_it_could_not_read(
+    tmp_path: Path, isolate_home: Path, read: "Callable[[], object]"
+) -> None:
+    directory = tmp_path if read is Settings.load else isolate_home
+    write_settings(directory, {"logging": {"level": "DEBUG"}})
+    settings_file = directory / paths.SETTINGS_FILE
+    settings_file.chmod(0o000)
+
+    try:
+        with pytest.raises(PersistenceError, match="Could not read the settings file"):
+            read()
+    finally:
+        settings_file.chmod(0o600)
 
 
 def test_starts_a_project_with_the_global_settings(tmp_path: Path, isolate_home: Path) -> None:
