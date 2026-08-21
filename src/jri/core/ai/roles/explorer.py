@@ -142,7 +142,7 @@ class Explorer(Agent):
             # size limit tells it so.
             self.at_input_limit = False
             self.final_segment = segment + 1 == self.MAX_SEGMENTS
-        return Exploration(report="\n\n".join(reports), summary="\n".join(summaries), remaining="")
+        return Exploration(report=_join(reports, "\n\n"), summary=_join(summaries, "\n"), remaining="")
 
     @tool(
         "Explore the web with a search engine.",
@@ -323,12 +323,20 @@ class Explorer(Agent):
         return output
 
 
+# A segment can find nothing and write a blank report. Leave the blank parts out, so that an exploration that
+# found nothing answers with nothing, and not with the space between its segments.
+def _join(parts: list[str], separator: str) -> str:
+    return separator.join(part for part in parts if part.strip())
+
+
 # A segment ends because its request has no more room. The segment that follows gets the summaries and not
 # the reports, which are too large.
 def _render(query: str, summaries: list[str], remaining: str) -> str:
     return ai.prompts.read(
         "explorer_segment",
-        context=prompt.render(exploration_query=query, summaries_so_far="\n".join(summaries), remaining_work=remaining),
+        context=prompt.render(
+            exploration_query=query, summaries_so_far=_join(summaries, "\n"), remaining_work=remaining
+        ),
     )
 
 

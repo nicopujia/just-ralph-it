@@ -601,6 +601,19 @@ def test_reports_an_exploration_that_found_nothing_as_empty(tmp_path: Path) -> N
     assert invocation.output == "Exploration produced no report."
 
 
+# An exploration of blank space found nothing. The model must read that, and not an empty report block.
+def test_reports_an_exploration_of_blank_space_as_empty(tmp_path: Path) -> None:
+    client = FakeClient([], parsed=[Exploration(report="  \n\n  ", summary="", remaining="")])
+    interviewer = build_interviewer(tmp_path, client)
+    explore = next(tool for tool in interviewer.tools if tool.name == "explore")
+
+    invocation = explore.invoke('{"query": "cats"}')
+    list(invocation)
+
+    assert invocation.outcome == "empty"
+    assert invocation.output == "Exploration produced no report."
+
+
 def test_reports_a_failed_exploration_to_the_model(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path, FakeClient([], parsed=[failure("The provider is unavailable.")]))
     explore = next(tool for tool in interviewer.tools if tool.name == "explore")
