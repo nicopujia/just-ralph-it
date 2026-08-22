@@ -26,14 +26,14 @@ Run this in a thread that did not write the change — fresh eyes are what make 
     tmux capture-pane -pt "$smoke" | grep -F "books I read."
     tmux send-keys -t "$smoke" Enter
     sleep 5
-    until ! tmux capture-pane -pt "$smoke" | grep -q Thinking; do sleep 5; done
+    for _ in $(seq 60); do tmux capture-pane -pt "$smoke" | grep -q Thinking || break; sleep 5; done
     tmux capture-pane -pt "$smoke"
     tmux kill-session -t "$smoke"
     rm -rf "$smoke_dir"
     ```
     Open a session of your own and end that one. `$$` makes the name unique, so it can never be a session someone else is working in. Never run `tmux kill-server`, and never kill a session or window you did not create in this run: the developer may be working in tmux too, killing the last session takes the server and every pane with it, and a smoke test is not worth their day. A crashed run leaves its session behind under the same `jri-smoke-*` name it opened, and those are the only ones to clear.
 
-    Send a message in three steps. `-l` sends the text and no key, the pane shows what arrived, and a third call sends `Enter`. One call with both truncates the message. The input still reads keys when `Enter` arrives, and JRI keeps only a part of the line. So find the last words on the pane first, and send the rest again when they are absent. The interviewer answers in 20 to 60 seconds: poll the pane, and never wait a fixed time. `Escape Escape` stops a turn that runs, and `C-q C-q` quits.
+    Send a message in three steps. `-l` sends the text and no key, the pane shows what arrived, and a third call sends `Enter`. One call with both truncates the message. The input still reads keys when `Enter` arrives, and JRI keeps only a part of the line. So find the last words on the pane first, and send the rest again when they are absent. The interviewer answers in 20 to 60 seconds: poll the pane, and never wait a fixed time. Give the poll an end, because a run that hangs stops a test that waits without one. `Escape Escape` stops a turn that runs, and `C-q C-q` quits.
 
     `init` sets the workspace up and returns; `chat` is the window that reads keys. Always start JRI with `uv run --project <worktree>`—a bare `jri` runs the globally installed version, not the changed source. `init` writes the default models, and this project smoke-tests with other ones, so edit the settings file it wrote. Very bounded example. Scope scales with the change: judge how many conversations, how long, how complex—then prompt testing subagents accordingly.
 5. Issues → judge whether they're real. Real → subagent fixes → back to 4. Else → stage 2.
