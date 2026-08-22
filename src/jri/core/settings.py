@@ -26,7 +26,7 @@ APPLICATION_NAME = "jri"
 API_KEY_DESCRIPTION = "Name of the environment variable (NOT the key itself!)"
 COMMENT_WIDTH = 100
 # JRI writes a section that has no value as a comment. This line tells the user how to use that section.
-SECTION_INSTRUCTION = "Remove the first # from each line of this section to use it."
+SECTION_INSTRUCTION = "Remove the first # and the space after it from each line of this section to use it."
 # JRI indents a setting this many spaces inside the comment of its section. The indent is deeper than the
 # one a section gives its settings. YAML then refuses a file where the user removes the # of only some lines.
 SECTION_INDENT = "    "

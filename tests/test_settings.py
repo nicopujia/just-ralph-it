@@ -113,13 +113,14 @@ def test_tells_the_user_how_to_turn_an_optional_section_on() -> None:
 
     header = read_optional_section(lines, "brave_search")[0]
 
-    assert lines[header - 1] == "# Remove the first # from each line of this section to use it."
+    assert lines[header - 1] == "# Remove the first # and the space after it from each line of this section to use it."
 
 
 def test_sets_an_optional_section_the_user_uncomments_whole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "search-key")
     lines = Settings.render().splitlines()
     for index in read_optional_section(lines, "brave_search"):
+        # The instruction tells the user to remove the first # and the space after it.
         lines[index] = lines[index].replace("# ", "", 1)
     write_settings_text(tmp_path, "\n".join(lines))
 
