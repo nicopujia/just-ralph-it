@@ -17,18 +17,25 @@ Run this in a thread that did not write the change — fresh eyes are what make 
     smoke_dir="$(mktemp -d)"
     cp .env "$smoke_dir/.env"
     (cd "$smoke_dir" && uv run --project "$project" jri init)
+    sed -i s@xai/grok-4.6@openai/gpt-5.6-sol@ "$smoke_dir/.jri/settings.yaml"
     smoke="jri-smoke-$$"
     tmux new-session -d -s "$smoke" -x 120 -y 40 -c "$smoke_dir" "uv run --project $project jri chat"
     sleep 4
-    tmux send-keys -t "$smoke" "I want to build a small app for tracking books I read." Enter
-    sleep 4
+    tmux send-keys -t "$smoke" -l "I want to build a small app for tracking books I read."
+    sleep 3
+    tmux capture-pane -pt "$smoke" | grep -F "books I read."
+    tmux send-keys -t "$smoke" Enter
+    sleep 5
+    until ! tmux capture-pane -pt "$smoke" | grep -q Thinking; do sleep 5; done
     tmux capture-pane -pt "$smoke"
     tmux kill-session -t "$smoke"
     rm -rf "$smoke_dir"
     ```
     Open a session of your own and end that one. `$$` makes the name unique, so it can never be a session someone else is working in. Never run `tmux kill-server`, and never kill a session or window you did not create in this run: the developer may be working in tmux too, killing the last session takes the server and every pane with it, and a smoke test is not worth their day. A crashed run leaves its session behind under the same `jri-smoke-*` name it opened, and those are the only ones to clear.
 
-    `init` sets the workspace up and returns; `chat` is the window that reads keys. Always start JRI with `uv run --project <worktree>`—a bare `jri` runs the globally installed version, not the changed source. Very bounded example. Scope scales with the change: judge how many conversations, how long, how complex—then prompt testing subagents accordingly.
+    Send a message in three steps. `-l` sends the text and no key, the pane shows what arrived, and a third call sends `Enter`. One call with both truncates the message. The input still reads keys when `Enter` arrives, and JRI keeps only a part of the line. So find the last words on the pane first, and send the rest again when they are absent. The interviewer answers in 20 to 60 seconds: poll the pane, and never wait a fixed time. `Escape Escape` stops a turn that runs, and `C-q C-q` quits.
+
+    `init` sets the workspace up and returns; `chat` is the window that reads keys. Always start JRI with `uv run --project <worktree>`—a bare `jri` runs the globally installed version, not the changed source. `init` writes the default models, and this project smoke-tests with other ones, so edit the settings file it wrote. Very bounded example. Scope scales with the change: judge how many conversations, how long, how complex—then prompt testing subagents accordingly.
 5. Issues → judge whether they're real. Real → subagent fixes → back to 4. Else → stage 2.
 
 A failure that survives three rounds of fixes ends the stage — report what was tried and wait.
