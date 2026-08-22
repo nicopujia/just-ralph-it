@@ -25,6 +25,11 @@ type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 APPLICATION_NAME = "jri"
 API_KEY_DESCRIPTION = "Name of the environment variable (NOT the key itself!)"
 COMMENT_WIDTH = 100
+# JRI writes a section that has no value as a comment. This line tells the user how to use that section.
+SECTION_INSTRUCTION = "Remove the first # from each line of this section to use it."
+# JRI indents a setting this many spaces inside the comment of its section. The indent is deeper than the
+# one a section gives its settings. YAML then refuses a file where the user removes the # of only some lines.
+SECTION_INDENT = "    "
 INTRO = (
     "Welcome to Just Ralph It!\n\n"
     "When asked for an API key, you have to specify the name of the corresponding environment variable, "
@@ -171,7 +176,7 @@ class Settings(BaseModel):
 
     @classmethod
     def render(cls, values: "Settings | None" = None, *, comments: bool = True) -> str:
-        body = _render_settings(cls, values, 0, set(), {}, comments=comments)
+        body = _render_settings(cls() if values is None else values, 0, set(), {}, comments=comments)
         if not comments:
             return "\n".join([*body, ""])
         return "\n".join([*_wrap_comment(INTRO, ""), "", *body, ""])
@@ -231,15 +236,16 @@ def _wrap_comment(description: str, indent: str) -> list[str]:
 
 
 def _render_settings(
-    model: type[BaseModel],
-    values: BaseModel | None,
+    values: BaseModel,
     level: int,
     documented: set[tuple[type[BaseModel], str]],
     examples: dict[str, Any],
     *,
     comments: bool,
+    inside_a_comment: bool = False,
 ) -> list[str]:
     indent = "  " * level
+    model = type(values)
     entries: list[tuple[list[str], list[str]]] = []
     for name, field in model.model_fields.items():
         comment: list[str] = []
@@ -247,21 +253,27 @@ def _render_settings(
         if comments and (model, name) not in documented:
             documented.add((model, name))
             comment = _wrap_comment(field.description or "", indent)
-        value = getattr(values, name) if values is not None else field.default
-        annotation = field.annotation
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        value = getattr(values, name)
+        if isinstance(value, BaseModel):
+            # A section holds no value when every setting in it holds none.
+            unset = all(setting is None for setting in value.model_dump().values())
+            # A file with no comments holds only the settings that have a value. An unset section has none.
+            if unset and not comments:
+                continue
             body = _render_settings(
-                annotation,
-                value if isinstance(value, BaseModel) else None,
+                value,
                 level + 1,
                 documented,
                 field.examples[0] if field.examples else {},
                 comments=comments,
+                inside_a_comment=unset,
             )
-            unset = not body or all(line.lstrip().startswith("#") for line in body if line)
-            # A file with no comments holds only the settings that have a value. An unset section has none.
-            if unset and not comments:
-                continue
+            if unset:
+                comment = [*comment, *_wrap_comment(SECTION_INSTRUCTION, indent)]
+                # Start the # of every line of the body at the indent of the section. A # that starts
+                # deeper leaves a setting at the indent of the section above. YAML then reads that setting
+                # as one of the section above. The user gives a value to a setting that they did not choose.
+                body = [f"{indent}#{SECTION_INDENT}{line.strip()}" if line.strip() else line for line in body]
             entries.append((comment, [f"{indent}# {name}:" if unset else f"{indent}{name}:", *body]))
             continue
         unset = value is None
@@ -271,7 +283,9 @@ def _render_settings(
             # A section can suggest its own value. Each agent suggests a different temperature.
             value = examples.get(name, field.examples[0] if field.examples else None)
         setting = yaml.safe_dump({name: value}, sort_keys=False, allow_unicode=True, width=10**9).strip()
-        entries.append((comment, [f"{indent}# {setting}" if unset else f"{indent}{setting}"]))
+        # The comment of a section already marks the settings inside it. JRI does not mark such a setting twice.
+        marked = unset and not inside_a_comment
+        entries.append((comment, [f"{indent}# {setting}" if marked else f"{indent}{setting}"]))
 
     if not comments:
         return [line for _, entry in entries for line in entry]
