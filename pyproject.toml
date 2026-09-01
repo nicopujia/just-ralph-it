@@ -1,7 +1,7 @@
 [project]
 name = "just-ralph-it"
 version = "0.10.1"
-description = "Think through a software project idea, then build it with one click."
+description = "Agent harness to think ideas through and write specs that match what you mean."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Just Ralph It (JRI) is a software that helps you think through your software project idea, and then to build it with one click. You just have to share your thoughts, and JRI handles the rest.
+Just Ralph It (JRI) is currently an agent harness to think ideas through and write specs that match what you mean. In the future, it will not just write specs, but also autonomously ship and maintain the entire software.
 
 > [!NOTE]
 > To know more about this project vision and motivation, read the [concept document](https://nicolaspujia.com/just-ralph-it).
