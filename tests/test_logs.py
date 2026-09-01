@@ -72,6 +72,13 @@ TURNS = 2
 WRITE_SECONDS = 10
 
 
+# `jri init` configures no handler. `logging` writes a record that finds no handler to the terminal, and it
+# writes the traceback of that record too. A user must never read Python, so the package holds a handler that
+# writes nothing.
+def test_holds_a_handler_before_a_command_configures_one() -> None:
+    assert any(isinstance(handler, logging.NullHandler) for handler in logging.getLogger("jri").handlers)
+
+
 def test_appends_a_run_to_the_log_the_session_already_has(tmp_path: Path) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([]), level="INFO")

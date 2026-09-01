@@ -40,7 +40,8 @@ def main() -> None:
     parser.add_argument("-v", "--version", action="version", version=__version__, help=copy.CLI_VERSION_HELP)
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    init_parser = subparsers.add_parser("init", help=copy.CLI_INIT_HELP, description=copy.CLI_INIT_HELP)
+    init_help = copy.CLI_INIT_HELP.format(file=paths.GLOBAL_SETTINGS_FILE)
+    init_parser = subparsers.add_parser("init", help=init_help, description=init_help)
     init_parser.add_argument("--force", action="store_true", help=copy.CLI_FORCE_HELP)
     init_parser.add_argument("--yes", action="store_true", help=copy.CLI_YES_HELP)
     init_parser.add_argument("--no-comments", action="store_true", help=copy.CLI_NO_COMMENTS_HELP)
@@ -112,6 +113,8 @@ def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
     print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=directory))
     if installation.commit is not None:
         print(copy.INIT_COMMITTED)
+    elif installation.refusal:
+        print(copy.INIT_UNCOMMITTED.format(reason=installation.refusal))
     # A settings file with no comments has no instructions to read.
     if comments:
         print(copy.INIT_NEXT_STEPS.format(settings_file=files.shorten_path(workspace.settings_file)))

@@ -15,7 +15,7 @@ CLI_FORCE_HELP = (
     "the logs, the generated specifications, and what the last Just Ralph It run left behind."
 )
 CLI_HALT_HELP = "Kill the Just Ralph It run at once."
-CLI_INIT_HELP = "Set the project up with the default JRI settings."
+CLI_INIT_HELP = "Set the project up with the settings in {file}, or with the default JRI settings."
 CLI_JSON_HELP = "Print the report as JSON."
 CLI_NO_COMMENTS_HELP = "Write the settings file with no comments and only the settings that have a value."
 CLI_START_HELP = "Start a Just Ralph It run and wait here until it ends."
@@ -44,6 +44,10 @@ HIDE_THINKING_BLOCKS = "Hide thinking blocks"
 INIT_COMMITTED = "Committed the workspace files to Git."
 INIT_CREATED = "Created a JRI workspace at {directory}, with its settings, notebook, logs, and Git ignores."
 INIT_EXISTING = "A JRI workspace already exists at {directory}."
+INIT_UNCOMMITTED = (
+    "Git did not accept the commit of the workspace:\n\n{reason}\n\n"
+    "The workspace is ready. Commit it yourself after you set Git up."
+)
 INIT_NEXT_STEPS = "Open {settings_file} and follow its comments, then run `jri chat`."
 INIT_RECREATED = (
     "Re-created the JRI workspace at {directory}, replacing its settings, notes, conversation, logs, "

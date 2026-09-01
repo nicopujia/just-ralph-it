@@ -16,6 +16,11 @@ from .exceptions import PersistenceError
 from .settings import Settings
 from .workspace import Workspace
 
+# `jri init` writes a log record before any command configures a handler. `logging` writes a warning that
+# finds no handler to the terminal, and it writes the traceback of that warning too. Add a handler that writes
+# nothing. A record that JRI makes before `configure` then goes nowhere. A user must never read Python.
+logging.getLogger("jri").addHandler(logging.NullHandler())
+
 # A session outlives the process that serves it.
 # `jri chat` restores its conversation, and `jri view` reads the same notes.
 # All runs of a session append to one file. A session reset clears this directory.

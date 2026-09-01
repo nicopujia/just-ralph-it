@@ -1,6 +1,7 @@
 import re
+import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -8,9 +9,13 @@ from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from jri.core import paths
+from jri.core.exceptions import PersistenceError
 from jri.core.settings import AgentProfile, Settings
 from jri.lib.providers import codex, gateway
 from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 SETTING_PATTERN = re.compile(r"(# )?[a-z_]+:( .*)?")
 
@@ -59,6 +64,16 @@ def read_comments(lines: list[str]) -> list[str]:
     return [" ".join(text for text in comment if text) for comment in comments if comment]
 
 
+# The rendered file writes an optional section as a comment. The comment starts at the line that names the
+# section, and a blank line ends it.
+def read_optional_section(lines: list[str], name: str) -> range:
+    start = lines.index(f"# {name}:")
+    end = start + 1
+    while end < len(lines) and lines[end].startswith("#"):
+        end += 1
+    return range(start, end)
+
+
 def test_generates_a_settings_file_that_round_trips_through_the_model(tmp_path: Path) -> None:
     (tmp_path / paths.SETTINGS_FILE).parent.mkdir(exist_ok=True)
     (tmp_path / paths.SETTINGS_FILE).write_text(Settings.render(), encoding="utf-8")
@@ -81,6 +96,52 @@ def test_generates_a_settings_file_with_no_comments_that_round_trips(tmp_path: P
     # An unset setting has no value to keep, and no comment to name it.
     assert "brave_search" not in text
     assert "temperature" not in text
+
+
+def test_leaves_an_optional_section_unset_while_it_stays_a_comment(tmp_path: Path) -> None:
+    write_settings_text(tmp_path, Settings.render())
+
+    settings = Settings.load()
+
+    assert settings.brave_search.api_key is None
+    assert settings.llm.api_key == "AI_GATEWAY_API_KEY"
+
+
+# The user reads this line and turns the section on. A section that the user cannot turn on gives nothing.
+def test_tells_the_user_how_to_turn_an_optional_section_on() -> None:
+    lines = Settings.render().splitlines()
+
+    header = read_optional_section(lines, "brave_search")[0]
+
+    assert lines[header - 1] == "# Remove the first # and the space after it from each line of this section to use it."
+
+
+def test_sets_an_optional_section_the_user_uncomments_whole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "search-key")
+    lines = Settings.render().splitlines()
+    for index in read_optional_section(lines, "brave_search"):
+        # The instruction tells the user to remove the first # and the space after it.
+        lines[index] = lines[index].replace("# ", "", 1)
+    write_settings_text(tmp_path, "\n".join(lines))
+
+    settings = Settings.load()
+
+    # The uncommented section holds its own setting. It must not give its value to the section above it.
+    assert settings.brave_search.api_key == "BRAVE_SEARCH_API_KEY"
+    assert settings.llm.api_key == "AI_GATEWAY_API_KEY"
+
+
+# A user can remove the # of one setting and leave the # of the section that holds it. That setting then names
+# no section. JRI indents it so that YAML refuses the file. A file that YAML reads would give the value away.
+@pytest.mark.parametrize("mark", ["# ", "#"], ids=["a # and a space", "a # alone"])
+def test_reports_an_optional_setting_the_user_uncomments_alone(tmp_path: Path, mark: str) -> None:
+    lines = Settings.render().splitlines()
+    setting = read_optional_section(lines, "brave_search")[-1]
+    lines[setting] = lines[setting].replace(mark, "", 1)
+    write_settings_text(tmp_path, "\n".join(lines))
+
+    with pytest.raises(yaml.YAMLError, match="while parsing a block mapping"):
+        Settings.load()
 
 
 def test_documents_every_setting_it_generates_one_time() -> None:
@@ -360,6 +421,24 @@ def test_takes_every_setting_from_the_settings_file(tmp_path: Path, monkeypatch:
     assert settings.logging.level == "INFO"
 
 
+# A settings file that JRI cannot read holds no setting that a user can fix. Name the file and the reason.
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows holds an access list that `chmod` does not write")
+@pytest.mark.parametrize("read", [Settings.load, Settings.load_global], ids=["a project", "a home directory"])
+def test_reports_a_settings_file_it_could_not_read(
+    tmp_path: Path, isolate_home: Path, read: "Callable[[], object]"
+) -> None:
+    directory = tmp_path if read is Settings.load else isolate_home
+    write_settings(directory, {"logging": {"level": "DEBUG"}})
+    settings_file = directory / paths.SETTINGS_FILE
+    settings_file.chmod(0o000)
+
+    try:
+        with pytest.raises(PersistenceError, match="Could not read the settings file"):
+            read()
+    finally:
+        settings_file.chmod(0o600)
+
+
 def test_starts_a_project_with_the_global_settings(tmp_path: Path, isolate_home: Path) -> None:
     write_settings(isolate_home, {"agents": {"interviewer": {"model": "global/model"}}, "logging": {"level": "DEBUG"}})
 
@@ -412,6 +491,15 @@ def test_starts_a_project_with_an_api_key_variable_that_no_environment_sets(isol
     write_settings(isolate_home, {"brave_search": {"api_key": "MISSING_SEARCH_API_KEY"}})
 
     assert "api_key: MISSING_SEARCH_API_KEY" in Settings.render(Settings.load_global())
+
+
+# A settings file is text that its user reads and edits. JRI writes back the letters that the user wrote.
+# It also holds a long value on the line of its setting.
+def test_writes_a_setting_as_the_user_wrote_it(isolate_home: Path) -> None:
+    model = "a model named in español, with a name long enough to pass the eighty letters where YAML folds"
+    write_settings(isolate_home, {"agents": {"interviewer": {"model": model}}})
+
+    assert f"model: {model}" in Settings.render(Settings.load_global())
 
 
 def test_reports_a_setting_the_global_settings_do_not_know(isolate_home: Path) -> None:
