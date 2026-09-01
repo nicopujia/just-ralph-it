@@ -1,6 +1,6 @@
 [project]
 name = "just-ralph-it"
-version = "0.10.1"
+version = "0.10.2"
 description = "Agent harness to think ideas through and write specs that match what you actually mean."
 readme = "README.md"
 license = "Apache-2.0"
