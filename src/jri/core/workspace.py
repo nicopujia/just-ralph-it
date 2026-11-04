@@ -176,6 +176,14 @@ class Workspace:
             raise PersistenceError(f"Could not create the project directory `{self.root}`: {error.strerror}") from error
         found = git.find_root(self.root)
         repository_created = found is None or (separate and found != self.root.resolve())
+        # A directory that the repository above tracks is a part of that project. A repository of its own would hide it.
+        if found is not None and repository_created:
+            relative = self.root.resolve().relative_to(found).as_posix()
+            if Repository(found).read_staged_paths((relative,)):
+                raise PersistenceError(
+                    f"The Git repository at `{found}` tracks `{relative}`, so that directory is part of its project. "
+                    "Run `jri init` with no directory from there to set up that project."
+                )
         repository = Repository.init(self.root, nested=repository_created)
         # A repository above refuses `git add .` while a nested repository holds no commit.
         if found is not None and repository_created:

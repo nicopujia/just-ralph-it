@@ -246,6 +246,24 @@ def test_keeps_a_named_directory_with_a_pattern_in_its_name_out_of_the_repositor
     assert "/app\\[1]/" in (tmp_path / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines()
 
 
+# A directory that the repository above tracks is a part of that project. A repository of its own would hide it.
+def test_refuses_a_named_directory_that_the_repository_above_it_tracks(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
+    package = tmp_path / "packages" / "app"
+    package.mkdir(parents=True)
+    (package / "main.py").write_bytes(b"print('hello')\n")
+    run_git(tmp_path, "add", ".")
+    run_git(tmp_path, "commit", "-qm", "app")
+
+    with pytest.raises(PersistenceError, match="`jri init` with no directory"):
+        Workspace(package).install(Settings.render(), separate=True)
+
+    assert git.find_root(package) == repository.path
+    assert not (package / paths.WORKSPACE_DIR).exists()
+
+
 def test_reports_a_named_directory_it_could_not_create(tmp_path: Path) -> None:
     (tmp_path / "taken").write_text("", encoding="utf-8")
 
