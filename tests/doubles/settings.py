@@ -18,7 +18,7 @@ def build_settings(
         "Settings",
         FakeSettings(
             logging=SimpleNamespace(level=level),
-            llm=SimpleNamespace(client=client),
+            llm=SimpleNamespace(client=client, api_key="TEST_API_KEY"),
             brave_search=SimpleNamespace(api_key=search_api_key),
             agents=SimpleNamespace(
                 interviewer=profile, explorer=profile, functional_analyst=profile, architect=profile

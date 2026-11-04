@@ -63,7 +63,7 @@ To add JRI to a project you already have, run `jri init` inside it.
 To change the provider or the models, edit `.jri/settings.yaml` and follow its comments.
 
 > [!WARNING]
-> To explore your project, a model runs shell commands on your machine as you. It can read any file you can read, `.env` included, and your environment variables. Use JRI on a machine and with a key that you can trust to that model provider.
+> To explore your project, a model runs shell commands on your machine as you. It can read any file you can read. JRI tells it not to open `.env`, refuses that read in its file tool, and hides the key variables from its shell, but a shell command can still reach the file. Use JRI with a key that you can trust to that model provider.
 
 ### 3. Usage
 
