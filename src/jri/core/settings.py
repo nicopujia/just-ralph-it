@@ -194,7 +194,7 @@ class Settings(BaseModel):
                 raise _reject_setting(
                     (section, "api_key"),
                     f"names {variable}, but that environment variable is not set. "
-                    f"Set it in your shell or in {paths.ENV_FILE}",
+                    f"Set it in your shell or in the {paths.ENV_FILE} file at the project root",
                 )
 
 

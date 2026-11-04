@@ -233,6 +233,19 @@ def test_keeps_a_named_directory_out_of_the_repository_above_it(
     assert not git.Repository(tmp_path).read_status()
 
 
+# Git reads a rule as a pattern, and a directory name can hold the characters of a pattern.
+def test_keeps_a_named_directory_with_a_pattern_in_its_name_out_of_the_repository_above_it(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+
+    Workspace(tmp_path / "app[1]").install(Settings.render(), separate=True)
+
+    run_git(tmp_path, "add", ".")
+    assert not git.Repository(tmp_path).read_status()
+    assert "/app\\[1]/" in (tmp_path / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines()
+
+
 def test_reports_a_named_directory_it_could_not_create(tmp_path: Path) -> None:
     (tmp_path / "taken").write_text("", encoding="utf-8")
 

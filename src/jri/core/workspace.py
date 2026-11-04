@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import signal
 import time
 from contextlib import contextmanager
@@ -178,7 +179,9 @@ class Workspace:
         repository = Repository.init(self.root, nested=repository_created)
         # A repository above refuses `git add .` while a nested repository holds no commit.
         if found is not None and repository_created:
-            self._exclude(Repository(found), f"/{self.root.resolve().relative_to(found).as_posix()}/")
+            relative = self.root.resolve().relative_to(found).as_posix()
+            # Git reads a rule as a pattern. These characters must match themselves in a directory name.
+            self._exclude(Repository(found), "/" + re.sub(r"([\\*?\[])", r"\\\1", relative) + "/")
         created = not self.settings_file.exists()
         if reset is not None:
             self._clear()

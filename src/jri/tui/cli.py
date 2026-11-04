@@ -4,7 +4,7 @@ import os
 import shlex
 from datetime import datetime
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, cast
 
 import yaml
 from dotenv import load_dotenv
@@ -124,29 +124,48 @@ def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool
 
 # Name only the steps that this user still has to take. An API key that the shell or the .env file holds is done.
 def _describe_next_steps(workspace: Workspace, directory: str | None) -> str:
-    load_dotenv(workspace.root / paths.ENV_FILE)
+    _read_env_file(workspace)
     steps = []
     # A command in a subdirectory of a project finds that project, so only a named directory needs a move.
-    if directory is not None and workspace.root != Path.cwd().resolve():
-        steps.append(copy.INIT_STEP_MOVE.format(directory=shlex.quote(directory)))
-    variable = _read_api_key_variable(workspace)
-    if variable is not None and variable not in os.environ:
-        steps.append(copy.INIT_STEP_KEY.format(file=paths.ENV_FILE, variable=variable))
+    moves = directory is not None and workspace.root != Path.cwd().resolve()
+    if moves:
+        steps.append(copy.INIT_STEP_MOVE.format(directory=shlex.quote(cast("str", directory))))
+    # The workspace of a command in a subdirectory stands at the project root, and the .env file does too.
+    # After the move, a path is relative to that root.
+    env_file, settings_file = (
+        (paths.ENV_FILE, paths.SETTINGS_FILE)
+        if moves
+        else (files.shorten_path(workspace.root / paths.ENV_FILE), files.shorten_path(workspace.settings_file))
+    )
+    steps.extend(
+        copy.INIT_STEP_KEY.format(file=env_file, variable=variable)
+        for variable in _read_api_key_variables(workspace)
+        if variable not in os.environ
+    )
     # A run commits at its end. Say this now, and not after the user waits for that run.
     if not Repository(workspace.root).has_identity():
         steps.append(copy.INIT_STEP_IDENTITY)
     steps.append(copy.INIT_STEP_CHAT)
     numbered = "\n".join(f"  {number}. {step}" for number, step in enumerate(steps, start=1))
-    return copy.INIT_NEXT_STEPS.format(steps=numbered, settings_file=paths.SETTINGS_FILE)
+    return copy.INIT_NEXT_STEPS.format(steps=numbered, settings_file=settings_file)
 
 
 # A settings file that JRI cannot read names no variable. `jri chat` reports what is wrong with that file.
-def _read_api_key_variable(workspace: Workspace) -> str | None:
+def _read_api_key_variables(workspace: Workspace) -> tuple[str, ...]:
     try:
         values = yaml.safe_load(workspace.settings_file.read_text(encoding="utf-8"))
-        return Settings.model_validate({} if values is None else values).llm.api_key
+        settings = Settings.model_validate({} if values is None else values)
     except (OSError, ValueError, yaml.YAMLError):
-        return None
+        return ()
+    return tuple(variable for variable in (settings.llm.api_key, settings.brave_search.api_key) if variable)
+
+
+# A .env file that JRI cannot read holds no variable. A later check reports the variable that is missing.
+def _read_env_file(workspace: Workspace) -> None:
+    try:
+        load_dotenv(workspace.root / paths.ENV_FILE)
+    except (OSError, ValueError):
+        logger.exception("env_file_unread")
 
 
 def _chat() -> None:
@@ -257,7 +276,7 @@ def _find_workspace() -> Workspace:
 
 def _load_settings() -> Settings:
     workspace = _find_workspace()
-    load_dotenv(workspace.root / paths.ENV_FILE)
+    _read_env_file(workspace)
     try:
         return Settings.load()
     except (ValidationError, yaml.YAMLError) as error:

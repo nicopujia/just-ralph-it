@@ -40,7 +40,7 @@ HALT_KILLED = "Killed the run. The work of the step it was on can be lost."
 HALT_NO_RUN = "No run is going, so nothing was killed."
 HIDE_THINKING_BLOCKS = "Hide thinking blocks"
 
-INIT_COMMITTED = "Committed the new workspace to Git, because Git still held the specifications it replaced."
+INIT_COMMITTED = "Committed the re-created workspace to Git."
 INIT_CREATED = "Created a JRI workspace at {directory}, with its settings, notebook, logs, and Git ignores."
 INIT_EXISTING = "A JRI workspace already exists at {directory}."
 INIT_NEXT_STEPS = """

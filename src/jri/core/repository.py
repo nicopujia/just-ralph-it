@@ -15,9 +15,12 @@ class Repository(git.Repository):
     def commit(self, message: str, trailers: Sequence[str] = (), *, paths: Sequence[str] = ()) -> str:
         return super().commit(message, (f"Co-authored-by: {CO_AUTHOR}", *trailers), paths=paths)
 
-    # Git refuses a commit when it cannot name its author.
+    # Git refuses a commit when it cannot name its author or its committer.
     def has_identity(self) -> bool:
-        return not self._run("var", "GIT_AUTHOR_IDENT", check=False).returncode
+        return not any(
+            self._run("var", variable, check=False).returncode
+            for variable in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT")
+        )
 
     # Add a rule that only this clone reads. Git keeps `info/exclude` out of every commit, so the project gets no file.
     def exclude(self, pattern: str) -> None:

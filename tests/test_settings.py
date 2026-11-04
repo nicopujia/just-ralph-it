@@ -260,7 +260,7 @@ def test_names_the_setting_and_the_file_of_a_missing_llm_key(tmp_path: Path, mon
     values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "MISSING_API_KEY"}
     write_settings(tmp_path, values)
 
-    with pytest.raises(ValidationError, match=r"in your shell or in \.env") as error:
+    with pytest.raises(ValidationError, match=r"in your shell or in the \.env file at the project root") as error:
         Settings.load()
 
     assert error.value.errors()[0]["loc"] == ("llm", "api_key")

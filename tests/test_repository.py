@@ -107,3 +107,19 @@ def test_names_a_repository_where_git_cannot_name_the_author(
     run_git(tmp_path / "project", "config", "user.useConfigOnly", "true")
 
     assert not repository.has_identity()
+
+
+# A commit needs a committer too. An author alone does not satisfy Git.
+def test_names_a_repository_where_git_knows_only_the_author(
+    tmp_path: Path, run_git: RunGit, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for variable in ("GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Someone")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "someone@example.com")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-global"))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "no-system"))
+    repository = Repository.init(tmp_path / "project")
+    run_git(tmp_path / "project", "config", "user.useConfigOnly", "true")
+
+    assert not repository.has_identity()
