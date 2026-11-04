@@ -17,7 +17,6 @@ from jri.core.generation import Generation
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Reset, Workspace
 from jri.lib import browser, files, git, terminal
-from jri.lib.providers import codex
 
 from . import copy
 from .app import App
@@ -73,9 +72,6 @@ def main() -> None:
 
     try:
         handlers[arguments.command]()
-    except codex.AuthError as error:
-        print(copy.AUTH_ERROR.format(error=error))
-        raise SystemExit(1) from error
     except git.Error as error:
         print(copy.GIT_ERROR.format(error=error))
         raise SystemExit(1) from error
@@ -123,7 +119,6 @@ def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
 def _chat() -> None:
     settings = _load_settings()
     logs.configure(settings)
-    settings.llm.validate_authentication()
     # Ask for the project hold before the app starts. Then no other output can draw in the terminal.
     hold = Workspace.find().open_hold()
     if not hold.take() and not _take_over(hold):
@@ -163,7 +158,6 @@ def _view() -> None:
 def _start() -> None:
     settings = _load_settings()
     logs.configure(settings)
-    settings.llm.validate_authentication()
     # A run says nothing while it works. Say that the run began, because the reader must know that the wait is
     # the run. The run itself says when it began, because a refusal must not come after a line that says the
     # run started.

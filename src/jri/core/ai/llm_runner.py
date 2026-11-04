@@ -29,7 +29,7 @@ BLOCK_NOTICE = prompts.read("block_notice")
 TRANSIENT_STATUSES = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.CONFLICT, HTTPStatus.TOO_MANY_REQUESTS})
 """Statuses a later attempt can still succeed on."""
 
-EXHAUSTION_CODES = frozenset({"insufficient_quota", "usage_limit_reached", "billing_hard_limit_reached"})
+EXHAUSTION_CODES = frozenset({"insufficient_quota", "billing_hard_limit_reached"})
 """Codes of a spent budget, which no amount of waiting refills."""
 
 STATUS_PHRASES = {int(status): status.phrase for status in HTTPStatus}

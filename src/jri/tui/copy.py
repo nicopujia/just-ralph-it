@@ -3,8 +3,6 @@ from jri.core.ai import Interviewer
 
 # Keep alphabetical order. Put a blank line between initial letters.
 
-AUTH_ERROR = "Authentication failed: {error}"
-
 CANCEL_TURN = "Stop response"
 CANCEL_TURN_CONFIRMATION = "Press Esc again to stop"
 CANCEL_TURN_KEY = "esc esc"
@@ -140,7 +138,7 @@ TURN_ERROR = (
     f"Something went wrong:\n\n{{error}}\n\nTry again. If it keeps happening, report it at {issues.URL} "
     "and attach the .jri/ directory as a zip."
 )
-TURN_EXHAUSTED = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
+TURN_EXHAUSTED = "Your API usage limit has been reached. Check your plan and try again later."
 TURN_INTERRUPTED = "_JRI closed before this finished._"
 TURN_NO_RESPONSE = "_No response received._"
 TURN_REFUSED = (

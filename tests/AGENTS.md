@@ -9,4 +9,4 @@
 - Deterministic, except a `contract`, which calls the endpoint for real. A double answers with what JRI expects of an endpoint, so no test against it can prove that expectation wrong — its calls show only that something happened, or how often.
 - A `contract` is deselected until a run asks for it: `./scripts/check.py --contracts`.
 - A `contract` with no key, or no way to reach its endpoint, fails. It does not skip. A skip is green, and the release would ship with nothing checked.
-- Brave and models.dev are the only endpoints with one; the Responses API, YouTube, Codex's auth file and macOS `defaults` still rest on what a double says they answer. YouTube gets none because it answers a hosted runner with `429`, so the gate would fail for YouTube's reason and not JRI's.
+- Brave and models.dev are the only endpoints with one; the Responses API, YouTube and macOS `defaults` still rest on what a double says they answer. YouTube gets none because it answers a hosted runner with `429`, so the gate would fail for YouTube's reason and not JRI's.
