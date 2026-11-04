@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import shlex
 from datetime import datetime
 from pathlib import Path
 from typing import NoReturn
@@ -15,6 +16,7 @@ from jri.core import logs, paths, visualization
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.generation import Generation
+from jri.core.repository import Repository
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Reset, Workspace
 from jri.lib import browser, files, git, terminal
@@ -95,8 +97,7 @@ def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool
     force = force and (not separate or workspace.settings_file.exists())
     # Only an installation that writes a settings file starts the project from the global settings.
     writes_settings = force or not workspace.settings_file.exists()
-    values = _load_global_settings() if writes_settings else None
-    settings = Settings.render(values, comments=comments)
+    settings = Settings.render(_load_global_settings() if writes_settings else None, comments=comments)
     if force:
         # Ask the question inside the reset. First report an active window or run that prevents the deletion.
         # Keep the project held while the user reads. The answer then applies to the same project state that
@@ -118,26 +119,34 @@ def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool
         print(copy.INIT_COMMITTED)
     elif installation.refusal:
         print(copy.INIT_UNCOMMITTED.format(reason=installation.refusal))
-    print(
-        _describe_next_steps(
-            workspace, (values or Settings()).llm.api_key if writes_settings else None, separate=separate
-        )
-    )
+    print(_describe_next_steps(workspace, directory))
 
 
 # Name only the steps that this user still has to take. An API key that the shell or the .env file holds is done.
-def _describe_next_steps(workspace: Workspace, api_key_variable: str | None, *, separate: bool) -> str:
-    env_file = workspace.root / paths.ENV_FILE
-    load_dotenv(env_file)
+def _describe_next_steps(workspace: Workspace, directory: str | None) -> str:
+    load_dotenv(workspace.root / paths.ENV_FILE)
     steps = []
     # A command in a subdirectory of a project finds that project, so only a named directory needs a move.
-    if separate and workspace.root != Path.cwd().resolve():
-        steps.append(copy.INIT_STEP_MOVE.format(directory=files.shorten_path(workspace.root)))
-    if api_key_variable is not None and api_key_variable not in os.environ:
-        steps.append(copy.INIT_STEP_KEY.format(file=paths.ENV_FILE, variable=api_key_variable))
+    if directory is not None and workspace.root != Path.cwd().resolve():
+        steps.append(copy.INIT_STEP_MOVE.format(directory=shlex.quote(directory)))
+    variable = _read_api_key_variable(workspace)
+    if variable is not None and variable not in os.environ:
+        steps.append(copy.INIT_STEP_KEY.format(file=paths.ENV_FILE, variable=variable))
+    # A run commits at its end. Say this now, and not after the user waits for that run.
+    if not Repository(workspace.root).has_identity():
+        steps.append(copy.INIT_STEP_IDENTITY)
     steps.append(copy.INIT_STEP_CHAT)
     numbered = "\n".join(f"  {number}. {step}" for number, step in enumerate(steps, start=1))
     return copy.INIT_NEXT_STEPS.format(steps=numbered, settings_file=paths.SETTINGS_FILE)
+
+
+# A settings file that JRI cannot read names no variable. `jri chat` reports what is wrong with that file.
+def _read_api_key_variable(workspace: Workspace) -> str | None:
+    try:
+        values = yaml.safe_load(workspace.settings_file.read_text(encoding="utf-8"))
+        return Settings.model_validate({} if values is None else values).llm.api_key
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
 
 
 def _chat() -> None:

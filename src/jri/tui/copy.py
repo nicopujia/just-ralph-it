@@ -52,13 +52,17 @@ INIT_RECREATED = (
     "Re-created the JRI workspace at {directory}, replacing its settings, notes, conversation, logs, "
     "specifications, and the record of the last Just Ralph It run."
 )
-INIT_REPOSITORY = "Initialized a Git repository in {directory}."
+INIT_REPOSITORY = "Initialized a Git repository in `{directory}`."
 INIT_STEP_CHAT = "Run `jri chat`."
+INIT_STEP_IDENTITY = (
+    "Tell Git who you are, because JRI commits the specifications: "
+    '`git config --global user.name "Your Name"` and `git config --global user.email you@example.com`.'
+)
 INIT_STEP_KEY = "Add your API key to {file}: {variable}=your-key"
 INIT_STEP_MOVE = "Run `cd {directory}`."
 INIT_UNCOMMITTED = (
     "Git did not accept the commit of the workspace:\n\n{reason}\n\n"
-    "The workspace is ready. Commit it yourself after you set Git up."
+    "The workspace is ready. Set Git up, then run `jri init --force` again."
 )
 INSERT_NEWLINE = "Insert newline"
 INTERNAL_ERROR = "Something unexpected went wrong. Check the JRI log for details."

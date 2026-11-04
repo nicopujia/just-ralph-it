@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from jri.core.repository import Repository
 from tests.conftest import CreateRepository, RunGit
 
@@ -83,3 +85,24 @@ def test_excludes_a_path_beside_a_rule_that_is_not_text(tmp_path: Path) -> None:
     repository.exclude("/.env")
 
     assert exclude_file.read_bytes() == b"caf\xe9\n/.env\n"
+
+
+def test_names_a_repository_where_git_knows_the_author(tmp_path: Path, run_git: RunGit) -> None:
+    repository = Repository.init(tmp_path)
+    run_git(tmp_path, "config", "user.name", "Someone")
+    run_git(tmp_path, "config", "user.email", "someone@example.com")
+
+    assert repository.has_identity()
+
+
+def test_names_a_repository_where_git_cannot_name_the_author(
+    tmp_path: Path, run_git: RunGit, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for variable in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-global"))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "no-system"))
+    repository = Repository.init(tmp_path / "project")
+    run_git(tmp_path / "project", "config", "user.useConfigOnly", "true")
+
+    assert not repository.has_identity()

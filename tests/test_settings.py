@@ -245,6 +245,27 @@ def test_reports_an_unset_environment_variable(tmp_path: Path) -> None:
         Settings.load()
 
 
+def test_refuses_an_empty_api_key_variable(tmp_path: Path) -> None:
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": ""}
+    write_settings(tmp_path, values)
+
+    with pytest.raises(ValidationError, match=r"llm\.api_key"):
+        Settings.load()
+
+
+def test_names_the_setting_and_the_file_of_a_missing_llm_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MISSING_API_KEY", raising=False)
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "MISSING_API_KEY"}
+    write_settings(tmp_path, values)
+
+    with pytest.raises(ValidationError, match=r"in your shell or in \.env") as error:
+        Settings.load()
+
+    assert error.value.errors()[0]["loc"] == ("llm", "api_key")
+
+
 def test_requires_an_api_key(tmp_path: Path) -> None:
     values = yaml.safe_load(Settings.render())
     values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": None}

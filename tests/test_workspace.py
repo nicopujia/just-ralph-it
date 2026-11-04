@@ -294,6 +294,7 @@ def test_commits_the_workspace_a_forced_start_over_replaced(tmp_path: Path, run_
     commit = repository.read_head()
     assert installation.commit == commit
     assert repository.find_commit(ACCEPTANCE_TRAILER) == commit
+    assert run_git(tmp_path, "log", "-1", "--format=%s") == "jri: start the project over"
     assert repository.read_file(commit, paths.SETTINGS_FILE).decode() == Settings.render()
 
 

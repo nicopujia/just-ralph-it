@@ -36,7 +36,7 @@ Just Ralph It (JRI) is currently an agent harness to think ideas through and wri
 
 - [Python](https://www.python.org/downloads/) >=3.13 or [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - API key from [Vercel AI Gateway](https://vercel.com/d?to=/[team]/~/ai-gateway/api-keys) (the default) or any other [OpenAI-compatible](https://github.com/openai/openai-python) LLM inference provider
-- [Git](https://git-scm.com/install/) >=2.x.x
+- [Git](https://git-scm.com/install/) >=2.x.x, with your `user.name` and `user.email` set
 
 ### 1. Installation
 

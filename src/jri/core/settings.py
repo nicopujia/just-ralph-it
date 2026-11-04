@@ -192,7 +192,9 @@ class Settings(BaseModel):
         for section, variable in (("llm", self.llm.api_key), ("brave_search", self.brave_search.api_key)):
             if variable and variable not in os.environ:
                 raise _reject_setting(
-                    (section, "api_key"), f"names {variable}, but that environment variable is not set"
+                    (section, "api_key"),
+                    f"names {variable}, but that environment variable is not set. "
+                    f"Set it in your shell or in {paths.ENV_FILE}",
                 )
 
 
