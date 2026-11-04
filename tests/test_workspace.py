@@ -369,6 +369,31 @@ def test_leaves_the_workspace_uncommitted_during_a_merge(
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
 
 
+def test_leaves_the_workspace_uncommitted_during_a_clean_merge(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
+    install_an_accepted_workspace(tmp_path)
+    change_the_committed_settings(tmp_path, run_git)
+    run_git(tmp_path, "checkout", "-qb", "other")
+    (tmp_path / "other.md").write_bytes(b"# Other\n")
+    run_git(tmp_path, "add", "other.md")
+    run_git(tmp_path, "commit", "-qm", "other")
+    run_git(tmp_path, "checkout", "-q", "-")
+    (tmp_path / "first.md").write_bytes(b"# First\n")
+    run_git(tmp_path, "add", "first.md")
+    run_git(tmp_path, "commit", "-qm", "first")
+    run_git(tmp_path, "merge", "--no-commit", "--no-ff", "other")
+    head = repository.read_head()
+
+    installation = install_workspace(tmp_path, force=True)
+
+    # A merge with no conflict leaves only its record, and Git still refuses a partial commit.
+    assert installation.commit is None
+    assert not installation.refusal
+    assert repository.read_head() == head
+
+
 def test_stages_nothing_while_the_user_settles_a_conflicted_cherry_pick(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -398,7 +423,7 @@ def test_stages_nothing_while_the_user_settles_a_conflicted_cherry_pick(
 
 
 def test_leaves_the_workspace_uncommitted_off_a_branch(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, caplog: pytest.LogCaptureFixture
 ) -> None:
     repository = create_repository(tmp_path)
     install_an_accepted_workspace(tmp_path)
@@ -406,10 +431,12 @@ def test_leaves_the_workspace_uncommitted_off_a_branch(
     run_git(tmp_path, "checkout", "-q", "--detach")
     head = repository.read_head()
 
-    installation = install_workspace(tmp_path, force=True)
+    with caplog.at_level(logging.INFO, logger="jri"):
+        installation = install_workspace(tmp_path, force=True)
 
     # Only a detached HEAD can reach a commit made off a branch.
     # A checkout back to the branch loses that commit and the workspace with it.
+    assert "installation_uncommitted" in [record.getMessage() for record in caplog.records]
     assert installation.commit is None
     assert repository.read_head() == head
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
@@ -476,6 +503,9 @@ def test_initializes_a_workspace_inside_an_existing_repository(
     assert not installation.repository_created
     assert repository.read_head() == git.Repository(nested).read_head()
     assert (nested / paths.SETTINGS_FILE).exists()
+    # This project stays in the repository that holds it, so that repository still reports it.
+    assert all(item.path.startswith("packages/app/.jri/") for item in repository.read_status())
+    assert repository.read_status()
 
 
 def test_creates_the_working_directory_when_it_is_missing(tmp_path: Path) -> None:
