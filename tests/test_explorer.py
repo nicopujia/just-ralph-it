@@ -641,6 +641,42 @@ def test_answers_an_exploration_with_the_report_of_every_segment(monkeypatch: py
     )
 
 
+# A segment can find nothing and write a blank report. The space between two reports is not a report, so an
+# exploration of blank segments answers with nothing at all.
+def test_answers_with_nothing_when_every_segment_reported_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report="   ", summary="  ", remaining="What cats eat."),
+            Exploration(report="", summary="", remaining=""),
+        ],
+    )
+
+    result = drain(build_explorer(client=client).report("cats"))[1]
+
+    assert result == Exploration(report="", summary="", remaining="")
+
+
+# One blank segment does not blank the exploration. Leave that segment out and keep what the others found.
+def test_leaves_a_segment_that_reported_nothing_out_of_the_exploration(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."),
+            Exploration(report="  ", summary="  ", remaining="Where cats sleep."),
+            Exploration(report="Cats sleep anywhere.", summary="Sleepers.", remaining=""),
+        ],
+    )
+
+    result = drain(build_explorer(client=client).report("cats"))[1]
+
+    assert result == Exploration(
+        report="Cats are mammals.\n\nCats sleep anywhere.", summary="Mammals.\nSleepers.", remaining=""
+    )
+
+
 # The summary replaces the report when the full report no longer fits. A model that writes no summary would
 # keep its report whole for all the interview. The first part of the report replaces it instead. A blank
 # summary would leave the reader with nothing.
@@ -681,6 +717,24 @@ def test_carries_the_query_and_the_summaries_so_far_into_the_next_segment(monkey
     assert "<summaries_so_far>\nMammals.\nCarnivores.\n</summaries_so_far>" in message
     assert "<remaining_work>\nWhere cats sleep.\n</remaining_work>" in message
     assert "Cats are mammals." not in message
+
+
+# A segment that found nothing writes a blank summary. A blank line names no segment, so leave it out of the
+# message that the next segment reads.
+def test_leaves_a_blank_summary_out_of_the_message_of_the_next_segment(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, CRAMPED_CATALOG)
+    client = FakeClient(
+        [],
+        parsed=[
+            Exploration(report="Cats are mammals.", summary="Mammals.", remaining="What cats eat."),
+            Exploration(report="  ", summary="  ", remaining="Where cats sleep."),
+            Exploration(report="Cats sleep anywhere.", summary="Sleepers.", remaining=""),
+        ],
+    )
+
+    drain(build_explorer(client=client).report("cats"))
+
+    assert "<summaries_so_far>\nMammals.\n</summaries_so_far>" in read_message(client)
 
 
 # A segment exists for size only, and each segment costs a full request. A segment that had room does its

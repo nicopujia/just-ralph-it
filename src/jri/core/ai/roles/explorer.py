@@ -48,7 +48,7 @@ class Explorer(Agent):
     # A segment ends when its request is larger than this part of the input room. The remaining room holds the
     # report and the reasoning that the model writes.
     INPUT_SHARE = 0.8
-    # The input room that a segment measures against when the catalog gives no limit for the model.
+    # A segment measures its request against this room when the catalog gives no limit for the model.
     FALLBACK_INPUT_ROOM = 100_000
     # A model that finds no tools can think that it lost them. Tell it that the segment is at its size limit.
     INPUT_LIMIT_RECORD = (
@@ -145,7 +145,7 @@ class Explorer(Agent):
             # size limit tells it so.
             self.at_input_limit = False
             self.final_segment = segment + 1 == self.MAX_SEGMENTS
-        return Exploration(report="\n\n".join(reports), summary="\n".join(summaries), remaining="")
+        return Exploration(report=_join(reports, "\n\n"), summary=_join(summaries, "\n"), remaining="")
 
     @tool(
         "Explore the web with a search engine.",
@@ -326,12 +326,20 @@ class Explorer(Agent):
         return output
 
 
+# A segment can find nothing and write a blank report. Leave a blank part out of the join.
+# An exploration that found nothing then answers with nothing. A separator alone is not a report.
+def _join(parts: list[str], separator: str) -> str:
+    return separator.join(part for part in parts if part.strip())
+
+
 # A segment ends because its request has no more room. The segment that follows gets the summaries and not
 # the reports, which are too large.
 def _render(query: str, summaries: list[str], remaining: str) -> str:
     return ai.prompts.read(
         "explorer_segment",
-        context=prompt.render(exploration_query=query, summaries_so_far="\n".join(summaries), remaining_work=remaining),
+        context=prompt.render(
+            exploration_query=query, summaries_so_far=_join(summaries, "\n"), remaining_work=remaining
+        ),
     )
 
 

@@ -173,22 +173,28 @@ class Workspace:
         created = not self.settings_file.exists()
         if reset is not None:
             self._clear()
-        self.directory.mkdir(exist_ok=True, parents=True)
-        if created or reset is not None:
-            self.settings_file.write_text(settings, encoding="utf-8", newline="\n")
-        Notebook(self.notebook_file, self.root.name)
-        self.logs_dir.mkdir(exist_ok=True)
-        self._ignore()
+        try:
+            self._write(settings, write_settings=created or reset is not None)
+        # The directory can refuse a write, and a file can stand where JRI writes a directory.
+        except OSError as error:
+            raise PersistenceError(f"Could not write the workspace at `{self.directory}`: {error.strerror}") from error
         # Commit a workspace this installation wrote, and one that no repository here holds yet.
         # An existing workspace can hold notes a chat wrote and settings the user changed.
         # That work belongs to the commit of the turn that made it, not to this one.
         written = created or repository_created or reset is not None
+        commit, refusal = self._commit(repository, reset=reset is not None) if written else (None, "")
         return Installation(
-            self,
-            created=created,
-            repository_created=repository_created,
-            commit=self._commit(repository, reset=reset is not None) if written else None,
+            self, created=created, repository_created=repository_created, commit=commit, refusal=refusal
         )
+
+    # Write the files of a workspace. Write the settings file only when the caller asks for it.
+    def _write(self, settings: str, *, write_settings: bool) -> None:
+        self.directory.mkdir(exist_ok=True, parents=True)
+        if write_settings:
+            self.settings_file.write_text(settings, encoding="utf-8", newline="\n")
+        Notebook(self.notebook_file, self.root.name)
+        self.logs_dir.mkdir(exist_ok=True)
+        self._ignore()
 
     # Commit what the installation wrote. The project then holds its settings, notes, and ignore rules from its
     # first commit, and a clone gets the same workspace.
@@ -196,10 +202,10 @@ class Workspace:
     # Git refuses a partial commit during a merge or a cherry-pick.
     # A commit that JRI makes outside a branch stays reachable only from a detached HEAD.
     # Leave the files in the worktree in both states. The user commits them after that work.
-    def _commit(self, repository: Repository, *, reset: bool) -> str | None:
+    def _commit(self, repository: Repository, *, reset: bool) -> tuple[str | None, str]:
         if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
             logger.info("installation_uncommitted")
-            return None
+            return None, ""
         # A workspace can be below the repository root. Git reads a pathspec from that root.
         prefix = self.root.resolve().relative_to(repository.path)
         installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
@@ -217,16 +223,16 @@ class Workspace:
             # A second installation of an unchanged workspace has nothing to commit.
             # Git reports that state as a failure.
             if not repository.read_status(committed):
-                return None
+                return None, ""
             commit = repository.commit("jri: initialize project", trailers=trailers, paths=committed)
         # A project hook can refuse this commit, and Git can fail for a reason outside JRI.
         # JRI wrote the workspace and it is ready.
-        # Report the commit that did not occur instead of raising an error.
-        except git.Error:
+        # Name the commit that did not occur instead of raising an error.
+        except git.Error as error:
             logger.exception("installation_commit_failed")
-            return None
+            return None, str(error)
         logger.info("installation_committed commit=%s", commit)
-        return commit
+        return commit, ""
 
     # These are all paths that `--force` replaces, whether they exist or not. The workspace owns this list.
     @property
@@ -263,6 +269,8 @@ class Installation:
     created: bool
     repository_created: bool
     commit: str | None
+    # Git names why it did not accept the commit. An installation that Git accepted names nothing.
+    refusal: str = ""
 
 
 # This is a reset that JRI can perform. It holds the paths that it replaces, as they were at the time of the check.
