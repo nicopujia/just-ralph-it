@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import NoReturn
 
 import yaml
@@ -41,6 +42,7 @@ def main() -> None:
 
     init_help = copy.CLI_INIT_HELP.format(file=paths.GLOBAL_SETTINGS_FILE)
     init_parser = subparsers.add_parser("init", help=init_help, description=init_help)
+    init_parser.add_argument("directory", nargs="?", help=copy.CLI_DIRECTORY_HELP)
     init_parser.add_argument("--force", action="store_true", help=copy.CLI_FORCE_HELP)
     init_parser.add_argument("--yes", action="store_true", help=copy.CLI_YES_HELP)
     init_parser.add_argument("--no-comments", action="store_true", help=copy.CLI_NO_COMMENTS_HELP)
@@ -61,7 +63,9 @@ def main() -> None:
         return
 
     handlers = {
-        "init": lambda: _initialize(force=arguments.force, yes=arguments.yes, comments=not arguments.no_comments),
+        "init": lambda: _initialize(
+            arguments.directory, force=arguments.force, yes=arguments.yes, comments=not arguments.no_comments
+        ),
         "chat": _chat,
         "view": _view,
         "start": _start,
@@ -84,11 +88,13 @@ def main() -> None:
         raise SystemExit(INTERRUPTED_STATUS) from interrupt
 
 
-def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
-    workspace = Workspace.find()
+def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool) -> None:
+    separate = directory is not None
+    workspace = Workspace(Path(directory).resolve()) if directory is not None else Workspace.find()
     # Only an installation that writes a settings file starts the project from the global settings.
     writes_settings = force or not workspace.settings_file.exists()
-    settings = Settings.render(_load_global_settings() if writes_settings else None, comments=comments)
+    values = _load_global_settings() if writes_settings else None
+    settings = Settings.render(values, comments=comments)
     if force:
         # Ask the question inside the reset. First report an active window or run that prevents the deletion.
         # Keep the project held while the user reads. The answer then applies to the same project state that
@@ -97,23 +103,34 @@ def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
             if not (yes or _confirm_reset(reset)):
                 print(copy.FORCE_CANCELLED)
                 raise SystemExit(1)
-            installation = workspace.install(settings, reset=reset)
+            installation = workspace.install(settings, reset=reset, separate=separate)
     else:
-        installation = workspace.install(settings)
+        installation = workspace.install(settings, separate=separate)
     # Create a repository only in the command directory. A workspace in a repository already has its root.
-    # A relative path here names `.`.
     if installation.repository_created:
-        print(copy.INIT_REPOSITORY)
+        print(copy.INIT_REPOSITORY.format(directory=files.shorten_path(workspace.root)))
     reset_copy = copy.INIT_RECREATED if force else copy.INIT_EXISTING
-    directory = files.shorten_path(workspace.directory)
-    print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=directory))
+    shown_directory = files.shorten_path(workspace.directory)
+    print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=shown_directory))
     if installation.commit is not None:
         print(copy.INIT_COMMITTED)
     elif installation.refusal:
         print(copy.INIT_UNCOMMITTED.format(reason=installation.refusal))
-    # A settings file with no comments has no instructions to read.
-    if comments:
-        print(copy.INIT_NEXT_STEPS.format(settings_file=files.shorten_path(workspace.settings_file)))
+    print(_describe_next_steps(workspace, (values or Settings()).llm.api_key if writes_settings else None))
+
+
+# Name only the steps that this user still has to take. An API key that the shell or the .env file holds is done.
+def _describe_next_steps(workspace: Workspace, api_key_variable: str | None) -> str:
+    env_file = workspace.root / paths.ENV_FILE
+    load_dotenv(env_file)
+    steps = []
+    if workspace.root != Path.cwd().resolve():
+        steps.append(copy.INIT_STEP_MOVE.format(directory=files.shorten_path(workspace.root)))
+    if api_key_variable is not None and api_key_variable not in os.environ:
+        steps.append(copy.INIT_STEP_KEY.format(file=paths.ENV_FILE, variable=api_key_variable))
+    steps.append(copy.INIT_STEP_CHAT)
+    numbered = "\n".join(f"  {number}. {step}" for number, step in enumerate(steps, start=1))
+    return copy.INIT_NEXT_STEPS.format(steps=numbered, settings_file=paths.SETTINGS_FILE)
 
 
 def _chat() -> None:

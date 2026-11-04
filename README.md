@@ -48,15 +48,22 @@ pip install just-ralph-it
 
 ### 2. Setup
 
-Move to a project directory and set it up:
+Create a project:
 
 ```bash
-mkdir ./my-project
-cd ./my-project
-jri init
+jri init my-project
+cd my-project
+echo 'AI_GATEWAY_API_KEY=your-key' > .env
 ```
 
-That creates `.jri/settings.yaml`. Open it and follow its comments.
+That creates the directory, a Git repository, and `.jri/`. It makes no commit: JRI commits only when you accept the specifications at the end of a run. Git ignores `.env` in this project.
+
+To add JRI to a project you already have, run `jri init` inside it.
+
+To change the provider or the models, edit `.jri/settings.yaml` and follow its comments.
+
+> [!WARNING]
+> To explore your project, a model runs shell commands on your machine as you. It can read any file you can read, `.env` included, and your environment variables. Use JRI on a machine and with a key that you can trust to that model provider.
 
 ### 3. Usage
 
