@@ -169,9 +169,16 @@ class Workspace:
     # A caller cannot ask JRI to delete files with a flag alone.
     # `separate` makes this root a project of its own. A repository above the root must not take that project.
     def install(self, settings: str, *, reset: "Reset | None" = None, separate: bool = False) -> "Installation":
+        try:
+            self.root.mkdir(exist_ok=True, parents=True)
+        except OSError as error:
+            raise PersistenceError(f"Could not create the project directory `{self.root}`: {error.strerror}") from error
         found = git.find_root(self.root)
         repository_created = found is None or (separate and found != self.root.resolve())
         repository = Repository.init(self.root, nested=repository_created)
+        # A repository above refuses `git add .` while a nested repository holds no commit.
+        if found is not None and repository_created:
+            self._exclude(Repository(found), f"/{self.root.resolve().relative_to(found).as_posix()}/")
         created = not self.settings_file.exists()
         if reset is not None:
             self._clear()
@@ -181,10 +188,8 @@ class Workspace:
         except OSError as error:
             raise PersistenceError(f"Could not write the workspace at `{self.directory}`: {error.strerror}") from error
         # The first accepted run commits the workspace, so an installation leaves the history to the user.
-        # A reset is the exception. It removes specifications that an accepted commit holds.
-        # A run compares the specifications with that commit, and it stops when they differ.
-        accepted = reset is not None and repository.find_commit(ACCEPTANCE_TRAILER) is not None
-        commit, refusal = self._commit(repository) if accepted else (None, "")
+        # A reset is the exception, because a run compares the specifications with what Git holds.
+        commit, refusal = self._commit(repository) if reset is not None else (None, "")
         return Installation(
             self, created=created, repository_created=repository_created, commit=commit, refusal=refusal
         )
@@ -199,21 +204,24 @@ class Workspace:
         self._ignore()
 
     # Commit what the reset wrote, and accept an empty tree of specifications.
+    # A project where Git holds no specifications and no accepted run has nothing to accept.
     # Name the paths. The commit holds no user work, staged or not, and it changes none.
     # Git refuses a partial commit during a merge or a cherry-pick.
     # A commit that JRI makes outside a branch stays reachable only from a detached HEAD.
     # Leave the files in the worktree in both states. The user commits them after that work.
     def _commit(self, repository: Repository) -> tuple[str | None, str]:
-        if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
-            logger.info("installation_uncommitted")
-            return None, ""
         # A workspace can be below the repository root. Git reads a pathspec from that root.
         prefix = self.root.resolve().relative_to(repository.path)
-        installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
         # A reset removes from the disk the specifications of the project that it replaces.
         # Git still holds those specifications and the commit that accepted them.
         # Commit the removal and accept an empty tree. Without both, the first run stops.
         removed = repository.read_staged_paths(((prefix / paths.SPECS_DIR).as_posix(),))
+        if not removed and repository.find_commit(ACCEPTANCE_TRAILER) is None:
+            return None, ""
+        if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
+            logger.info("installation_uncommitted")
+            return None, ""
+        installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
         committed = (*installed, *removed)
         try:
             # Stage intent only, because Git commits a named path only after the index knows it.
@@ -269,7 +277,15 @@ class Workspace:
         repository_root = git.find_root(self.root)
         if repository_root is not None:
             prefix = self.root.resolve().relative_to(repository_root)
-            Repository(repository_root).exclude(f"/{(prefix / paths.ENV_FILE).as_posix()}")
+            self._exclude(Repository(repository_root), f"/{(prefix / paths.ENV_FILE).as_posix()}")
+
+    # A project works without an exclude rule, so a rule that Git cannot hold stops nothing.
+    @staticmethod
+    def _exclude(repository: Repository, pattern: str) -> None:
+        try:
+            repository.exclude(pattern)
+        except OSError:
+            logger.exception("exclusion_failed pattern=%r", pattern)
 
 
 @dataclass(frozen=True)

@@ -512,8 +512,7 @@ def test_commits_complete_specification_bundle(
     assert run_git(tmp_path, "show", "-s", "--format=%B") == (
         "jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>\nJRI-Specifications: accepted"
     )
-    # The installation commits the settings, notes, and ignore rules.
-    # This commit completes the bundle, and the tree holds all of it.
+    # The first accepted run commits the settings, notes, ignore rules, and specifications together.
     assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
         ".jri/.gitignore",
         ".jri/notebook.yaml",
@@ -1091,11 +1090,7 @@ def test_keeps_the_leftovers_of_an_acceptance_it_cannot_read(
 def test_keeps_the_leftovers_it_cannot_read_of_a_project_holding_no_commit(tmp_path: Path, run_git: RunGit) -> None:
     run_git(tmp_path, "init", "-q")
     (tmp_path / "README.md").write_text("# Project\n")
-    # A hook that refuses every commit leaves the installation uncommitted.
-    # The project then reaches the settlement below with no commit, and no worktree file can match a commit.
-    hook = tmp_path / ".git/hooks/pre-commit"
-    hook.write_bytes(b"#!/bin/sh\nexit 1\n")
-    hook.chmod(0o755)
+    # The project reaches the settlement below with no commit, and no worktree file can match a commit.
     kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
     assert not run_git(tmp_path, "rev-parse", "--verify", "--quiet", "HEAD", check=False)
     Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)

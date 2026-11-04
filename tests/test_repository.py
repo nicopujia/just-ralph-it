@@ -73,3 +73,13 @@ def test_excludes_a_path_where_git_holds_no_exclude_file(tmp_path: Path) -> None
     repository.exclude("/.env")
 
     assert not repository.read_status()
+
+
+def test_excludes_a_path_beside_a_rule_that_is_not_text(tmp_path: Path) -> None:
+    repository = Repository.init(tmp_path)
+    exclude_file = tmp_path / ".git" / "info" / "exclude"
+    exclude_file.write_bytes(b"caf\xe9\n")
+
+    repository.exclude("/.env")
+
+    assert exclude_file.read_bytes() == b"caf\xe9\n/.env\n"

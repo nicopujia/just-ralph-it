@@ -43,10 +43,6 @@ HIDE_THINKING_BLOCKS = "Hide thinking blocks"
 INIT_COMMITTED = "Committed the new workspace to Git, because Git still held the specifications it replaced."
 INIT_CREATED = "Created a JRI workspace at {directory}, with its settings, notebook, logs, and Git ignores."
 INIT_EXISTING = "A JRI workspace already exists at {directory}."
-INIT_UNCOMMITTED = (
-    "Git did not accept the commit of the workspace:\n\n{reason}\n\n"
-    "The workspace is ready. Commit it yourself after you set Git up."
-)
 INIT_NEXT_STEPS = """
 Next:
 {steps}
@@ -58,8 +54,12 @@ INIT_RECREATED = (
 )
 INIT_REPOSITORY = "Initialized a Git repository in {directory}."
 INIT_STEP_CHAT = "Run `jri chat`."
-INIT_STEP_KEY = "Add your API key to {file}, a file that Git ignores here: {variable}=your-key"
+INIT_STEP_KEY = "Add your API key to {file}: {variable}=your-key"
 INIT_STEP_MOVE = "Run `cd {directory}`."
+INIT_UNCOMMITTED = (
+    "Git did not accept the commit of the workspace:\n\n{reason}\n\n"
+    "The workspace is ready. Commit it yourself after you set Git up."
+)
 INSERT_NEWLINE = "Insert newline"
 INTERNAL_ERROR = "Something unexpected went wrong. Check the JRI log for details."
 INTERVIEWER_STOPPING = "Stopping..."

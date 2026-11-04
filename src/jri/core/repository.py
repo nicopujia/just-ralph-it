@@ -1,3 +1,4 @@
+import os
 from collections.abc import Sequence
 from typing import override
 
@@ -17,9 +18,11 @@ class Repository(git.Repository):
     # Add a rule that only this clone reads. Git keeps `info/exclude` out of every commit, so the project gets no file.
     def exclude(self, pattern: str) -> None:
         exclude_file = self._common_directory / "info" / "exclude"
-        content = exclude_file.read_text(encoding="utf-8") if exclude_file.exists() else ""
-        if pattern in content.splitlines():
+        # A rule can name a path that is not UTF-8. Keep its bytes.
+        content = exclude_file.read_bytes() if exclude_file.exists() else b""
+        rule = os.fsencode(pattern)
+        if rule in content.splitlines():
             return
         exclude_file.parent.mkdir(exist_ok=True)
-        separator = "" if not content or content.endswith("\n") else "\n"
-        exclude_file.write_text(f"{content}{separator}{pattern}\n", encoding="utf-8", newline="\n")
+        separator = b"" if not content or content.endswith(b"\n") else b"\n"
+        exclude_file.write_bytes(content + separator + rule + b"\n")

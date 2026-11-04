@@ -56,7 +56,7 @@ cd my-project
 echo 'AI_GATEWAY_API_KEY=your-key' > .env
 ```
 
-That creates the directory, a Git repository, and `.jri/`. It makes no commit: JRI commits only when you accept the specifications at the end of a run. Git ignores `.env` in this project.
+That creates the directory, a Git repository, and `.jri/`. It makes no commit: JRI commits only when a run accepts the specifications. Git ignores `.env` here, unless the project already tracks it. Inside another repository, the new project gets its own, and the one above ignores it.
 
 To add JRI to a project you already have, run `jri init` inside it.
 

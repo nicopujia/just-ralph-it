@@ -91,6 +91,8 @@ def main() -> None:
 def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool) -> None:
     separate = directory is not None
     workspace = Workspace(Path(directory).resolve()) if directory is not None else Workspace.find()
+    # A named directory with no workspace has nothing to reset. Its repository does not exist yet either.
+    force = force and (not separate or workspace.settings_file.exists())
     # Only an installation that writes a settings file starts the project from the global settings.
     writes_settings = force or not workspace.settings_file.exists()
     values = _load_global_settings() if writes_settings else None
@@ -106,7 +108,7 @@ def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool
             installation = workspace.install(settings, reset=reset, separate=separate)
     else:
         installation = workspace.install(settings, separate=separate)
-    # Create a repository only in the command directory. A workspace in a repository already has its root.
+    # A named directory and a directory outside any repository get a repository of their own.
     if installation.repository_created:
         print(copy.INIT_REPOSITORY.format(directory=files.shorten_path(workspace.root)))
     reset_copy = copy.INIT_RECREATED if force else copy.INIT_EXISTING
@@ -116,15 +118,20 @@ def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool
         print(copy.INIT_COMMITTED)
     elif installation.refusal:
         print(copy.INIT_UNCOMMITTED.format(reason=installation.refusal))
-    print(_describe_next_steps(workspace, (values or Settings()).llm.api_key if writes_settings else None))
+    print(
+        _describe_next_steps(
+            workspace, (values or Settings()).llm.api_key if writes_settings else None, separate=separate
+        )
+    )
 
 
 # Name only the steps that this user still has to take. An API key that the shell or the .env file holds is done.
-def _describe_next_steps(workspace: Workspace, api_key_variable: str | None) -> str:
+def _describe_next_steps(workspace: Workspace, api_key_variable: str | None, *, separate: bool) -> str:
     env_file = workspace.root / paths.ENV_FILE
     load_dotenv(env_file)
     steps = []
-    if workspace.root != Path.cwd().resolve():
+    # A command in a subdirectory of a project finds that project, so only a named directory needs a move.
+    if separate and workspace.root != Path.cwd().resolve():
         steps.append(copy.INIT_STEP_MOVE.format(directory=files.shorten_path(workspace.root)))
     if api_key_variable is not None and api_key_variable not in os.environ:
         steps.append(copy.INIT_STEP_KEY.format(file=paths.ENV_FILE, variable=api_key_variable))
