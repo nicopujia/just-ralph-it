@@ -224,7 +224,7 @@ def _find_workspace() -> Workspace:
 
 def _load_settings() -> Settings:
     workspace = _find_workspace()
-    load_dotenv(workspace.root / ".env")
+    load_dotenv(workspace.root / paths.ENV_FILE)
     try:
         return Settings.load()
     except (ValidationError, yaml.YAMLError) as error:

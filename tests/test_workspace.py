@@ -149,7 +149,32 @@ def test_commits_the_workspace_and_leaves_the_rest_of_the_project_uncommitted(tm
     assert set(repository.read_tree(commit)) == {".jri/settings.yaml", ".jri/.gitignore", ".jri/notebook.yaml"}
     # The project belongs to the user. JRI commits only the workspace files
     # it wrote itself. The user commits everything else.
-    assert {item.path for item in repository.read_status()} == {".DS_Store", ".env", "main.py"}
+    assert {item.path for item in repository.read_status()} == {".DS_Store", "main.py"}
+
+
+# JRI tells the user to write the API key in this file. A `git add .` must not commit the key, and the copy of the
+# project that a model studies must not hold it.
+def test_keeps_the_key_file_out_of_git_and_of_the_copy_a_model_studies(tmp_path: Path) -> None:
+    (tmp_path / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("KEY=1\n", encoding="utf-8")
+    workspace = install_workspace(tmp_path).workspace
+
+    repository = git.Repository(tmp_path)
+    assert ".env" not in {item.path for item in repository.read_status()}
+    with repository.open_worktree(None, location=workspace.open_generation_dir() / "snapshot") as copy:
+        assert (copy.path / "main.py").exists()
+        assert not (copy.path / ".env").exists()
+
+
+# Git does not copy `info/exclude` to a clone. A chat in a clone must still keep the key file out of Git.
+def test_keeps_the_key_file_out_of_git_in_a_clone(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    (tmp_path / ".git" / "info" / "exclude").write_text("", encoding="utf-8")
+    (tmp_path / ".env").write_text("KEY=1\n", encoding="utf-8")
+
+    workspace.open_hold()
+
+    assert ".env" not in {item.path for item in git.Repository(tmp_path).read_status()}
 
 
 def test_keeps_the_worktree_directory_out_of_the_project(tmp_path: Path) -> None:

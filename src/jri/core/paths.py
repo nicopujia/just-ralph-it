@@ -1,5 +1,8 @@
 WORKSPACE_DIR = ".jri"
 
+# The user writes the API keys in this file at the project root.
+ENV_FILE = ".env"
+
 SETTINGS_FILE = f"{WORKSPACE_DIR}/settings.yaml"
 # The user writes this file by hand. `jri init` copies its settings into each new project.
 GLOBAL_SETTINGS_FILE = f"~/{SETTINGS_FILE}"

@@ -255,12 +255,22 @@ class Workspace:
     # JRI commits the project `.gitignore`, so Git reports a rule that goes missing.
     # A `.gitignore` inside the hidden directory would be ignored itself, and nothing would report the loss.
     def _ignore(self) -> None:
+        self._exclude_env_file()
         content = self.gitignore_file.read_text(encoding="utf-8") if self.gitignore_file.exists() else ""
         missing = [pattern for pattern in self.WORKSPACE_IGNORES if pattern not in content.splitlines()]
         if not missing:
             return
         separator = "" if not content or content.endswith("\n") else "\n"
         self.gitignore_file.write_text(f"{content}{separator}{'\n'.join(missing)}\n", encoding="utf-8", newline="\n")
+
+    # The API keys stay out of a commit and out of the copy of the project that a model studies.
+    # The project root belongs to the user, so this rule goes in the clone and not in a project file.
+    # A clone holds no rule from an earlier installation, so write the rule on every call.
+    def _exclude_env_file(self) -> None:
+        repository_root = git.find_root(self.root)
+        if repository_root is not None:
+            prefix = self.root.resolve().relative_to(repository_root)
+            Repository(repository_root).exclude(f"/{(prefix / paths.ENV_FILE).as_posix()}")
 
 
 @dataclass(frozen=True)

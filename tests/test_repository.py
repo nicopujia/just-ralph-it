@@ -49,3 +49,27 @@ def test_credits_ralph_from_a_worktree_too(
         trailer = run_git(worktree.path, "show", "-s", "--format=%(trailers:key=Co-authored-by,valueonly)", commit)
 
     assert trailer == CO_AUTHOR
+
+
+def test_hides_an_excluded_path_from_this_clone_alone(tmp_path: Path) -> None:
+    repository = Repository.init(tmp_path)
+    exclude_file = tmp_path / ".git" / "info" / "exclude"
+    exclude_file.write_text("# A rule the user wrote", encoding="utf-8")
+    (tmp_path / ".env").write_text("KEY=1\n", encoding="utf-8")
+
+    repository.exclude("/.env")
+    repository.exclude("/.env")
+
+    assert not repository.read_status()
+    assert exclude_file.read_text(encoding="utf-8") == "# A rule the user wrote\n/.env\n"
+
+
+def test_excludes_a_path_where_git_holds_no_exclude_file(tmp_path: Path) -> None:
+    repository = Repository.init(tmp_path)
+    (tmp_path / ".git" / "info" / "exclude").unlink()
+    (tmp_path / ".git" / "info").rmdir()
+    (tmp_path / ".env").write_text("KEY=1\n", encoding="utf-8")
+
+    repository.exclude("/.env")
+
+    assert not repository.read_status()
