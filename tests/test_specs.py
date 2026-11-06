@@ -634,7 +634,64 @@ def test_puts_back_every_file_it_can_when_a_move_fails(
         path: content for path, content in standing.items() if path != "functional/old.md"
     }
     assert not list((tmp_path / ".jri/specs").rglob("*.tmp"))
-    assert any(record.getMessage().startswith("specification_restore_failed") for record in caplog.records)
+    failures = [record.getMessage() for record in caplog.records if record.levelno == logging.ERROR]
+    assert failures == [
+        "specification_restore_failed path=.jri/specs/functional/old.md",
+        "acceptance_write_failed files=5",
+    ]
+
+
+# On a case-insensitive filesystem, a new file can share its path with a file that JRI puts back.
+# JRI must remove the new file first, or the removal takes the file that came back.
+def test_removes_a_new_file_before_it_puts_back_an_earlier_one(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/a.md": "# A\n", "functional/z.md": "# Z\n"})
+    baseline = specs.prepare()
+    replace = Path.replace
+    unlink = Path.unlink
+    events: list[tuple[str, str]] = []
+
+    def record_the_move(path: Path, target: Path) -> Path:
+        events.append(("move", Path(target).name))
+        if Path(target).name == "z.md":
+            raise OSError(errno.EACCES, "Permission denied")
+        return replace(path, target)
+
+    def record_the_removal(path: Path, *, missing_ok: bool = False) -> None:
+        events.append(("remove", path.name))
+        unlink(path, missing_ok=missing_ok)
+
+    with specs.open_staging(baseline) as staging:
+        changed = {"functional/a.md": "# A 2\n", "functional/new.md": "# New\n", "functional/z.md": "# Z 2\n"}
+        Specs.write(staging, changed, (), "functional")
+        monkeypatch.setattr(Path, "replace", record_the_move)
+        monkeypatch.setattr(Path, "unlink", record_the_removal)
+        with pytest.raises(SpecsError, match="could not write the specifications into your project"):
+            specs.accept(staging, baseline)
+    monkeypatch.undo()
+
+    # The first three moves are the writes in order. The moves after the failure put the files back.
+    moves_after_failure = events[events.index(("move", "z.md")) + 1 :]
+    assert moves_after_failure.index(("remove", "new.md")) < moves_after_failure.index(("move", "a.md"))
+
+
+# A location that stays after the removal would hold an old index, and that index would give a wrong base tree.
+def test_refuses_a_private_repository_location_it_could_not_clear(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    specs.workspace.reserve_worktree_dir().mkdir()
+    monkeypatch.setattr(files, "remove_directory", lambda _: None)
+
+    with pytest.raises(FileExistsError, match="exists"), specs.open_staging(baseline):
+        pass
 
 
 # Two passes can rename a file by case alone. The guard of one write sees only that write.
