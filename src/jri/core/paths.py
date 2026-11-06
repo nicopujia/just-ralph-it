@@ -67,7 +67,7 @@ FUNCTIONAL_SPECS_DIR = f"{SPECS_DIR}/{FUNCTIONAL_SPECS_ROOT}"
 # `:(glob)` matches directories.
 COMMITTED_SPECS = f":(glob){SPECS_DIR}/**/*.md"
 
-# JRI writes and commits these workspace files when it installs a project.
+# JRI writes these workspace files when it installs a project. The first accepted run commits them.
 INSTALLED_PATHS = (SETTINGS_FILE, GITIGNORE_FILE, NOTEBOOK_FILE)
 
 COMMITTED_PATHS = (*INSTALLED_PATHS, COMMITTED_SPECS)

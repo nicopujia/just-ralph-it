@@ -11,8 +11,7 @@ from pydantic import BaseModel, ValidationError
 from jri.core import paths
 from jri.core.exceptions import PersistenceError
 from jri.core.settings import AgentProfile, Settings
-from jri.lib.providers import codex, gateway
-from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
+from jri.lib.providers import gateway
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -246,22 +245,34 @@ def test_reports_an_unset_environment_variable(tmp_path: Path) -> None:
         Settings.load()
 
 
-def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
+def test_refuses_an_empty_api_key_variable(tmp_path: Path) -> None:
     values = yaml.safe_load(Settings.render())
-    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": None}
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": ""}
     write_settings(tmp_path, values)
 
     with pytest.raises(ValidationError, match=r"llm\.api_key"):
         Settings.load()
 
 
-def test_needs_no_api_key_for_a_subscription(tmp_path: Path) -> None:
+def test_names_the_setting_and_the_file_of_a_missing_llm_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MISSING_API_KEY", raising=False)
     values = yaml.safe_load(Settings.render())
-    # The subscription reads its own login. The user has no key variable to name here.
-    values["llm"] = {"provider": "openai-subscription", "api_key": None}
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "MISSING_API_KEY"}
     write_settings(tmp_path, values)
 
-    assert Settings.load().llm.api_key is None
+    with pytest.raises(ValidationError, match=r"in your shell or in the \.env file at the project root") as error:
+        Settings.load()
+
+    assert error.value.errors()[0]["loc"] == ("llm", "api_key")
+
+
+def test_requires_an_api_key(tmp_path: Path) -> None:
+    values = yaml.safe_load(Settings.render())
+    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": None}
+    write_settings(tmp_path, values)
+
+    with pytest.raises(ValidationError, match=r"llm\.api_key"):
+        Settings.load()
 
 
 def test_falls_back_to_the_defaults_for_a_blank_settings_file(tmp_path: Path) -> None:
@@ -332,12 +343,12 @@ def test_blames_the_setting_an_unset_environment_variable_belongs_to(tmp_path: P
     assert error.value.errors()[0]["loc"] == ("brave_search", "api_key")
 
 
-def test_blames_the_api_key_a_subscriptionless_provider_needs(tmp_path: Path) -> None:
+def test_blames_the_api_key_a_provider_needs(tmp_path: Path) -> None:
     values = yaml.safe_load(Settings.render())
     values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": None}
     write_settings(tmp_path, values)
 
-    with pytest.raises(ValidationError, match="must name the environment variable holding the API key") as error:
+    with pytest.raises(ValidationError, match="valid string") as error:
         Settings.load()
 
     assert error.value.errors()[0]["loc"] == ("llm", "api_key")
@@ -362,47 +373,6 @@ def test_reaches_another_provider_through_the_provider_library_client(
     write_settings(tmp_path, values)
 
     assert type(Settings.load().llm.client) is OpenAI
-
-
-def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path) -> None:
-    values = yaml.safe_load(Settings.render())
-    # The subscription has its own login. It must not need the variable that llm.api_key names.
-    values["llm"] = {"provider": "openai-subscription", "api_key": "MISSING_API_KEY"}
-    write_settings(tmp_path, values)
-
-    assert isinstance(Settings.load().llm.client, codex.Client)
-
-
-def test_accepts_a_complete_subscription_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-    write_login(
-        tmp_path, {"access_token": build_token(DISTANT_FUTURE), "refresh_token": "refresh", "account_id": "account"}
-    )
-    values = yaml.safe_load(Settings.render())
-    values["llm"] = {"provider": "openai-subscription"}
-    write_settings(tmp_path, values)
-
-    Settings.load().llm.validate_authentication()
-
-
-def test_reports_a_missing_subscription_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
-    values = yaml.safe_load(Settings.render())
-    values["llm"] = {"provider": "openai-subscription"}
-    write_settings(tmp_path, values)
-
-    with pytest.raises(codex.AuthError, match="No file-based Codex login found"):
-        Settings.load().llm.validate_authentication()
-
-
-def test_needs_no_subscription_login_for_another_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
-    monkeypatch.setenv("PROVIDER_API_KEY", "provider-key")
-    values = yaml.safe_load(Settings.render())
-    values["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
-    write_settings(tmp_path, values)
-
-    Settings.load().llm.validate_authentication()
 
 
 # Settings has no layer that lets the environment replace a value, unlike the usual 12-factor tools. JRI reads
@@ -545,5 +515,5 @@ def test_reports_global_settings_that_name_no_api_key_variable(isolate_home: Pat
     # cannot chat.
     write_settings(isolate_home, {"llm": {"api_key": None}})
 
-    with pytest.raises(ValidationError, match="must name the environment variable holding the API key"):
+    with pytest.raises(ValidationError, match="valid string"):
         Settings.load_global()

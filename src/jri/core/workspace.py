@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import signal
 import time
 from contextlib import contextmanager
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Workspace:
-    # These are the workspace files that stay out of Git. JRI writes all these rules before it commits.
+    # These are the workspace files that stay out of Git. JRI writes all these rules before a run commits.
     # A chat and a run then find each rule already there, and no clone gets this file with a rule missing.
     # A rooted name applies only to the file below the workspace.
     # It does not apply to a file with the same name in a specification tree.
@@ -167,9 +168,28 @@ class Workspace:
     # JRI must find a workspace even when it cannot load the settings.
     # A reset requires a `Reset` from `open_reset` under the project hold.
     # A caller cannot ask JRI to delete files with a flag alone.
-    def install(self, settings: str, *, reset: "Reset | None" = None) -> "Installation":
-        repository_created = git.find_root(self.root) is None
-        repository = Repository.init(self.root)
+    # `separate` makes this root a project of its own. A repository above the root must not take that project.
+    def install(self, settings: str, *, reset: "Reset | None" = None, separate: bool = False) -> "Installation":
+        try:
+            self.root.mkdir(exist_ok=True, parents=True)
+        except OSError as error:
+            raise PersistenceError(f"Could not create the project directory `{self.root}`: {error.strerror}") from error
+        found = git.find_root(self.root)
+        repository_created = found is None or (separate and found != self.root.resolve())
+        # A directory that the repository above tracks is a part of that project. A repository of its own would hide it.
+        if found is not None and repository_created:
+            relative = self.root.resolve().relative_to(found).as_posix()
+            if Repository(found).read_staged_paths((relative,)):
+                raise PersistenceError(
+                    f"The Git repository at `{found}` tracks `{relative}`, so that directory is part of its project. "
+                    "Run `jri init` with no directory from there to set up that project."
+                )
+        repository = Repository.init(self.root, nested=repository_created)
+        # A repository above refuses `git add .` while a nested repository holds no commit.
+        if found is not None and repository_created:
+            relative = self.root.resolve().relative_to(found).as_posix()
+            # Git reads a rule as a pattern. These characters must match themselves in a directory name.
+            self._exclude(Repository(found), "/" + re.sub(r"([\\*?\[])", r"\\\1", relative) + "/")
         created = not self.settings_file.exists()
         if reset is not None:
             self._clear()
@@ -178,11 +198,9 @@ class Workspace:
         # The directory can refuse a write, and a file can stand where JRI writes a directory.
         except OSError as error:
             raise PersistenceError(f"Could not write the workspace at `{self.directory}`: {error.strerror}") from error
-        # Commit a workspace this installation wrote, and one that no repository here holds yet.
-        # An existing workspace can hold notes a chat wrote and settings the user changed.
-        # That work belongs to the commit of the turn that made it, not to this one.
-        written = created or repository_created or reset is not None
-        commit, refusal = self._commit(repository, reset=reset is not None) if written else (None, "")
+        # The first accepted run commits the workspace, so an installation leaves the history to the user.
+        # A reset is the exception, because a run compares the specifications with what Git holds.
+        commit, refusal = self._commit(repository) if reset is not None else (None, "")
         return Installation(
             self, created=created, repository_created=repository_created, commit=commit, refusal=refusal
         )
@@ -196,35 +214,35 @@ class Workspace:
         self.logs_dir.mkdir(exist_ok=True)
         self._ignore()
 
-    # Commit what the installation wrote. The project then holds its settings, notes, and ignore rules from its
-    # first commit, and a clone gets the same workspace.
+    # Commit what the reset wrote, and accept an empty tree of specifications.
+    # A project where Git holds no specifications and no accepted run has nothing to accept.
     # Name the paths. The commit holds no user work, staged or not, and it changes none.
     # Git refuses a partial commit during a merge or a cherry-pick.
     # A commit that JRI makes outside a branch stays reachable only from a detached HEAD.
     # Leave the files in the worktree in both states. The user commits them after that work.
-    def _commit(self, repository: Repository, *, reset: bool) -> tuple[str | None, str]:
-        if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
-            logger.info("installation_uncommitted")
-            return None, ""
+    def _commit(self, repository: Repository) -> tuple[str | None, str]:
         # A workspace can be below the repository root. Git reads a pathspec from that root.
         prefix = self.root.resolve().relative_to(repository.path)
-        installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
         # A reset removes from the disk the specifications of the project that it replaces.
         # Git still holds those specifications and the commit that accepted them.
         # Commit the removal and accept an empty tree. Without both, the first run stops.
-        removed = repository.read_staged_paths(((prefix / paths.SPECS_DIR).as_posix(),)) if reset else ()
+        removed = repository.read_staged_paths(((prefix / paths.SPECS_DIR).as_posix(),))
+        if not removed and repository.find_commit(ACCEPTANCE_TRAILER) is None:
+            return None, ""
+        if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
+            logger.info("installation_uncommitted")
+            return None, ""
+        installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
         committed = (*installed, *removed)
-        trailers = (ACCEPTANCE_TRAILER,) if reset else ()
         try:
             # Stage intent only, because Git commits a named path only after the index knows it.
             # Force it, because a project can ignore `.jri`. JRI keeps its workspace in Git anyway.
             # A removed path is already tracked, so JRI does not stage it.
             repository.stage(installed, intent_to_add=True, force=True)
-            # A second installation of an unchanged workspace has nothing to commit.
-            # Git reports that state as a failure.
+            # A reset that changed nothing has nothing to commit. Git reports that state as a failure.
             if not repository.read_status(committed):
                 return None, ""
-            commit = repository.commit("jri: initialize project", trailers=trailers, paths=committed)
+            commit = repository.commit("jri: start the project over", (ACCEPTANCE_TRAILER,), paths=committed)
         # A project hook can refuse this commit, and Git can fail for a reason outside JRI.
         # JRI wrote the workspace and it is ready.
         # Name the commit that did not occur instead of raising an error.
@@ -261,6 +279,14 @@ class Workspace:
             return
         separator = "" if not content or content.endswith("\n") else "\n"
         self.gitignore_file.write_text(f"{content}{separator}{'\n'.join(missing)}\n", encoding="utf-8", newline="\n")
+
+    # A project works without an exclude rule, so a rule that Git cannot hold stops nothing.
+    @staticmethod
+    def _exclude(repository: Repository, pattern: str) -> None:
+        try:
+            repository.exclude(pattern)
+        except OSError:
+            logger.exception("exclusion_failed pattern=%r", pattern)
 
 
 @dataclass(frozen=True)
