@@ -376,9 +376,9 @@ class Conversation:
 
         # A history item is permanent. It states what happened, and not what to do next.
         # The prompt holds the actions that persist.
-        # A commit and an unchanged project are one result to the interviewer, because the notes need no more work.
-        # The interviewer cannot use the files that the run wrote, or the fact that the run committed them.
-        if isinstance(result, str | specs_generation.Unchanged):
+        # Written and unchanged specifications are one result to the interviewer, because the notes need no more work.
+        # The interviewer cannot use the files that the run wrote.
+        if isinstance(result, specs_generation.Accepted | specs_generation.Unchanged):
             self.interviewer.generated_project = True
             workflow_result = prompts.read("specs_generation_done")
         else:
@@ -386,7 +386,7 @@ class Conversation:
         report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
         self.interviewer.history.append(report)
         # The run is complete after the report.
-        # A retry repeats the reply, and not the run that the project already committed.
+        # A retry repeats the reply, and not the run that already wrote the specifications.
         # The same save moves the run rows from the journal to the session, so one of the two records always
         # holds each row.
         turn.work = "reply"

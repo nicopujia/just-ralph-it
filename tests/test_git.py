@@ -1368,3 +1368,26 @@ def test_rejects_opening_a_worktree_at_an_unknown_revision(tmp_path: Path, creat
         pass
 
     assert not location.exists()
+
+
+# A patch must apply whatever the global settings of the user say about the format of a diff.
+@pytest.mark.parametrize(
+    "setting",
+    [("diff.noprefix", "true"), ("diff.mnemonicPrefix", "true"), ("color.ui", "always"), ("diff.external", "false")],
+)
+def test_writes_a_patch_git_can_apply_under_any_diff_setting(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, setting: tuple[str, str]
+) -> None:
+    repository = create_repository(tmp_path)
+    run_git(tmp_path, "config", *setting)
+    (tmp_path / "folder").mkdir()
+    file = tmp_path / "folder" / "note.txt"
+    file.write_bytes(b"note\n")
+    repository.stage(("folder/note.txt",))
+
+    patch = repository.diff(None)
+    repository.unstage(("folder/note.txt",))
+    file.unlink()
+    repository.apply_patch(patch)
+
+    assert file.read_bytes() == b"note\n"

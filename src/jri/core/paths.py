@@ -5,6 +5,9 @@ SETTINGS_FILE = f"{WORKSPACE_DIR}/settings.yaml"
 GLOBAL_SETTINGS_FILE = f"~/{SETTINGS_FILE}"
 GITIGNORE_FILE = f"{WORKSPACE_DIR}/.gitignore"
 NOTEBOOK_FILE = f"{WORKSPACE_DIR}/notebook.yaml"
+# This is the notebook of the last run that wrote specifications. The next run reads what changed since then.
+# It stays out of the ignore rules, so a commit of the user carries it with the specifications.
+ACCEPTED_NOTEBOOK_FILE = f"{WORKSPACE_DIR}/accepted-notebook.yaml"
 SESSION_FILE = f"{WORKSPACE_DIR}/session.json"
 VISUALIZATION_FILE = f"{WORKSPACE_DIR}/visualization.html"
 
@@ -16,9 +19,6 @@ CLAIM_FILE = f"{WORKSPACE_DIR}/lock.claim"
 
 GENERATION_DIR = f"{WORKSPACE_DIR}/generation"
 
-ACCEPTANCE_FILE = f"{GENERATION_DIR}/acceptance.json"
-# A rename writes the record, but the lock remains on the renamed file. JRI never replaces an acceptance lock file.
-ACCEPTANCE_LOCK_FILE = f"{GENERATION_DIR}/acceptance.lock"
 DRAFT_FILE = f"{GENERATION_DIR}/draft.patch"
 # The run appends one journal line at a time. A run that stops leaves all earlier lines readable.
 JOURNAL_FILE = f"{GENERATION_DIR}/journal.jsonl"
@@ -31,14 +31,10 @@ CANCEL_FILE = f"{GENERATION_DIR}/cancel"
 # This file holds runner output outside its log, such as an interpreter traceback or standard-error output.
 # It reports a crash before the runner starts to write the journal.
 RUNNER_LOG_FILE = f"{GENERATION_DIR}/runner.log"
-# A run uses these two directories while the worktree below it exists.
-# Each directory needs a location of its own.
 # The explorer studies a disposable copy of the project here.
 SNAPSHOT_DIR = f"{GENERATION_DIR}/snapshot"
-# An acceptance that stopped rebuilds its intended specifications here.
-PRE_IMAGE_DIR = f"{GENERATION_DIR}/pre-image"
 
-# A run works in this Git worktree, beside the project, and not in a system temporary directory.
+# A run works in a private repository here, beside the project, and not in a system temporary directory.
 # It belongs to the run that opened it, and that run removes it when it ends.
 WORKTREE_DIR = f"{WORKSPACE_DIR}/worktree"
 
@@ -62,14 +58,17 @@ SPECS_ROOTS = (ARCHITECTURE_SPECS_ROOT, FUNCTIONAL_SPECS_ROOT)
 ARCHITECTURE_SPECS_DIR = f"{SPECS_DIR}/{ARCHITECTURE_SPECS_ROOT}"
 FUNCTIONAL_SPECS_DIR = f"{SPECS_DIR}/{FUNCTIONAL_SPECS_ROOT}"
 
-# Use a pattern, not the directory. Git then includes only the JRI Markdown files.
-# It also excludes the files that the project ignore rules hide.
+# These files must not be links. Use a pattern, not the directory. Git then reads only the JRI Markdown files.
 # `:(glob)` matches directories.
-COMMITTED_SPECS = f":(glob){SPECS_DIR}/**/*.md"
+PLAIN_PATHS = (SETTINGS_FILE, GITIGNORE_FILE, NOTEBOOK_FILE, ACCEPTED_NOTEBOOK_FILE, f":(glob){SPECS_DIR}/**/*.md")
 
-# JRI writes these workspace files when it installs a project. The first accepted run commits them.
-INSTALLED_PATHS = (SETTINGS_FILE, GITIGNORE_FILE, NOTEBOOK_FILE)
-
-COMMITTED_PATHS = (*INSTALLED_PATHS, COMMITTED_SPECS)
-
-RESET_PATHS = (SESSION_FILE, NOTEBOOK_FILE, VISUALIZATION_FILE, LOGS_DIR, SPECS_DIR, GENERATION_DIR, WORKTREE_DIR)
+RESET_PATHS = (
+    SESSION_FILE,
+    NOTEBOOK_FILE,
+    ACCEPTED_NOTEBOOK_FILE,
+    VISUALIZATION_FILE,
+    LOGS_DIR,
+    SPECS_DIR,
+    GENERATION_DIR,
+    WORKTREE_DIR,
+)

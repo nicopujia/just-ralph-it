@@ -16,7 +16,7 @@ from jri.lib import git
 # This stream reports opened and closed rows and model reasoning. It excludes `TextDelta`.
 # Only the interviewer sends replies to the user.
 type Progress = ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished
-type SpecsResult = Ambiguities | Unchanged | str
+type SpecsResult = Accepted | Ambiguities | Unchanged
 
 MAX_CYCLES = 10
 
@@ -35,7 +35,9 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
 
     # Use one worktree for the run. Each round edits its draft.
     # Save each change so a later run can continue. The draft is the agreement between rounds.
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
+        # The copy now holds the project specifications and nothing of this run. Each draft is a delta from this tree.
+        base = staging.write_tree()
         yield from _resume(specs, staging)
         functional_context = _build_functional_context(specs, baseline, staging)
 
@@ -76,7 +78,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             functional = specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)
             if not functional:
                 raise SpecsError("Functional specifications cannot be empty.")
-            specs.save_draft(staging, baseline)
+            specs.save_draft(staging, base)
 
             # The pass wrote what the notebook settles and left the rest to the user.
             # Stop after JRI saves the draft. The user answers the questions, and the next run continues from this
@@ -93,7 +95,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             if explorer_report is None:
                 yield ai.ToolCallStarted("explorer", "Studying your existing project", "🔎")
                 # This row is nested under the explorer row. Closing it closes nested rows.
-                # Study a disposable copy of the current project, not JRI's current commit.
+                # Study a disposable copy of the current project, not the copy of the specifications.
                 snapshot = specs.workspace.root / paths.SNAPSHOT_DIR
                 with specs.repository.open_worktree(None, location=snapshot) as project:
                     exploration = yield from ai.Explorer(settings, project.path).report(
@@ -132,7 +134,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 )
                 # A pass that turns back still wrote what it settled. Save that work here, so the next cycle
                 # designs on top of it and a run that stops after this one leaves it drafted.
-                specs.save_draft(staging, baseline)
+                specs.save_draft(staging, base)
                 functional_context = functional_context.model_copy(
                     update={
                         "current_specs_index": specs.index(functional),
@@ -145,7 +147,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 Specs.write(staging, {}, architecture_result.deleted_paths, paths.ARCHITECTURE_SPECS_ROOT)
             if not specs.read(staging, paths.ARCHITECTURE_SPECS_DIR):
                 raise SpecsError("Architecture specifications cannot be empty.")
-            patch = specs.save_draft(staging, baseline)
+            patch = specs.save_draft(staging, base)
 
             yield ai.ToolCallFinished(f"architecture-{cycle}", "Designed the project architecture", "done")
             # The run can stop safely here for the last time. After the next row, the specifications apply to the
@@ -153,18 +155,17 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             if cancelled.is_set():
                 return None
             # An empty patch means the models found that the project already has these specifications.
-            # `git apply` rejects empty patches, and no acceptance record can undo one.
+            # `git apply` rejects empty patches.
             if not patch:
                 logger.info("specs_unchanged cycles=%d", cycle)
-                yield ai.ToolCallStarted("commit", "Comparing the specifications with your project", "💾")
-                yield ai.ToolCallFinished("commit", "Your project already holds these specifications", "done")
+                yield ai.ToolCallStarted("save", "Comparing the specifications with your project", "💾")
+                yield ai.ToolCallFinished("save", "Your project already holds these specifications", "done")
                 return Unchanged()
-            # JRI saves in a step of its own. If the project blocks the commit, close the save row, and not the
-            # design row.
-            yield ai.ToolCallStarted("commit", "Saving the specifications to your project", "💾")
-            commit = specs.accept(patch, baseline)
-            yield ai.ToolCallFinished("commit", "Saved the specifications to your project", "done")
-            return commit
+            # JRI saves in a step of its own. If the write fails, close the save row, and not the design row.
+            yield ai.ToolCallStarted("save", "Saving the specifications to your project", "💾")
+            specs.accept(patch, baseline)
+            yield ai.ToolCallFinished("save", "Saved the specifications to your project", "done")
+            return Accepted()
 
 
 # These are the behavioral decisions that only the user can take. The run stops, and the interviewer asks them.
@@ -174,8 +175,12 @@ class Ambiguities:
     ambiguities: list[str]
 
 
+# This marks a generation that wrote its specifications into the project.
+@dataclass(frozen=True)
+class Accepted: ...
+
+
 # This marks a generation that wrote specifications already in the project.
-# It made no commit, because the project needed none.
 @dataclass(frozen=True)
 class Unchanged: ...
 
@@ -210,7 +215,7 @@ def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Rep
 # Do not give trashed topics to the analyst. Filter both notebooks before the diff.
 # Otherwise, old trashed topics appear as changes.
 def _diff_notebook(baseline: Baseline, notebook: str) -> str | None:
-    if baseline.accepted is None:
+    if baseline.accepted_notebook is None:
         return None
     try:
         accepted_notebook = Notebook.exclude_trashed(baseline.accepted_notebook)
