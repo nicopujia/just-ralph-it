@@ -163,31 +163,6 @@ def test_commits_nothing_when_it_installs_into_a_project_with_a_history(
     assert not repository.read_staged_paths((paths.WORKSPACE_DIR,))
 
 
-# JRI tells the user to write the API key in this file. A `git add .` must not commit the key, and the copy of the
-# project that a model studies must not hold it.
-def test_keeps_the_key_file_out_of_git_and_of_the_copy_a_model_studies(tmp_path: Path) -> None:
-    (tmp_path / "main.py").write_text("print('hello')\n", encoding="utf-8")
-    (tmp_path / ".env").write_text("KEY=1\n", encoding="utf-8")
-    workspace = install_workspace(tmp_path).workspace
-
-    repository = git.Repository(tmp_path)
-    assert ".env" not in {item.path for item in repository.read_status()}
-    with repository.open_worktree(None, location=workspace.open_generation_dir() / "snapshot") as copy:
-        assert (copy.path / "main.py").exists()
-        assert not (copy.path / ".env").exists()
-
-
-# Git does not copy `info/exclude` to a clone. A chat in a clone must still keep the key file out of Git.
-def test_keeps_the_key_file_out_of_git_in_a_clone(tmp_path: Path) -> None:
-    workspace = install_workspace(tmp_path).workspace
-    (tmp_path / ".git" / "info" / "exclude").write_text("", encoding="utf-8")
-    (tmp_path / ".env").write_text("KEY=1\n", encoding="utf-8")
-
-    workspace.open_hold()
-
-    assert ".env" not in {item.path for item in git.Repository(tmp_path).read_status()}
-
-
 # A squash merge can drop the trailer of an accepted commit. Git still holds the specifications.
 # The reset must accept them away, or the next run stops.
 def test_commits_a_forced_start_over_of_specifications_that_lost_their_trailer(tmp_path: Path, run_git: RunGit) -> None:
@@ -204,20 +179,6 @@ def test_commits_a_forced_start_over_of_specifications_that_lost_their_trailer(t
     assert forced.commit == repository.read_head()
     assert repository.find_commit(ACCEPTANCE_TRAILER) == forced.commit
     assert not repository.read_tree(repository.read_head(), paths.SPECS_DIR)
-
-
-def test_keeps_a_project_going_when_git_refuses_the_rule_for_the_key_file(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    workspace = install_workspace(tmp_path).workspace
-    exclude_file = tmp_path / ".git" / "info" / "exclude"
-    exclude_file.unlink()
-    exclude_file.mkdir()
-
-    with caplog.at_level(logging.ERROR, logger="jri"):
-        workspace.open_hold()
-
-    assert [record.getMessage() for record in caplog.records] == ["exclusion_failed pattern='/.env'"]
 
 
 # A repository above refuses `git add .` while a nested repository holds no commit.
@@ -244,6 +205,22 @@ def test_keeps_a_named_directory_with_a_pattern_in_its_name_out_of_the_repositor
     run_git(tmp_path, "add", ".")
     assert not git.Repository(tmp_path).read_status()
     assert "/app\\[1]/" in (tmp_path / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines()
+
+
+# A project works without the rule in the repository above it.
+def test_keeps_a_named_directory_going_when_the_repository_above_it_refuses_the_rule(
+    tmp_path: Path, create_repository: CreateRepository, caplog: pytest.LogCaptureFixture
+) -> None:
+    create_repository(tmp_path)
+    exclude_file = tmp_path / ".git" / "info" / "exclude"
+    exclude_file.unlink(missing_ok=True)
+    exclude_file.mkdir(parents=True)
+
+    with caplog.at_level(logging.ERROR, logger="jri"):
+        Workspace(tmp_path / "app").install(Settings.render(), separate=True)
+
+    assert git.find_root(tmp_path / "app") == tmp_path / "app"
+    assert [record.getMessage() for record in caplog.records] == ["exclusion_failed pattern='/app/'"]
 
 
 # A directory that the repository above tracks is a part of that project. A repository of its own would hide it.

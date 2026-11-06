@@ -24,7 +24,6 @@ from jri.core import ai
 from jri.core.ai.agent import Agent
 from jri.core.ai.tool import Invocation, Tool, tool
 from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavailableError, UsageLimitError
-from jri.core.paths import ENV_FILE
 from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, files, prompt, youtube
 from jri.lib.context import estimate_tokens, measure_request
@@ -49,8 +48,6 @@ class Explorer(Agent):
     # A segment ends when its request is larger than this part of the input room. The remaining room holds the
     # report and the reasoning that the model writes.
     INPUT_SHARE = 0.8
-    # These names of a `.env` file hold no real keys by convention.
-    KEY_FREE_ENV_SUFFIXES = (".example", ".sample", ".template")
     # A segment measures its request against this room when the catalog gives no limit for the model.
     FALLBACK_INPUT_ROOM = 100_000
     # A model that finds no tools can think that it lost them. Tell it that the segment is at its size limit.
@@ -245,11 +242,6 @@ class Explorer(Agent):
             path = Path(raw_path).expanduser()
             if not path.is_absolute():
                 path = self.directory / path
-            # This stops an accidental read. A model that insists can still use a shell command.
-            if path.name == ENV_FILE or (
-                path.name.startswith(f"{ENV_FILE}.") and not path.name.endswith(self.KEY_FREE_ENV_SUFFIXES)
-            ):
-                raise ValueError(f"{path} holds API keys, so JRI does not read it. Do not read it another way.")
             try:
                 if path.stat().st_size > self.MAX_INPUT_SIZE:
                     raise RuntimeError(f"Could not read {path}: file exceeds {self.MAX_INPUT_SIZE} bytes.")
@@ -310,7 +302,6 @@ class Explorer(Agent):
             process = subprocess.Popen(
                 arguments,
                 cwd=self.directory,
-                env=self._build_shell_environment(),
                 stdout=output_file,
                 stderr=subprocess.STDOUT,
                 # On POSIX, start a separate session. The command and its processes are then one group to stop.
@@ -333,11 +324,6 @@ class Explorer(Agent):
             raise RuntimeError(f"Command exited with status {process.returncode}:\n{output}".rstrip())
         logger.info("shell_finished return_code=%d output_characters=%d", process.returncode, len(output))
         return output
-
-    # A shell command prints its environment to the model. The commands need no key that JRI uses.
-    def _build_shell_environment(self) -> dict[str, str]:
-        hidden = {self.settings.llm.api_key, self.settings.brave_search.api_key}
-        return {name: value for name, value in os.environ.items() if name not in hidden}
 
 
 # A segment can find nothing and write a blank report. Leave a blank part out of the join.

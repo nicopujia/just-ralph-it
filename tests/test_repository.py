@@ -57,25 +57,25 @@ def test_hides_an_excluded_path_from_this_clone_alone(tmp_path: Path) -> None:
     repository = Repository.init(tmp_path)
     exclude_file = tmp_path / ".git" / "info" / "exclude"
     exclude_file.write_text("# A rule the user wrote", encoding="utf-8")
-    (tmp_path / ".env").write_text("KEY=1\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("note\n", encoding="utf-8")
 
-    repository.exclude("/.env")
-    repository.exclude("/.env")
+    repository.exclude("/notes.txt")
+    repository.exclude("/notes.txt")
 
     assert not repository.read_status()
-    assert exclude_file.read_text(encoding="utf-8") == "# A rule the user wrote\n/.env\n"
+    assert exclude_file.read_text(encoding="utf-8") == "# A rule the user wrote\n/notes.txt\n"
 
 
 def test_excludes_a_path_where_git_holds_no_exclude_file(tmp_path: Path) -> None:
     repository = Repository.init(tmp_path)
     (tmp_path / ".git" / "info" / "exclude").unlink()
     (tmp_path / ".git" / "info").rmdir()
-    (tmp_path / ".env").write_text("KEY=1\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("note\n", encoding="utf-8")
 
-    repository.exclude("/.env")
+    repository.exclude("/notes.txt")
 
     assert not repository.read_status()
-    assert (tmp_path / ".git" / "info" / "exclude").read_bytes() == b"/.env\n"
+    assert (tmp_path / ".git" / "info" / "exclude").read_bytes() == b"/notes.txt\n"
 
 
 def test_excludes_a_path_beside_a_rule_that_is_not_text(tmp_path: Path) -> None:
@@ -83,9 +83,9 @@ def test_excludes_a_path_beside_a_rule_that_is_not_text(tmp_path: Path) -> None:
     exclude_file = tmp_path / ".git" / "info" / "exclude"
     exclude_file.write_bytes(b"caf\xe9\n")
 
-    repository.exclude("/.env")
+    repository.exclude("/notes.txt")
 
-    assert exclude_file.read_bytes() == b"caf\xe9\n/.env\n"
+    assert exclude_file.read_bytes() == b"caf\xe9\n/notes.txt\n"
 
 
 def test_names_a_repository_where_git_knows_the_author(tmp_path: Path, run_git: RunGit) -> None:

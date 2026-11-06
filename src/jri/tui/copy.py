@@ -58,7 +58,7 @@ INIT_STEP_IDENTITY = (
     "Tell Git who you are, because JRI commits the specifications: "
     '`git config --global user.name "Your Name"` and `git config --global user.email you@example.com`.'
 )
-INIT_STEP_KEY = "Add your API key to {file}: {variable}=your-key"
+INIT_STEP_KEY = "Make sure that {variable} holds your API key, in your shell or in the .env file at the project root."
 INIT_STEP_MOVE = "Run `cd {directory}`."
 INIT_UNCOMMITTED = (
     "Git did not accept the commit of the workspace:\n\n{reason}\n\n"

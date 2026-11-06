@@ -268,39 +268,6 @@ def test_reports_unreadable_paths_without_logging_a_crash(caplog: pytest.LogCapt
     assert record.exc_info is None
 
 
-# A real model opened `.env` during an interview when a query did not ask for it, and the API key reached the provider.
-@pytest.mark.parametrize("name", [".env", ".env.local", "backend/.env"])
-def test_refuses_to_read_a_file_that_holds_api_keys(tmp_path: Path, name: str) -> None:
-    path = tmp_path / name
-    path.parent.mkdir(exist_ok=True)
-    path.write_text("KEY=secret\n", encoding="utf-8")
-
-    with pytest.raises(ValueError, match="holds API keys"):
-        build_explorer(tmp_path).read_files([name])
-
-
-@pytest.mark.parametrize("name", [".env.example", ".env.sample", ".env.template", ".envrc"])
-def test_reads_a_file_that_only_looks_like_one_that_holds_api_keys(tmp_path: Path, name: str) -> None:
-    (tmp_path / name).write_text("KEY=\n", encoding="utf-8")
-
-    assert build_explorer(tmp_path).read_files([name])
-
-
-def test_hides_the_api_key_variables_from_shell_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TEST_API_KEY", "secret")
-    monkeypatch.setenv("OTHER_VARIABLE", "visible")
-    command = "import os; print(os.environ.get('TEST_API_KEY'), os.environ.get('OTHER_VARIABLE'))"
-
-    output = build_explorer(tmp_path).run_shell(f'{PYTHON} -c "{command}"')
-
-    assert "None visible" in output
-    assert "secret" not in output
-
-
-def test_tells_the_model_not_to_read_the_files_that_hold_api_keys() -> None:
-    assert "never open a `.env` file or print the environment" in build_explorer().runner.prompt
-
-
 def test_runs_shell_commands_in_the_directory_it_was_given(tmp_path: Path) -> None:
     directory = tmp_path / "elsewhere"
     directory.mkdir()

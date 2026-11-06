@@ -122,23 +122,17 @@ def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool
     print(_describe_next_steps(workspace, directory))
 
 
-# Name only the steps that this user still has to take. An API key that the shell or the .env file holds is done.
+# Name only the steps that this user still has to take.
 def _describe_next_steps(workspace: Workspace, directory: str | None) -> str:
-    _read_env_file(workspace)
     steps = []
     # A command in a subdirectory of a project finds that project, so only a named directory needs a move.
     moves = directory is not None and workspace.root != Path.cwd().resolve()
     if moves:
         steps.append(copy.INIT_STEP_MOVE.format(directory=shlex.quote(cast("str", directory))))
-    # The workspace of a command in a subdirectory stands at the project root, and the .env file does too.
-    # After the move, a path is relative to that root.
-    env_file, settings_file = (
-        (paths.ENV_FILE, paths.SETTINGS_FILE)
-        if moves
-        else (files.shorten_path(workspace.root / paths.ENV_FILE), files.shorten_path(workspace.settings_file))
-    )
+    # After the move, a path is relative to the project root.
+    settings_file = paths.SETTINGS_FILE if moves else files.shorten_path(workspace.settings_file)
     steps.extend(
-        copy.INIT_STEP_KEY.format(file=env_file, variable=variable)
+        copy.INIT_STEP_KEY.format(variable=variable)
         for variable in _read_api_key_variables(workspace)
         if variable not in os.environ
     )
@@ -158,14 +152,6 @@ def _read_api_key_variables(workspace: Workspace) -> tuple[str, ...]:
     except (OSError, ValueError, yaml.YAMLError):
         return ()
     return tuple(variable for variable in (settings.llm.api_key, settings.brave_search.api_key) if variable)
-
-
-# A .env file that JRI cannot read holds no variable. A later check reports the variable that is missing.
-def _read_env_file(workspace: Workspace) -> None:
-    try:
-        load_dotenv(workspace.root / paths.ENV_FILE)
-    except (OSError, ValueError):
-        logger.exception("env_file_unread")
 
 
 def _chat() -> None:
@@ -276,7 +262,7 @@ def _find_workspace() -> Workspace:
 
 def _load_settings() -> Settings:
     workspace = _find_workspace()
-    _read_env_file(workspace)
+    load_dotenv(workspace.root / ".env")
     try:
         return Settings.load()
     except (ValidationError, yaml.YAMLError) as error:

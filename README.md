@@ -56,14 +56,14 @@ cd my-project
 echo 'AI_GATEWAY_API_KEY=your-key' > .env
 ```
 
-That creates the directory, a Git repository, and `.jri/`. It makes no commit: JRI commits when a run accepts the specifications, and when `jri init --force` replaces accepted ones. Git ignores `.env` here, unless the project already tracks it. A new directory inside another repository gets its own repository, and the one above ignores it.
+That creates the directory, a Git repository, and `.jri/`. It makes no commit: JRI commits when a run accepts the specifications, and when `jri init --force` replaces accepted ones. A new directory inside another repository gets its own repository, and the one above ignores it.
 
 To add JRI to a project you already have, run `jri init` inside it.
 
 To change the provider or the models, edit `.jri/settings.yaml` and follow its comments.
 
 > [!WARNING]
-> To explore your project, a model runs shell commands on your machine as you. It can read any file you can read. JRI tells it not to open `.env`, refuses that read in its file tool, and hides the key variables from its shell, but a shell command can still reach the file. Use JRI with a key that you can trust to that model provider.
+> To explore your project, a model runs shell commands on your machine as you. It can read any file you can read, `.env` too, and JRI does not stop it. A real run sent its key to the provider this way. Use JRI with a key that you can trust to that model provider. Git does not ignore `.env`, so add it to `.gitignore` before you commit.
 
 ### 3. Usage
 
