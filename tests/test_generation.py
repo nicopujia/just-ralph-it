@@ -14,7 +14,7 @@ from typing import IO
 import pytest
 
 from jri.core import paths
-from jri.core.ai import ReasoningDelta, ToolCallStarted
+from jri.core.ai import ReasoningDelta, ToolCallStarted, specs_generation
 from jri.core.exceptions import (
     Error,
     PersistenceError,
@@ -27,13 +27,12 @@ from jri.core.exceptions import (
 from jri.core.generation import Conclusion, Generation
 from jri.core.workspace import Workspace
 from jri.lib.lock import Lock
-from tests.conftest import CreateRepository, RunGit
+from tests.conftest import CreateRepository
 from tests.doubles.generation import ConcludingLock
 from tests.doubles.lock import OWN_PID, hold, read_fork_child, watch_a_process_go
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
 from tests.doubles.specs_generation import (
-    COMMIT,
     FINISHED_ROW,
     STARTED_ROW,
     STREAMED_THOUGHT,
@@ -180,7 +179,7 @@ def write_header(*, pid: int = 1) -> str:
     return json.dumps({"version": "0", "pid": pid, "started": datetime.now(UTC).isoformat()})
 
 
-def write_row(started: object, *, call_id: str = "commit", label: str = "Saving") -> str:
+def write_row(started: object, *, call_id: str = "save", label: str = "Saving") -> str:
     return json.dumps({
         "kind": "row_opened",
         "call_id": call_id,
@@ -220,17 +219,17 @@ def test_writes_every_event_a_run_produced(tmp_path: Path, monkeypatch: pytest.M
     opened = datetime.fromisoformat(str(records[0].pop("started")))
     assert 0 <= (datetime.now(UTC) - opened).total_seconds() < WRITTEN_WITHIN
     assert records == [
-        {"kind": "row_opened", "call_id": "commit", "label": STARTED_ROW.label, "symbol": "💾", "depth": 0},
+        {"kind": "row_opened", "call_id": "save", "label": STARTED_ROW.label, "symbol": "💾", "depth": 0},
         {"kind": "thought", "text": THOUGHT.text},
         {
             "kind": "row_closed",
-            "call_id": "commit",
+            "call_id": "save",
             "label": FINISHED_ROW.label,
             "outcome": "done",
             "detail": "",
             "depth": 0,
         },
-        {"kind": "conclusion", "ending": "committed", "commit": COMMIT, "ambiguities": [], "detail": ""},
+        {"kind": "conclusion", "ending": "accepted", "ambiguities": [], "detail": ""},
     ]
 
 
@@ -248,7 +247,9 @@ def test_writes_the_reasoning_a_run_streams_as_batches(tmp_path: Path, monkeypat
 def test_writes_the_reasoning_a_run_streams_while_a_row_is_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def generate_slowly(_settings: object, _cancelled: object = None) -> Generator[object, None, str]:
+    def generate_slowly(
+        _settings: object, _cancelled: object = None
+    ) -> Generator[object, None, specs_generation.Accepted]:
         yield STARTED_ROW
         yield ReasoningDelta("Weighing ")
         # Wait longer than one poll. The reasoning after this wait belongs to a later batch.
@@ -256,7 +257,7 @@ def test_writes_the_reasoning_a_run_streams_while_a_row_is_open(
         yield ReasoningDelta("the options")
         yield ReasoningDelta(", carefully.")
         yield FINISHED_ROW
-        return COMMIT
+        return specs_generation.Accepted()
 
     generation = run(tmp_path, monkeypatch, generate_slowly)
 
@@ -268,10 +269,12 @@ def test_writes_the_reasoning_a_run_streams_while_a_row_is_open(
 
 
 def test_writes_the_reasoning_a_run_still_held_when_it_ended(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def generate_concluding(_settings: object, _cancelled: object = None) -> Generator[object, None, str]:
+    def generate_concluding(
+        _settings: object, _cancelled: object = None
+    ) -> Generator[object, None, specs_generation.Accepted]:
         yield STARTED_ROW
         yield THOUGHT
-        return COMMIT
+        return specs_generation.Accepted()
 
     monkeypatch.setattr(Generation, "POLL", BATCHES_FOR)
 
@@ -281,7 +284,7 @@ def test_writes_the_reasoning_a_run_still_held_when_it_ended(tmp_path: Path, mon
 
     assert records[-2:] == [
         {"kind": "thought", "text": THOUGHT.text},
-        {"kind": "conclusion", "ending": "committed", "commit": COMMIT, "ambiguities": [], "detail": ""},
+        {"kind": "conclusion", "ending": "accepted", "ambiguities": [], "detail": ""},
     ]
 
 
@@ -299,10 +302,12 @@ def test_reads_back_the_events_a_journal_holds(tmp_path: Path, monkeypatch: pyte
 
 
 @pytest.mark.parametrize(
-    ("workflow", "expected"), [(generate_succeeding, COMMIT), (generate_stopped, None)], ids=["committed", "stopped"]
+    ("workflow", "expected"),
+    [(generate_succeeding, specs_generation.Accepted()), (generate_stopped, None)],
+    ids=["accepted", "stopped"],
 )
 def test_reads_back_what_a_run_answered(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workflow: object, expected: str | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workflow: object, expected: specs_generation.Accepted | None
 ) -> None:
     cancelled = threading.Event()
     generation = build_generation(tmp_path)
@@ -323,18 +328,18 @@ def test_reads_back_the_ending_a_run_wrote_before_it_freed_its_lock(tmp_path: Pa
     generation.lock = ConcludingLock(
         generation.lock.path,
         generation.journal_file,
-        json.dumps({"kind": "conclusion", "ending": "committed", "commit": COMMIT}).encode() + b"\n",
+        json.dumps({"kind": "conclusion", "ending": "accepted"}).encode() + b"\n",
     )
 
     answer = read_answer(generation.follow())
 
-    assert answer == COMMIT
+    assert answer == specs_generation.Accepted()
 
 
 @pytest.mark.parametrize(
     ("workflow", "error", "message"),
     [
-        (generate_blocked, RepositoryStateError, "Your project has uncommitted changes."),
+        (generate_blocked, RepositoryStateError, "The specifications changed during generation. Try again."),
         (generate_failing, Error, "The architect could not be reached."),
         (generate_refused, ProviderRefusalError, "400 Bad Request"),
     ],
@@ -406,7 +411,7 @@ def test_ignores_the_partial_line_a_killed_writer_left(tmp_path: Path) -> None:
         replayed.extend(events)
 
     assert [replace(event, age=0.0) if isinstance(event, ToolCallStarted) else event for event in replayed] == [
-        ToolCallStarted("commit", "Saving", "💾")
+        ToolCallStarted("save", "Saving", "💾")
     ]
 
 
@@ -508,7 +513,7 @@ def test_lets_go_of_the_journal_before_it_forgets_a_record_it_could_not_read(
 
 def test_forgets_the_worktrees_a_killed_run_left(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
-    leftovers = (tmp_path / paths.WORKTREE_DIR, tmp_path / paths.SNAPSHOT_DIR, tmp_path / paths.PRE_IMAGE_DIR)
+    leftovers = (tmp_path / paths.WORKTREE_DIR, tmp_path / paths.SNAPSHOT_DIR)
     for leftover in leftovers:
         leftover.mkdir(parents=True)
         (leftover / "main.py").write_text("what a killed run was reading\n", encoding="utf-8")
@@ -677,18 +682,18 @@ def test_runs_a_runner_the_window_that_has_the_project_named_itself_to(
         monkeypatch.setenv(HOLDER_VARIABLE, str(window.pid))
         Generation.execute(build_settings(FakeClient([])))
 
-    assert read_journal(generation)[-1]["ending"] == "committed"
+    assert read_journal(generation)[-1]["ending"] == "accepted"
 
 
 # The run before this one can leave a cancel file. That file stops this run as soon as it begins.
 def test_forgets_the_stop_a_folded_run_left_before_it_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def generate_watching_for_a_stop(
         _settings: object, cancelled: threading.Event | None = None
-    ) -> Generator[object, None, str | None]:
+    ) -> Generator[object, None, specs_generation.Accepted | None]:
         yield STARTED_ROW
         assert cancelled is not None
         # A stop file already in the project reaches the run during this wait.
-        return None if cancelled.wait(STOPS_AFTER) else COMMIT
+        return None if cancelled.wait(STOPS_AFTER) else specs_generation.Accepted()
 
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
@@ -697,7 +702,7 @@ def test_forgets_the_stop_a_folded_run_left_before_it_runs(tmp_path: Path, monke
 
     Generation.execute(build_settings(FakeClient([])))
 
-    assert read_journal(generation)[-1]["ending"] == "committed"
+    assert read_journal(generation)[-1]["ending"] == "accepted"
     assert not generation.cancel_file.exists()
 
 
@@ -710,7 +715,7 @@ def test_states_that_the_run_could_not_do_the_work(ending: str) -> None:
 
 # A stopped run did what the user asked. A run that found something to clarify did its work,
 # and it asks a question about that work. Neither run is a failed process.
-@pytest.mark.parametrize("ending", ["committed", "unchanged", "ambiguities", "stopped"])
+@pytest.mark.parametrize("ending", ["accepted", "unchanged", "ambiguities", "stopped"])
 def test_states_that_the_run_did_the_work(ending: str) -> None:
     assert not Conclusion.model_validate({"kind": "conclusion", "ending": ending}).failure
 
@@ -983,10 +988,10 @@ def test_reports_the_row_a_run_left_open_as_its_step(tmp_path: Path) -> None:
         tmp_path,
         write_header(),
         write_row(started, call_id="explore", label="Studying"),
-        write_row(started, call_id="commit", label="Saving"),
+        write_row(started, call_id="save", label="Saving"),
         json.dumps({
             "kind": "row_closed",
-            "call_id": "commit",
+            "call_id": "save",
             "label": "Saved",
             "outcome": "done",
             "detail": "",
@@ -1001,13 +1006,11 @@ def test_reports_the_row_a_run_left_open_as_its_step(tmp_path: Path) -> None:
 
 
 def test_reports_the_ending_no_window_folded(tmp_path: Path) -> None:
-    generation = write_journal(
-        tmp_path, write_header(), json.dumps({"kind": "conclusion", "ending": "committed", "commit": COMMIT})
-    )
+    generation = write_journal(tmp_path, write_header(), json.dumps({"kind": "conclusion", "ending": "accepted"}))
 
     status = generation.read_status()
 
-    assert status.ending == "committed"
+    assert status.ending == "accepted"
     assert status.recorded
     assert status.pid is None
 
@@ -1072,29 +1075,27 @@ def test_writes_nothing_into_a_project_with_no_run(tmp_path: Path) -> None:
 
 # A killed run leaves its last line incomplete. A report gives the content of the lines before it.
 def test_reports_what_a_journal_with_a_partial_last_line_holds(tmp_path: Path) -> None:
-    generation = write_journal(
-        tmp_path, write_header(), json.dumps({"kind": "conclusion", "ending": "committed", "commit": COMMIT})
-    )
+    generation = write_journal(tmp_path, write_header(), json.dumps({"kind": "conclusion", "ending": "accepted"}))
     with generation.journal_file.open("ab") as journal:
         journal.write(b'{"kind": "thou')
 
     status = generation.read_status()
 
-    assert status.ending == "committed"
+    assert status.ending == "accepted"
 
 
 def test_keeps_running_when_the_process_that_started_it_dies(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
     (tmp_path / paths.SETTINGS_FILE).write_text(SETTINGS, encoding="utf-8")
     monkeypatch.setenv("JRI_TEST_API_KEY", "unused")
     # This is the only test that runs the real generation workflow, and not a
-    # double. A detached HEAD makes the workflow fail quickly and offline on a
-    # Git condition. Without it, the workflow makes a network call, and this
-    # test has no credentials for that call.
-    run_git(tmp_path, "checkout", "--detach", "-q")
+    # double. A missing notebook makes the workflow fail quickly and offline.
+    # With the notebook, the workflow makes a network call, and this test has
+    # no credentials for that call.
+    (tmp_path / paths.NOTEBOOK_FILE).unlink()
     generation = Generation(Workspace(tmp_path))
     ready = tmp_path.parent / "started"
     starter = subprocess.Popen([sys.executable, "-c", STARTER, str(tmp_path), str(ready)])
@@ -1104,7 +1105,7 @@ def test_keeps_running_when_the_process_that_started_it_dies(
         starter.kill()
         starter.wait()
 
-    with pytest.raises(RepositoryStateError, match="not on a branch"):
+    with pytest.raises(Error, match="Could not read the notebook file"):
         list(generation.follow())
 
 
@@ -1115,7 +1116,7 @@ def test_keeps_running_when_the_process_that_started_it_dies(
 # The test reads the header as soon as the runner writes it. It does not
 # wait for the window to report that the run started. A session belongs to
 # a process only while that process runs. The run below fails quickly on the
-# detached HEAD, so the report of the window can arrive after the runner
+# missing notebook, so the report of the window can arrive after the runner
 # it names is already gone.
 def _watch_the_window_start_the_run(generation: Generation, starter: "subprocess.Popen[bytes]") -> None:
     deadline = time.monotonic() + STARTS_WITHIN

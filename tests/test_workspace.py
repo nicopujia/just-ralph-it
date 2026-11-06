@@ -10,7 +10,6 @@ import yaml
 from jri.core import paths
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
-from jri.core.repository import ACCEPTANCE_TRAILER, Repository
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Installation, Workspace
 from jri.lib import files, git
@@ -47,25 +46,10 @@ MAX_PID = 2147483647
 RECORDS_AFTER = 0.4
 
 
-# This is a project where a run was accepted. Only such a project needs a commit from a reset.
-def install_an_accepted_workspace(path: Path) -> Installation:
-    installation = install_workspace(path)
-    repository = Repository(path)
-    repository.stage(paths.INSTALLED_PATHS, force=True)
-    repository.commit("jri: update specifications", (ACCEPTANCE_TRAILER,))
-    return installation
-
-
-# A reset commits only a change. Give a later reset settings to replace.
-def change_the_committed_settings(path: Path, run_git: RunGit) -> None:
-    (path / paths.SETTINGS_FILE).write_text("custom settings\n", encoding="utf-8")
-    run_git(path, "commit", "-qam", "custom settings")
-
-
 def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     installation = install_workspace(tmp_path)
 
-    assert installation == Installation(Workspace(tmp_path), created=True, repository_created=True, commit=None)
+    assert installation == Installation(Workspace(tmp_path), created=True, repository_created=True)
     assert installation.workspace.directory == tmp_path / paths.WORKSPACE_DIR
     assert installation.workspace.settings_file == tmp_path / paths.SETTINGS_FILE
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
@@ -109,25 +93,6 @@ def test_reports_a_workspace_it_could_not_write(tmp_path: Path, prepare: "Callab
         tmp_path.chmod(0o700)
 
 
-# A project hook refuses a commit, and Git fails for reasons outside JRI. JRI wrote the workspace and it is
-# ready, so the installation stands and names the refusal. A reader must learn that no commit holds it.
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows holds an access list that `chmod` does not write")
-def test_names_a_commit_that_git_refused(tmp_path: Path, caplog: pytest.LogCaptureFixture, run_git: RunGit) -> None:
-    install_an_accepted_workspace(tmp_path)
-    change_the_committed_settings(tmp_path, run_git)
-    hook = tmp_path / ".git" / "hooks" / "pre-commit"
-    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-    hook.chmod(0o755)
-
-    with caplog.at_level(logging.ERROR, logger="jri"):
-        installation = install_workspace(tmp_path, force=True)
-
-    assert not installation.created
-    assert installation.commit is None
-    assert installation.refusal
-    assert [record.getMessage() for record in caplog.records] == ["installation_commit_failed"]
-
-
 # A second installation keeps the settings that the user changed, and it accepts a workspace that stands
 # already. Only `jri init --force` replaces a settings file.
 def test_keeps_the_settings_of_a_workspace_that_stands_already(tmp_path: Path) -> None:
@@ -145,8 +110,8 @@ def test_commits_nothing_when_it_installs_a_new_project(tmp_path: Path) -> None:
 
     installation = install_workspace(tmp_path)
 
-    # The history belongs to the user. The first accepted run commits the workspace.
-    assert installation.commit is None
+    # The history belongs to the user.
+    assert installation.repository_created
     assert not git.Repository(tmp_path).has_commit()
 
 
@@ -156,29 +121,86 @@ def test_commits_nothing_when_it_installs_into_a_project_with_a_history(
     repository = create_repository(tmp_path)
     head = repository.read_head()
 
-    installation = install_workspace(tmp_path)
+    install_workspace(tmp_path)
 
-    assert installation.commit is None
     assert repository.read_head() == head
     assert not repository.read_staged_paths((paths.WORKSPACE_DIR,))
 
 
-# A squash merge can drop the trailer of an accepted commit. Git still holds the specifications.
-# The reset must accept them away, or the next run stops.
-def test_commits_a_forced_start_over_of_specifications_that_lost_their_trailer(tmp_path: Path, run_git: RunGit) -> None:
+# The reset changes the committed settings here. That change stays out of the history until the user commits it.
+def test_leaves_head_and_the_index_alone_when_a_reset_runs_in_a_project_with_commits(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
     install_workspace(tmp_path)
-    specification = tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md"
-    specification.parent.mkdir(parents=True)
-    specification.write_text("# Behavior\n", encoding="utf-8")
-    run_git(tmp_path, "add", "--force", paths.WORKSPACE_DIR)
-    run_git(tmp_path, "commit", "-qm", "squashed")
+    (tmp_path / paths.SETTINGS_FILE).write_bytes(b"custom settings\n")
+    run_git(tmp_path, "add", paths.WORKSPACE_DIR)
+    run_git(tmp_path, "commit", "-qm", "the workspace")
+    (tmp_path / "staged.md").write_bytes(b"# Staged\n")
+    run_git(tmp_path, "add", "staged.md")
+    head = repository.read_head()
+    index = run_git(tmp_path, "ls-files", "--stage")
 
-    forced = install_workspace(tmp_path, force=True)
+    install_workspace(tmp_path, force=True)
 
-    repository = git.Repository(tmp_path)
-    assert forced.commit == repository.read_head()
-    assert repository.find_commit(ACCEPTANCE_TRAILER) == forced.commit
-    assert not repository.read_tree(repository.read_head(), paths.SPECS_DIR)
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
+    assert repository.read_head() == head
+    assert run_git(tmp_path, "ls-files", "--stage") == index
+
+
+def test_leaves_the_index_alone_and_makes_no_commit_when_a_reset_runs_in_a_project_with_no_commits(
+    tmp_path: Path, run_git: RunGit
+) -> None:
+    install_workspace(tmp_path)
+    (tmp_path / paths.SETTINGS_FILE).write_bytes(b"custom settings\n")
+    (tmp_path / "staged.md").write_bytes(b"# Staged\n")
+    run_git(tmp_path, "add", "staged.md")
+    index = run_git(tmp_path, "ls-files", "--stage")
+
+    install_workspace(tmp_path, force=True)
+
+    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
+    assert not git.Repository(tmp_path).has_commit()
+    assert run_git(tmp_path, "ls-files", "--stage") == index
+
+
+# The history belongs to the user. The user sees the removal in the status, and the user commits it.
+def test_removes_the_specifications_and_the_accepted_notebook_from_the_disk_and_not_from_the_history(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
+    workspace = install_workspace(tmp_path).workspace
+    specification = f"{paths.FUNCTIONAL_SPECS_DIR}/behavior.md"
+    (tmp_path / specification).parent.mkdir(parents=True)
+    (tmp_path / specification).write_bytes(b"# Behavior\n")
+    workspace.accepted_notebook_file.write_bytes(b"id: t1\n")
+    run_git(tmp_path, "add", paths.WORKSPACE_DIR)
+    run_git(tmp_path, "commit", "-qm", "the specifications")
+    head = repository.read_head()
+
+    install_workspace(tmp_path, force=True)
+
+    assert not (tmp_path / paths.SPECS_DIR).exists()
+    assert not workspace.accepted_notebook_file.exists()
+    assert repository.read_head() == head
+    assert repository.read_tree(head, paths.SPECS_DIR) == {specification: b"# Behavior\n"}
+    assert repository.read_file(head, paths.ACCEPTED_NOTEBOOK_FILE) == b"id: t1\n"
+    assert set(repository.read_status((paths.SPECS_DIR, paths.ACCEPTED_NOTEBOOK_FILE))) == {
+        git.Status(specification, " ", "D"),
+        git.Status(paths.ACCEPTED_NOTEBOOK_FILE, " ", "D"),
+    }
+
+
+# The next run compares the notes with this file. A clone needs this file to find what changed.
+def test_leaves_the_accepted_notebook_out_of_the_ignore_rules(tmp_path: Path, run_git: RunGit) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    workspace.accepted_notebook_file.write_bytes(b"id: t1\n")
+
+    run_git(tmp_path, "add", paths.WORKSPACE_DIR)
+
+    assert git.Repository(tmp_path).read_staged_paths((paths.ACCEPTED_NOTEBOOK_FILE,)) == (
+        paths.ACCEPTED_NOTEBOOK_FILE,
+    )
 
 
 # A repository above refuses `git add .` while a nested repository holds no commit.
@@ -263,71 +285,33 @@ def test_keeps_the_worktree_directory_out_of_the_project(tmp_path: Path) -> None
     assert paths.WORKTREE_DIR not in "\n".join(repository.read_worktree_paths())
 
 
-def test_commits_every_ignore_rule_a_chat_and_a_run_use(tmp_path: Path) -> None:
-    workspace = install_an_accepted_workspace(tmp_path).workspace
-    repository = git.Repository(tmp_path)
-    committed = repository.read_file(repository.read_head(), paths.GITIGNORE_FILE).decode()
+def test_writes_every_ignore_rule_a_chat_and_a_run_use(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    installed = workspace.gitignore_file.read_bytes()
 
     hold = workspace.open_hold()
     assert hold.take()
     workspace.open_generation_dir()
     hold.release()
 
-    # A rule written after the accepted commit leaves this file modified
-    # until a later turn commits it. A clone taken before that turn ignores
-    # neither the lock nor the run directory.
-    assert workspace.gitignore_file.read_text(encoding="utf-8") == committed
-    assert not repository.read_status((paths.GITIGNORE_FILE,))
+    # A rule that a chat or a run writes later leaves this file modified after the user commits it.
+    # A clone of that commit then ignores neither the lock nor the run directory.
+    assert workspace.gitignore_file.read_bytes() == installed
 
 
-def test_leaves_the_changes_in_a_workspace_it_did_not_write_uncommitted(tmp_path: Path) -> None:
-    install_an_accepted_workspace(tmp_path)
-    head = git.Repository(tmp_path).read_head()
+def test_leaves_the_changes_in_a_workspace_it_did_not_write_uncommitted(tmp_path: Path, run_git: RunGit) -> None:
+    install_workspace(tmp_path)
+    run_git(tmp_path, "add", paths.WORKSPACE_DIR)
+    run_git(tmp_path, "commit", "-qm", "the workspace")
+    repository = git.Repository(tmp_path)
+    head = repository.read_head()
     (tmp_path / paths.SETTINGS_FILE).write_text("# The settings the user changed.\n", encoding="utf-8")
 
-    second = install_workspace(tmp_path)
+    install_workspace(tmp_path)
 
     # The user made the change, and the user commits it.
-    assert second.commit is None
-    assert git.Repository(tmp_path).read_head() == head
-
-
-def test_commits_the_workspace_a_forced_start_over_replaced(tmp_path: Path, run_git: RunGit) -> None:
-    install_an_accepted_workspace(tmp_path)
-    change_the_committed_settings(tmp_path, run_git)
-
-    installation = install_workspace(tmp_path, force=True)
-
-    repository = git.Repository(tmp_path)
-    commit = repository.read_head()
-    assert installation.commit == commit
-    assert repository.find_commit(ACCEPTANCE_TRAILER) == commit
-    assert run_git(tmp_path, "log", "-1", "--format=%s") == "jri: start the project over"
-    assert repository.read_file(commit, paths.SETTINGS_FILE).decode() == Settings.render()
-
-
-# A project where no run was accepted holds no specifications in Git. A reset then has nothing to commit.
-def test_commits_nothing_when_a_forced_start_over_finds_no_accepted_run(tmp_path: Path) -> None:
-    install_workspace(tmp_path)
-    (tmp_path / paths.SETTINGS_FILE).write_text("custom settings\n", encoding="utf-8")
-
-    forced = install_workspace(tmp_path, force=True)
-
-    assert forced.commit is None
-    assert not git.Repository(tmp_path).has_commit()
-    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
-
-
-def test_commits_nothing_when_a_forced_start_over_changed_nothing(tmp_path: Path) -> None:
-    install_an_accepted_workspace(tmp_path)
-    head = git.Repository(tmp_path).read_head()
-
-    forced = install_workspace(tmp_path, force=True)
-
-    # The reset wrote the same content into every workspace file.
-    # Git records no change, and the accepted commit stays the head.
-    assert forced.commit is None
-    assert git.Repository(tmp_path).read_head() == head
+    assert repository.read_head() == head
+    assert repository.read_status((paths.SETTINGS_FILE,)) == (git.Status(paths.SETTINGS_FILE, " ", "M"),)
 
 
 # Git writes the files in a run worktree read-only, and Windows refuses to remove such a file. A reset that
@@ -352,62 +336,12 @@ def test_starts_the_project_over_when_a_path_it_replaces_cannot_be_removed(tmp_p
     assert (worktree / "main.py").exists(), "a path JRI could not remove is a path it leaves"
 
 
-def test_leaves_the_workspace_uncommitted_during_a_merge(
+def test_leaves_a_conflicted_cherry_pick_alone_when_a_reset_runs(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path)
-    install_an_accepted_workspace(tmp_path)
-    change_the_committed_settings(tmp_path, run_git)
-    run_git(tmp_path, "checkout", "-qb", "other")
-    (tmp_path / "README.md").write_bytes(b"# Other\n")
-    run_git(tmp_path, "commit", "-qam", "other")
-    run_git(tmp_path, "checkout", "-q", "-")
-    (tmp_path / "README.md").write_bytes(b"# First\n")
-    run_git(tmp_path, "commit", "-qam", "first")
-    run_git(tmp_path, "merge", "other", check=False)
-    head = repository.read_head()
-
-    installation = install_workspace(tmp_path, force=True)
-
-    # Git refuses a partial commit during a merge, and the user finishes
-    # the merge. The workspace files wait for the commit the user makes next.
-    assert installation.commit is None
-    assert not installation.refusal
-    assert repository.read_head() == head
-    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
-
-
-def test_leaves_the_workspace_uncommitted_during_a_clean_merge(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    repository = create_repository(tmp_path)
-    install_an_accepted_workspace(tmp_path)
-    change_the_committed_settings(tmp_path, run_git)
-    run_git(tmp_path, "checkout", "-qb", "other")
-    (tmp_path / "other.md").write_bytes(b"# Other\n")
-    run_git(tmp_path, "add", "other.md")
-    run_git(tmp_path, "commit", "-qm", "other")
-    run_git(tmp_path, "checkout", "-q", "-")
-    (tmp_path / "first.md").write_bytes(b"# First\n")
-    run_git(tmp_path, "add", "first.md")
-    run_git(tmp_path, "commit", "-qm", "first")
-    run_git(tmp_path, "merge", "--no-commit", "--no-ff", "other")
-    head = repository.read_head()
-
-    installation = install_workspace(tmp_path, force=True)
-
-    # A merge with no conflict leaves only its record, and Git still refuses a partial commit.
-    assert installation.commit is None
-    assert not installation.refusal
-    assert repository.read_head() == head
-
-
-def test_stages_nothing_while_the_user_settles_a_conflicted_cherry_pick(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    repository = create_repository(tmp_path)
-    install_an_accepted_workspace(tmp_path)
-    change_the_committed_settings(tmp_path, run_git)
+    install_workspace(tmp_path)
+    (tmp_path / paths.SETTINGS_FILE).write_bytes(b"custom settings\n")
     run_git(tmp_path, "checkout", "-qb", "other")
     (tmp_path / "README.md").write_bytes(b"# Other\n")
     run_git(tmp_path, "commit", "-qam", "other")
@@ -416,37 +350,15 @@ def test_stages_nothing_while_the_user_settles_a_conflicted_cherry_pick(
     run_git(tmp_path, "commit", "-qam", "first")
     run_git(tmp_path, "cherry-pick", "other", check=False)
     head = repository.read_head()
-    staged = repository.read_staged_paths()
+    index = run_git(tmp_path, "ls-files", "--stage")
 
-    installation = install_workspace(tmp_path, force=True)
+    install_workspace(tmp_path, force=True)
 
-    # A cherry-pick, a rebase, and a revert make a conflict, but they write no merge record. The index belongs
-    # to the user until the user settles the conflict. The workspace files stay out of the index, and they wait
-    # for the commit the user makes next.
-    assert installation.commit is None
-    assert not installation.refusal
+    # The index belongs to the user until the user settles the conflict. The workspace files stay out of the
+    # index, and they wait for the commit the user makes next.
+    assert repository.has_conflicts()
     assert repository.read_head() == head
-    assert repository.read_staged_paths() == staged
-    assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
-
-
-def test_leaves_the_workspace_uncommitted_off_a_branch(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, caplog: pytest.LogCaptureFixture
-) -> None:
-    repository = create_repository(tmp_path)
-    install_an_accepted_workspace(tmp_path)
-    change_the_committed_settings(tmp_path, run_git)
-    run_git(tmp_path, "checkout", "-q", "--detach")
-    head = repository.read_head()
-
-    with caplog.at_level(logging.INFO, logger="jri"):
-        installation = install_workspace(tmp_path, force=True)
-
-    # Only a detached HEAD can reach a commit made off a branch.
-    # A checkout back to the branch loses that commit and the workspace with it.
-    assert "installation_uncommitted" in [record.getMessage() for record in caplog.records]
-    assert installation.commit is None
-    assert repository.read_head() == head
+    assert run_git(tmp_path, "ls-files", "--stage") == index
     assert (tmp_path / paths.SETTINGS_FILE).read_text(encoding="utf-8") == Settings.render()
 
 
@@ -528,7 +440,7 @@ def test_creates_the_working_directory_when_it_is_missing(tmp_path: Path) -> Non
 
 
 # A project can have a workspace and no repository. The user removes `.git`, or copies the project out of one
-# project tree into a plain directory. The installation makes the repository, and the first accepted run commits.
+# project tree into a plain directory. The installation makes the repository, and that repository holds no commit.
 def test_makes_a_repository_for_a_workspace_that_lost_its_own(tmp_path: Path) -> None:
     install_workspace(tmp_path)
     files.remove_directory(tmp_path / ".git")
@@ -537,8 +449,8 @@ def test_makes_a_repository_for_a_workspace_that_lost_its_own(tmp_path: Path) ->
 
     assert not installation.created
     assert installation.repository_created
-    assert installation.commit is None
     assert git.find_root(tmp_path) == tmp_path.resolve()
+    assert not git.Repository(tmp_path).has_commit()
 
 
 # A directory that the user names is a project of its own, even below another repository.
@@ -676,7 +588,7 @@ def test_keeps_a_run_directory_out_of_the_project(
     staged = repository.read_staged_paths()
     assert not [path for path in staged if path.startswith(paths.GENERATION_DIR)]
     # A local ignore rule keeps the run directory out of this clone only.
-    # JRI commits the rule, so every clone excludes the same directory.
+    # The user commits the rule, so every clone excludes the same directory.
     assert paths.GITIGNORE_FILE in staged
 
 
@@ -799,11 +711,13 @@ def test_names_what_a_reset_replaces_and_nothing_it_would_leave(tmp_path: Path) 
     workspace = install_workspace(tmp_path).workspace
     workspace.open_generation_dir()
     (tmp_path / paths.FUNCTIONAL_SPECS_DIR).mkdir(parents=True)
+    workspace.accepted_notebook_file.write_bytes(b"id: t1\n")
 
     with workspace.open_reset() as reset:
         assert set(reset.paths) == {
             workspace.settings_file,
             workspace.notebook_file,
+            workspace.accepted_notebook_file,
             workspace.logs_dir,
             workspace.generation_dir,
             tmp_path / paths.SPECS_DIR,

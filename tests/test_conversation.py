@@ -194,7 +194,7 @@ def test_closes_the_row_a_blocked_run_left_open(monkeypatch: pytest.MonkeyPatch)
     events = list(conversation.ralph())
 
     assert events[-2] == ToolCallFinished(STARTED_ROW.call_id, STARTED_ROW.label, "failed")
-    assert events[-1] == TurnFinished("blocked", "Your project has uncommitted changes.")
+    assert events[-1] == TurnFinished("blocked", "The specifications changed during generation. Try again.")
     tool_items = [item for item in conversation.session.transcript[-1].items if item.type == "tool"]
     assert [(item.text, item.outcome) for item in tool_items] == [(STARTED_ROW.label, "failed")]
 
@@ -708,9 +708,9 @@ def test_offers_no_ralphing_after_a_generated_project_reopens(monkeypatch: pytes
     assert not restarted.is_ready_to_ralph
 
 
-# A run that commits and a run that changes nothing leave the project with the same notes.
+# A run that writes specifications and a run that changes nothing leave the project with the same notes.
 # The interviewer receives one report.
-# It cannot act on the files that the run wrote, or on a commit of those files.
+# It cannot act on the files that the run wrote.
 def test_reports_a_generation_that_changed_nothing_to_the_interviewer(monkeypatch: pytest.MonkeyPatch) -> None:
     conversation = build_conversation(
         FakeClient([streamed_reply("Understood."), streamed_reply("Your project is defined.")])

@@ -263,8 +263,10 @@ class Repository:
         names = [os.fsdecode(name) for name in self._run(*command).stdout.split(b"\0") if name]
         return {name: self.read_file(revision, name) for name in names}
 
+    # The caller gives this patch to `git apply`. These options keep the global settings of the user out of its format.
     def diff(self, base: str | None, *, paths: Sequence[str] = ()) -> bytes:
-        command = ["diff", base] if base is not None else ["diff", "--cached"]
+        options = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/")
+        command = ["diff", *options, base] if base is not None else ["diff", *options, "--cached"]
         if paths:
             command.extend(["--", *paths])
         return self._run(*command).stdout

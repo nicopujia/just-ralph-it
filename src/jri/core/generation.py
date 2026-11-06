@@ -94,13 +94,12 @@ class RowClosed(BaseModel):
 
 # This is the last journal line and the only record of the run ending.
 # Each ending names the workflow result.
-# The reader rebuilds that result instead of trusting a `commit` on a non-commit ending.
+# The reader rebuilds that result from the ending.
 class Conclusion(BaseModel):
     kind: Literal["conclusion"]
     ending: Literal[
-        "committed", "unchanged", "ambiguities", "stopped", "exhausted", "refused", "unavailable", "blocked", "failed"
+        "accepted", "unchanged", "ambiguities", "stopped", "exhausted", "refused", "unavailable", "blocked", "failed"
     ]
-    commit: str = ""
     ambiguities: tuple[str, ...] = ()
     detail: str = ""
 
@@ -251,8 +250,8 @@ class Generation:
         match result:
             case None:
                 return Conclusion(kind="conclusion", ending="stopped")
-            case str():
-                return Conclusion(kind="conclusion", ending="committed", commit=result)
+            case specs_generation.Accepted():
+                return Conclusion(kind="conclusion", ending="accepted")
             case specs_generation.Unchanged():
                 return Conclusion(kind="conclusion", ending="unchanged")
             case specs_generation.Ambiguities():
@@ -416,7 +415,7 @@ class Generation:
     # A killed run leaves the directories it worked in. A run that ends removes its own directories.
     # Every directory that is here now belongs to a run that cannot use it again.
     def _drop_worktrees(self) -> None:
-        for directory in (paths.WORKTREE_DIR, paths.SNAPSHOT_DIR, paths.PRE_IMAGE_DIR):
+        for directory in (paths.WORKTREE_DIR, paths.SNAPSHOT_DIR):
             files.remove_directory(self.workspace.root / directory)
 
     # Yield each run record, and its ending when the journal has one.
@@ -517,8 +516,8 @@ class Generation:
 # JRI then gets the turn ending in its normal place.
 def _answer(conclusion: Conclusion) -> "specs_generation.SpecsResult | None":
     match conclusion.ending:
-        case "committed":
-            return conclusion.commit
+        case "accepted":
+            return specs_generation.Accepted()
         case "unchanged":
             return specs_generation.Unchanged()
         case "ambiguities":

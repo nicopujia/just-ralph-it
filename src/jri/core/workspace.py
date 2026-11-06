@@ -14,7 +14,7 @@ from jri.lib.lock import Lock
 from . import paths
 from .exceptions import PersistenceError
 from .notes import Notebook
-from .repository import ACCEPTANCE_TRAILER, Repository
+from .repository import Repository
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Workspace:
-    # These are the workspace files that stay out of Git. JRI writes all these rules before a run commits.
+    # These are the workspace files that stay out of Git. JRI writes all these rules when it installs a project.
     # A chat and a run then find each rule already there, and no clone gets this file with a rule missing.
     # A rooted name applies only to the file below the workspace.
     # It does not apply to a file with the same name in a specification tree.
@@ -66,6 +66,10 @@ class Workspace:
         return self.root / paths.NOTEBOOK_FILE
 
     @property
+    def accepted_notebook_file(self) -> Path:
+        return self.root / paths.ACCEPTED_NOTEBOOK_FILE
+
+    @property
     def session_file(self) -> Path:
         return self.root / paths.SESSION_FILE
 
@@ -88,14 +92,6 @@ class Workspace:
     @property
     def generation_dir(self) -> Path:
         return self.root / paths.GENERATION_DIR
-
-    @property
-    def acceptance_file(self) -> Path:
-        return self.root / paths.ACCEPTANCE_FILE
-
-    @property
-    def acceptance_lock_file(self) -> Path:
-        return self.root / paths.ACCEPTANCE_LOCK_FILE
 
     @property
     def draft_file(self) -> Path:
@@ -123,8 +119,8 @@ class Workspace:
         self._ignore()
         return self.generation_dir
 
-    # Git creates the run worktree at this path. Write the ignore rule first, because Git reads a worktree here
-    # as project content without it.
+    # A run creates its private repository at this path. Write the ignore rule first, because Git reads a directory
+    # here as project content without it.
     def reserve_worktree_dir(self) -> Path:
         self.directory.mkdir(exist_ok=True, parents=True)
         self._ignore()
@@ -184,7 +180,7 @@ class Workspace:
                     f"The Git repository at `{found}` tracks `{relative}`, so that directory is part of its project. "
                     "Run `jri init` with no directory from there to set up that project."
                 )
-        repository = Repository.init(self.root, nested=repository_created)
+        Repository.init(self.root, nested=repository_created)
         # A repository above refuses `git add .` while a nested repository holds no commit.
         if found is not None and repository_created:
             relative = self.root.resolve().relative_to(found).as_posix()
@@ -198,12 +194,7 @@ class Workspace:
         # The directory can refuse a write, and a file can stand where JRI writes a directory.
         except OSError as error:
             raise PersistenceError(f"Could not write the workspace at `{self.directory}`: {error.strerror}") from error
-        # The first accepted run commits the workspace, so an installation leaves the history to the user.
-        # A reset is the exception, because a run compares the specifications with what Git holds.
-        commit, refusal = self._commit(repository) if reset is not None else (None, "")
-        return Installation(
-            self, created=created, repository_created=repository_created, commit=commit, refusal=refusal
-        )
+        return Installation(self, created=created, repository_created=repository_created)
 
     # Write the files of a workspace. Write the settings file only when the caller asks for it.
     def _write(self, settings: str, *, write_settings: bool) -> None:
@@ -213,44 +204,6 @@ class Workspace:
         Notebook(self.notebook_file, self.root.name)
         self.logs_dir.mkdir(exist_ok=True)
         self._ignore()
-
-    # Commit what the reset wrote, and accept an empty tree of specifications.
-    # A project where Git holds no specifications and no accepted run has nothing to accept.
-    # Name the paths. The commit holds no user work, staged or not, and it changes none.
-    # Git refuses a partial commit during a merge or a cherry-pick.
-    # A commit that JRI makes outside a branch stays reachable only from a detached HEAD.
-    # Leave the files in the worktree in both states. The user commits them after that work.
-    def _commit(self, repository: Repository) -> tuple[str | None, str]:
-        # A workspace can be below the repository root. Git reads a pathspec from that root.
-        prefix = self.root.resolve().relative_to(repository.path)
-        # A reset removes from the disk the specifications of the project that it replaces.
-        # Git still holds those specifications and the commit that accepted them.
-        # Commit the removal and accept an empty tree. Without both, the first run stops.
-        removed = repository.read_staged_paths(((prefix / paths.SPECS_DIR).as_posix(),))
-        if not removed and repository.find_commit(ACCEPTANCE_TRAILER) is None:
-            return None, ""
-        if not repository.is_on_branch() or repository.has_conflicts() or repository.has_commit("MERGE_HEAD"):
-            logger.info("installation_uncommitted")
-            return None, ""
-        installed = tuple((prefix / path).as_posix() for path in paths.INSTALLED_PATHS)
-        committed = (*installed, *removed)
-        try:
-            # Stage intent only, because Git commits a named path only after the index knows it.
-            # Force it, because a project can ignore `.jri`. JRI keeps its workspace in Git anyway.
-            # A removed path is already tracked, so JRI does not stage it.
-            repository.stage(installed, intent_to_add=True, force=True)
-            # A reset that changed nothing has nothing to commit. Git reports that state as a failure.
-            if not repository.read_status(committed):
-                return None, ""
-            commit = repository.commit("jri: start the project over", (ACCEPTANCE_TRAILER,), paths=committed)
-        # A project hook can refuse this commit, and Git can fail for a reason outside JRI.
-        # JRI wrote the workspace and it is ready.
-        # Name the commit that did not occur instead of raising an error.
-        except git.Error as error:
-            logger.exception("installation_commit_failed")
-            return None, str(error)
-        logger.info("installation_committed commit=%s", commit)
-        return commit, ""
 
     # These are all paths that `--force` replaces, whether they exist or not. The workspace owns this list.
     @property
@@ -270,7 +223,6 @@ class Workspace:
                 path.unlink(missing_ok=True)
 
     # Read and add the rules on every call. An existing file can lose a rule when a user replaces it.
-    # JRI commits the project `.gitignore`, so Git reports a rule that goes missing.
     # A `.gitignore` inside the hidden directory would be ignored itself, and nothing would report the loss.
     def _ignore(self) -> None:
         content = self.gitignore_file.read_text(encoding="utf-8") if self.gitignore_file.exists() else ""
@@ -294,9 +246,6 @@ class Installation:
     workspace: Workspace
     created: bool
     repository_created: bool
-    commit: str | None
-    # Git names why it did not accept the commit. An installation that Git accepted names nothing.
-    refusal: str = ""
 
 
 # This is a reset that JRI can perform. It holds the paths that it replaces, as they were at the time of the check.
