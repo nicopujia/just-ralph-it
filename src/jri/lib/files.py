@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 import stat
 from collections.abc import Callable, Sequence
@@ -75,13 +76,21 @@ def write_beside(path: Path, content: bytes) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = path.with_name(f".{uuid4().hex}.tmp")
     try:
-        temporary_path.write_bytes(content)
+        _write_synced(temporary_path, content)
         if path.exists():
             temporary_path.chmod(path.stat().st_mode & 0o777)
     except BaseException:
         temporary_path.unlink(missing_ok=True)
         raise
     return temporary_path
+
+
+# Sync the bytes before a caller moves the file. After a power cut, a move can stand with no bytes behind it.
+def _write_synced(path: Path, content: bytes) -> None:
+    with path.open("wb") as file:
+        file.write(content)
+        file.flush()
+        os.fsync(file.fileno())
 
 
 # Git writes each loose object read-only. Windows refuses to remove a read-only file. POSIX asks only for write

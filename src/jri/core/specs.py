@@ -306,8 +306,14 @@ class Specs:
             for path, content in changed.items():
                 temporary[path] = files.write_beside(self.workspace.root / path, content)
             self._move_files(temporary, removed, touched)
-        except OSError:
-            self._put_back(touched, standing)
+        except OSError as error:
+            unrestored = self._put_back(touched, standing)
+            if unrestored:
+                raise SpecsError(
+                    f"JRI could not write the specifications into your project: {error.strerror}. "
+                    f"JRI could not put these files back either, so they differ from what you had: "
+                    f"{', '.join(unrestored)}"
+                ) from error
             raise
         finally:
             for file in temporary.values():
@@ -325,12 +331,16 @@ class Specs:
     # Git holds no copy of uncommitted files, so put back each one that JRI can.
     # A file that JRI cannot put back must not stop the files after it.
     # Remove new files first. On a case-insensitive filesystem, a rename can name one file with two paths.
-    def _put_back(self, touched: Iterable[str], standing: Mapping[str, bytes]) -> None:
+    # Return the paths that JRI could not put back.
+    def _put_back(self, touched: Iterable[str], standing: Mapping[str, bytes]) -> list[str]:
+        unrestored: list[str] = []
         for path in sorted(touched, key=lambda path: path in standing):
             try:
                 self._restore_file(self.workspace.root / path, standing.get(path))
             except OSError:
                 logger.exception("specification_restore_failed path=%s", path)
+                unrestored.append(path)
+        return unrestored
 
     @staticmethod
     def _restore_file(target: Path, content: bytes | None) -> None:
