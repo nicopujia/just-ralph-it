@@ -175,7 +175,7 @@ class Ambiguities:
 
 
 # This marks a generation that wrote its specifications into the project.
-@dataclass(frozen=True)
+@dataclass
 class Accepted: ...
 
 

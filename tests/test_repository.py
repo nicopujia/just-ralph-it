@@ -1,9 +1,10 @@
+import os
 from pathlib import Path
 
 import pytest
 
 from jri.core.repository import Repository
-from tests.conftest import RunGit
+from tests.conftest import CreateRepository, RunGit
 
 
 def test_hides_an_excluded_path_from_this_clone_alone(tmp_path: Path) -> None:
@@ -62,3 +63,24 @@ def test_writes_the_tree_of_the_index_with_no_git_identity(
 
     assert repository.read_tree(tree) == {"staged.md": b"staged\n"}
     assert not repository.has_commit()
+
+
+# A private copy reads these settings before the global settings of the user.
+def test_isolates_a_repository_from_the_git_settings_of_the_user(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    repository = Repository(tmp_path)
+
+    repository.isolate()
+
+    settings = {
+        name: run_git(tmp_path, "config", "--local", "--get", name)
+        for name in ("apply.whitespace", "core.attributesFile", "core.autocrlf", "diff.context")
+    }
+    assert settings == {
+        "apply.whitespace": "nowarn",
+        "core.attributesFile": os.devnull,
+        "core.autocrlf": "false",
+        "diff.context": "3",
+    }

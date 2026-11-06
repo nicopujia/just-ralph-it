@@ -1,3 +1,5 @@
+import errno
+import os
 import stat
 import sys
 from pathlib import Path
@@ -11,6 +13,8 @@ from tests.conftest import CreateLink
 # A lone surrogate is the shortest string that UTF-8 cannot encode.
 UNENCODABLE_CONTENT = "\ud800"
 READABLE_BY_EVERYONE = 0o644
+PRIVATE_TO_THE_GROUP = 0o640
+PRIVATE_TO_THE_OWNER = 0o600
 # The stop that the test sends carries this wording.
 # A test can identify it, and not read it as a stop that the write raised.
 STOP_AT_THE_REPLACE = "the user pressed Ctrl-C at the replace"
@@ -205,10 +209,64 @@ def test_names_a_file_under_neither_the_working_directory_nor_home_in_full() -> 
     assert files.describe_paths(["/etc/hosts"]) == "/etc/hosts"
 
 
-# A specification can hold any bytes. JRI must not change them on any platform.
-def test_writes_the_bytes_it_is_given_atomically(tmp_path: Path) -> None:
+def test_writes_a_file_beside_its_target_and_leaves_the_target(tmp_path: Path) -> None:
+    target = tmp_path / "folder" / "file.md"
+    target.parent.mkdir()
+    target.write_bytes(b"first\n")
+
+    written = files.write_beside(target, b"caf\xe9\r\nsecond\n")
+
+    assert target.read_bytes() == b"first\n"
+    assert written.parent == target.parent
+    assert written.read_bytes() == b"caf\xe9\r\nsecond\n"
+    assert not written.name.endswith(".md")
+
+
+def test_writes_files_with_names_of_their_own_beside_one_target(tmp_path: Path) -> None:
     target = tmp_path / "file.md"
 
-    files.write_atomically(target, b"caf\xe9\r\nline\n")
+    assert files.write_beside(target, b"one") != files.write_beside(target, b"two")
 
-    assert target.read_bytes() == b"caf\xe9\r\nline\n"
+
+def test_makes_the_directory_of_a_file_it_writes_beside(tmp_path: Path) -> None:
+    written = files.write_beside(tmp_path / "new" / "deep" / "file.md", b"one")
+
+    assert written.read_bytes() == b"one"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no file modes of this kind.")
+def test_keeps_the_mode_of_the_target_it_writes_beside(tmp_path: Path) -> None:
+    target = tmp_path / "file.md"
+    target.write_bytes(b"first\n")
+    target.chmod(PRIVATE_TO_THE_GROUP)
+
+    assert stat.S_IMODE(files.write_beside(target, b"second\n").stat().st_mode) == PRIVATE_TO_THE_GROUP
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no umask of this kind.")
+def test_applies_the_umask_to_a_new_file_it_writes_beside(tmp_path: Path) -> None:
+    previous = os.umask(0o077)
+    try:
+        written = files.write_beside(tmp_path / "file.md", b"one")
+    finally:
+        os.umask(previous)
+
+    assert stat.S_IMODE(written.stat().st_mode) == PRIVATE_TO_THE_OWNER
+
+
+# A failed write must leave no second file for the caller to find.
+def test_removes_what_it_wrote_when_it_cannot_write_beside_a_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "file.md"
+    target.write_bytes(b"first\n")
+
+    def refuse(_: Path, _mode: int) -> None:
+        raise OSError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(Path, "chmod", refuse)
+
+    with pytest.raises(OSError, match="not permitted"):
+        files.write_beside(target, b"second\n")
+
+    assert [path.name for path in tmp_path.iterdir()] == ["file.md"]

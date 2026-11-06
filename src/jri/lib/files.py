@@ -4,8 +4,9 @@ import stat
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from uuid import uuid4
 
-__all__ = ["describe_paths", "remove_directory", "shorten_path", "write_atomically"]
+__all__ = ["describe_paths", "remove_directory", "shorten_path", "write_atomically", "write_beside"]
 
 # Show sufficient paths to identify the read. A longer list is not a sentence that a user can read.
 MAX_DESCRIBED_PATHS = 3
@@ -46,17 +47,18 @@ def shorten_path(path: Path) -> str:
     return str(expanded)
 
 
-def write_atomically(path: Path, content: str | bytes) -> None:
+def write_atomically(path: Path, content: str) -> None:
     temporary_path: Path | None = None
     # A symbolic link identifies the file to replace, not its directory entry. Create the replacement in the target
     # filesystem.
     target = path.resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        # Write bytes, not platform line endings. JRI reads this ending, and Git gets identical bytes on each system.
-        with NamedTemporaryFile("wb", dir=target.parent, delete=False) as file:
+        # Use the JRI line ending, not the platform line ending. JRI reads this ending, and Git gets identical bytes
+        # on each system.
+        with NamedTemporaryFile("w", dir=target.parent, delete=False, encoding="utf-8", newline="\n") as file:
             temporary_path = Path(file.name)
-            file.write(content.encode() if isinstance(content, str) else content)
+            file.write(content)
         # The temporary file lets only its owner read it. Restore the replaced file permissions.
         temporary_path.chmod(target.stat().st_mode & 0o777 if target.exists() else NEW_FILE_PERMISSIONS)
         temporary_path.replace(target)
@@ -64,6 +66,22 @@ def write_atomically(path: Path, content: str | bytes) -> None:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
         raise
+
+
+# Write a new file in the directory of `path` and return it. The caller moves it over `path` later.
+# A full disk or a read-only directory then stops the write here, and `path` does not change.
+# `open` applies the umask of the user to a new file. A replacement keeps the mode of the file that it replaces.
+def write_beside(path: Path, content: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{uuid4().hex}.tmp")
+    try:
+        temporary_path.write_bytes(content)
+        if path.exists():
+            temporary_path.chmod(path.stat().st_mode & 0o777)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return temporary_path
 
 
 # Git writes each loose object read-only. Windows refuses to remove a read-only file. POSIX asks only for write

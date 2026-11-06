@@ -74,6 +74,8 @@ class Specs:
     def open_staging(self, baseline: Baseline) -> Generator[Repository]:
         location = self.workspace.reserve_worktree_dir()
         files.remove_directory(location)
+        # Refuse a location that stays after the removal above. An old index there would give a wrong base tree.
+        location.mkdir()
         try:
             repository = Repository.init(location, nested=True)
             repository.isolate()
@@ -261,38 +263,87 @@ class Specs:
 
     # Write the specifications of the private repository into the project. JRI makes no commit.
     # The user decides what enters the history, so Git cannot restore a specification that this write loses.
-    # Replace each file atomically, so that a stop leaves the earlier version or the new one of each file.
-    # Write the notebook record last. A stop before that write leaves the notes as changes for the next run.
-    # After a failure, put the earlier files back. The draft then still applies, and the next run picks it up.
+    # The notebook record goes last. A stop before that write leaves the notes as changes for the next run.
     def accept(self, repository: git.Repository, baseline: Baseline) -> None:
         if self._read_specifications(self.repository) != baseline.specifications:
             raise RepositoryStateError("The specifications changed during generation. Try again.")
         if self._read_notebook() != baseline.notebook:
             raise RepositoryStateError("The project notes changed during generation. Try again.")
         self._check_links()
-        accepted = self._read_specifications(repository)
+        wanted = {**self._read_specifications(repository), paths.ACCEPTED_NOTEBOOK_FILE: baseline.notebook}
+        standing = dict(baseline.specifications)
+        if baseline.accepted_notebook is not None:
+            standing[paths.ACCEPTED_NOTEBOOK_FILE] = baseline.accepted_notebook
+        changed = {path: content for path, content in wanted.items() if standing.get(path) != content}
+        self._check_targets(changed)
         try:
-            self._replace_specifications(accepted, baseline.specifications)
-            files.write_atomically(self.workspace.accepted_notebook_file, baseline.notebook)
+            self._replace_files(changed, sorted(standing.keys() - wanted.keys()), standing)
         except OSError as error:
-            logger.exception("acceptance_write_failed files=%d", len(accepted))
-            with suppress(OSError):
-                self._replace_specifications(baseline.specifications, accepted)
+            logger.exception("acceptance_write_failed files=%d", len(changed))
             raise SpecsError(
                 f"JRI could not write the specifications into your project: {error.strerror}. Try again."
             ) from error
         # The project now holds these specifications. A run that resumed the delta would write them twice.
         self.workspace.drop_draft()
-        logger.info("specs_accepted files=%d", len(accepted))
+        logger.info("specs_accepted files=%d", len(changed))
 
-    # Write only the files that differ. Remove only the specifications that `standing` holds and `wanted` does not.
-    # A file that the user put beside the specifications stays.
-    def _replace_specifications(self, wanted: Mapping[str, bytes], standing: Mapping[str, bytes]) -> None:
-        for path, content in sorted(wanted.items()):
-            if standing.get(path) != content:
-                files.write_atomically(self.workspace.root / path, content)
-        for path in sorted(standing.keys() - wanted.keys()):
-            (self.workspace.root / path).unlink(missing_ok=True)
+    # `rglob` does not enter a link to a directory, so `_check_links` does not find one.
+    # A write through that link would replace a file that JRI never read.
+    def _check_targets(self, changed: Mapping[str, bytes]) -> None:
+        prefix = f"{paths.SPECS_DIR}/"
+        for path in changed:
+            if path.startswith(prefix):
+                name = path.removeprefix(prefix)
+                self._locate_specification(self.workspace.root, name, PurePosixPath(name).parts[0])
+
+    # Write every new file beside its target first. A full disk or a read-only directory then changes no target.
+    # Remove files before the moves. On a case-insensitive filesystem, a rename can name one file with two paths.
+    # Each move replaces a file whole, so a stop leaves the earlier version or the new one of each file.
+    def _replace_files(
+        self, changed: Mapping[str, bytes], removed: Sequence[str], standing: Mapping[str, bytes]
+    ) -> None:
+        temporary: dict[str, Path] = {}
+        touched: list[str] = []
+        try:
+            for path, content in changed.items():
+                temporary[path] = files.write_beside(self.workspace.root / path, content)
+            self._move_files(temporary, removed, touched)
+        except OSError:
+            self._put_back(touched, standing)
+            raise
+        finally:
+            for file in temporary.values():
+                file.unlink(missing_ok=True)
+
+    # Record each path as it changes. A failure then names what to put back.
+    def _move_files(self, temporary: Mapping[str, Path], removed: Sequence[str], touched: list[str]) -> None:
+        for path in removed:
+            (self.workspace.root / path).unlink()
+            touched.append(path)
+        for path, file in temporary.items():
+            file.replace(self.workspace.root / path)
+            touched.append(path)
+
+    # Git holds no copy of uncommitted files, so put back each one that JRI can.
+    # A file that JRI cannot put back must not stop the files after it.
+    # Remove new files first. On a case-insensitive filesystem, a rename can name one file with two paths.
+    def _put_back(self, touched: Iterable[str], standing: Mapping[str, bytes]) -> None:
+        for path in sorted(touched, key=lambda path: path in standing):
+            try:
+                self._restore_file(self.workspace.root / path, standing.get(path))
+            except OSError:
+                logger.exception("specification_restore_failed path=%s", path)
+
+    @staticmethod
+    def _restore_file(target: Path, content: bytes | None) -> None:
+        if content is None:
+            target.unlink()
+            return
+        replacement = files.write_beside(target, content)
+        try:
+            replacement.replace(target)
+        finally:
+            replacement.unlink(missing_ok=True)
 
     @staticmethod
     def _decode_all(files: dict[str, bytes]) -> list[tuple[str, str, str]]:
@@ -485,12 +536,12 @@ class Specs:
             | {
                 path
                 for path in self.repository.read_staged_paths(paths.PLAIN_PATHS, linked=True)
-                if (self.workspace.root / path).exists(follow_symlinks=False)
+                if (self.workspace.root / path).exists()
             }
         )
         if links:
             raise RepositoryStateError(
-                "JRI writes plain files, and these are links. Replace them before Ralphing:\n"
+                "JRI writes plain files, and these are links. Replace them and stage them before Ralphing:\n"
                 + "\n".join(f"- {path}" for path in links)
             )
 
