@@ -1,3 +1,4 @@
+import errno
 import os
 import re
 import stat
@@ -9,10 +10,10 @@ import pytest
 
 from jri.core.ai import Ending, TurnEvent, TurnFinished, architect, functional_analyst
 from jri.core.conversation import Conversation
-from jri.core.exceptions import PersistenceError, SpecsError
-from jri.core.specs import File, Specs
+from jri.core.exceptions import PersistenceError, RepositoryStateError, SpecsError
+from jri.core.specs import Baseline, File, Specs
 from jri.core.workspace import Workspace
-from jri.lib import git
+from jri.lib import files, git
 from tests.conftest import CreateLink, CreateRepository, RunGit
 from tests.doubles.agents import explored
 from tests.doubles.generation import run_in_thread
@@ -47,6 +48,7 @@ new file mode 100644
 @@ -0,0 +1 @@
 +Total output is supported.
 """
+FAILING_WRITE = 2
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
 # These drafts place a specification that `Specs.write` refuses to write for a model. Windows reads `CON.md`
 # as a device.
@@ -507,29 +509,13 @@ def test_accepts_specifications_whatever_git_is_in_the_middle_of(
     assert sorted(read_status(run_git, tmp_path)) == sorted([*git_status, *FIRST_RUN_ENTRIES])
 
 
-# The project holds no file that this patch quotes, so `git apply` refuses it.
-# The draft stays, because a failed apply lands nothing and the draft holds the whole work of the run.
-def test_reports_a_patch_git_cannot_apply_and_keeps_the_draft(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    install_workspace(tmp_path)
-    git_state = read_git_state(run_git, tmp_path)
-    specs = Specs(tmp_path)
-    baseline = specs.prepare()
-    write_draft(tmp_path, STALE_DRAFT)
-
-    with pytest.raises(SpecsError, match="JRI could not write the specifications into your project"):
-        specs.accept(STALE_DRAFT.encode(), baseline)
-
-    assert specs.workspace.draft_file.read_text(encoding="utf-8") == STALE_DRAFT
-    assert not (tmp_path / ".jri/specs").exists()
-    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
-    assert read_git_state(run_git, tmp_path) == git_state
+def accept_files(specs: Specs, baseline: Baseline, written: Mapping[str, str], deleted: Sequence[str] = ()) -> None:
+    with specs.open_staging(baseline) as staging:
+        Specs.write(staging, written, deleted, "functional")
+        specs.accept(staging, baseline)
 
 
-# An accepted patch writes its files first. The record comes last, and the draft goes only after the record.
-def test_accepts_a_patch_and_drops_the_draft(
+def test_accepts_the_specifications_of_the_private_repository_and_drops_the_draft(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
@@ -539,7 +525,7 @@ def test_accepts_a_patch_and_drops_the_draft(
     baseline = specs.prepare()
     write_draft(tmp_path, ACCEPTANCE_PATCH.decode())
 
-    assert specs.accept(ACCEPTANCE_PATCH, baseline) is None
+    accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
 
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == b"# Behavior\n"
     assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == baseline.notebook
@@ -547,8 +533,66 @@ def test_accepts_a_patch_and_drops_the_draft(
     assert read_git_state(run_git, tmp_path) == git_state
 
 
+# A file that the user put beside the specifications is not a specification that a run removed.
+def test_removes_a_deleted_specification_and_keeps_the_file_beside_it(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# Behavior\n", "functional/old.md": "# Old\n"})
+    beside = tmp_path / ".jri/specs/functional/notes.txt"
+    beside.write_bytes(b"mine\n")
+
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# Behavior 2\n"}, ["functional/old.md"])
+
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == b"# Behavior 2\n"
+    assert not (tmp_path / ".jri/specs/functional/old.md").exists()
+    assert beside.read_bytes() == b"mine\n"
+
+
+# Git holds no copy of uncommitted specifications. A failed write must leave them as they were.
+# The draft stays, because it holds the whole work of the run and it still applies.
+def test_keeps_uncommitted_specifications_and_the_draft_when_a_write_fails(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    first = {"functional/behavior.md": "# Behavior\n", "functional/keep.md": "# Keep\n", "functional/old.md": "# Old\n"}
+    accept_files(specs, specs.prepare(), first)
+    standing = read_specifications(tmp_path)
+    record = (tmp_path / ACCEPTED_NOTEBOOK).read_bytes()
+    # The notes change, so a record of this run would differ from the record of the last run.
+    (tmp_path / NOTEBOOK).write_bytes(record + b"# A note after the acceptance.\n")
+    baseline = specs.prepare()
+    write_draft(tmp_path, STALE_DRAFT)
+    write = files.write_atomically
+    calls: list[Path] = []
+
+    # The first write lands and the second one fails. The writes that put the earlier files back then land.
+    def fail_the_second_write(path: Path, content: str | bytes) -> None:
+        calls.append(path)
+        if len(calls) == FAILING_WRITE:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        write(path, content)
+
+    with specs.open_staging(baseline) as staging:
+        changed = {"functional/behavior.md": "# Behavior 2\n", "functional/keep.md": "# Keep 2\n"}
+        Specs.write(staging, changed, ["functional/old.md"], "functional")
+        monkeypatch.setattr(files, "write_atomically", fail_the_second_write)
+        with pytest.raises(SpecsError, match="could not write the specifications into your project: No space left"):
+            specs.accept(staging, baseline)
+
+    assert read_specifications(tmp_path) == standing
+    assert specs.workspace.draft_file.read_text(encoding="utf-8") == STALE_DRAFT
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == record
+
+
 # A directory stands where JRI writes the record. The operating system then refuses the write on every platform.
-def test_reports_a_notebook_record_it_cannot_write(tmp_path: Path, create_repository: CreateRepository) -> None:
+def test_puts_the_specifications_back_when_it_cannot_write_the_notebook_record(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
     specs = Specs(tmp_path)
@@ -556,10 +600,113 @@ def test_reports_a_notebook_record_it_cannot_write(tmp_path: Path, create_reposi
     (tmp_path / ACCEPTED_NOTEBOOK).mkdir()
     write_draft(tmp_path, ACCEPTANCE_PATCH.decode())
 
-    with pytest.raises(PersistenceError, match="Could not write the notebook record"):
-        specs.accept(ACCEPTANCE_PATCH, baseline)
+    with pytest.raises(SpecsError, match="could not write the specifications into your project"):
+        accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
 
+    assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
     assert specs.workspace.draft_file.exists()
+
+
+# A link that appeared during the run must not receive what JRI writes.
+def test_refuses_a_link_that_appeared_during_generation(
+    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    outside = tmp_path / "outside.yaml"
+    outside.write_bytes(b"mine\n")
+    create_link(tmp_path / ACCEPTED_NOTEBOOK, outside)
+
+    with pytest.raises(RepositoryStateError, match="these are links"):
+        accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
+
+    assert outside.read_bytes() == b"mine\n"
+    assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
+
+
+# A reset removes a committed link from the disk, and it does not change the index. The next run must not stop on it.
+def test_ignores_a_link_the_index_holds_and_the_disk_does_not(
+    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    (tmp_path / "target.md").write_bytes(b"# Target\n")
+    link = tmp_path / ".jri/specs/functional/link.md"
+    link.parent.mkdir(parents=True)
+    create_link(link, tmp_path / "target.md")
+    run_git(tmp_path, "add", "--force", ".jri/specs/functional/link.md")
+    link.unlink()
+
+    assert Specs(tmp_path).prepare().specifications == {}
+
+
+# The private repository is not a part of the project. Its index and its files must not reach the project.
+def test_opens_a_private_repository_that_replaces_a_stale_one_and_leaves_the_project_alone(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# Behavior\n"})
+    git_state = read_git_state(run_git, tmp_path)
+    location = specs.workspace.reserve_worktree_dir()
+    location.mkdir()
+    (location / "stale.txt").write_bytes(b"stale\n")
+
+    with specs.open_staging(specs.prepare()) as staging:
+        assert staging.path == location.resolve()
+        assert not (location / "stale.txt").exists()
+        assert Specs.read(staging, ".jri/specs/functional") == {".jri/specs/functional/behavior.md": b"# Behavior\n"}
+        assert read_git_state(run_git, tmp_path) == git_state
+
+    assert not location.exists()
+
+
+def set_binary_attributes(path: Path, run_git: RunGit) -> None:
+    attributes = path / "global-attributes"
+    attributes.write_bytes(b"*.md binary\n")
+    run_git(path, "config", "--global", "core.attributesFile", str(attributes))
+
+
+def set_git_settings(path: Path, run_git: RunGit, *settings: tuple[str, str]) -> None:
+    for name, value in settings:
+        run_git(path, "config", "--global", name, value)
+
+
+# The global settings of the user must not change the bytes of a specification or the format of a draft.
+@pytest.mark.parametrize(
+    "configure",
+    [
+        lambda path, run_git: set_git_settings(path, run_git, ("core.autocrlf", "true"), ("core.safecrlf", "true")),
+        lambda path, run_git: set_git_settings(path, run_git, ("apply.whitespace", "error")),
+        lambda path, run_git: set_git_settings(path, run_git, ("apply.whitespace", "fix")),
+        lambda path, run_git: set_git_settings(path, run_git, ("diff.context", "0")),
+        set_binary_attributes,
+    ],
+    ids=["crlf", "whitespace-error", "whitespace-fix", "no-context", "binary"],
+)
+def test_keeps_specification_bytes_and_drafts_under_the_git_settings_of_the_user(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, configure: Callable[[Path, RunGit], None]
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# One\ntwo\nthree\nfour\nfive\nsix\nseven\n"})
+    configure(tmp_path, run_git)
+    edited = "# One\ntwo\nthree  \nfour\nfive\nsix\nseven\n"
+    baseline = specs.prepare()
+
+    with specs.open_staging(baseline) as staging:
+        base = staging.write_tree()
+        Specs.write(staging, {"functional/behavior.md": edited}, (), "functional")
+        specs.save_draft(staging, base)
+    with specs.open_staging(baseline) as staging:
+        assert specs.resume(staging) == (".jri/specs/functional/behavior.md",)
+        specs.accept(staging, baseline)
+
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == edited.encode()
 
 
 def test_prepares_no_accepted_notebook_before_an_acceptance(
@@ -579,7 +726,7 @@ def test_prepares_the_accepted_notebook_after_an_acceptance(
     install_workspace(tmp_path)
     specs = Specs(tmp_path)
     baseline = specs.prepare()
-    specs.accept(ACCEPTANCE_PATCH, baseline)
+    accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
     (tmp_path / NOTEBOOK).write_bytes(baseline.notebook + b"# A note after the acceptance.\n")
 
     prepared = specs.prepare()

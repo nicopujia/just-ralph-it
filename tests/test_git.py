@@ -1375,7 +1375,7 @@ def test_rejects_opening_a_worktree_at_an_unknown_revision(tmp_path: Path, creat
     "setting",
     [("diff.noprefix", "true"), ("diff.mnemonicPrefix", "true"), ("color.ui", "always"), ("diff.external", "false")],
 )
-def test_writes_a_patch_git_can_apply_under_any_diff_setting(
+def test_writes_a_patch_git_can_apply_under_the_diff_settings_of_the_user(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, setting: tuple[str, str]
 ) -> None:
     repository = create_repository(tmp_path)

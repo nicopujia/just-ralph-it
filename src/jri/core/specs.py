@@ -64,7 +64,7 @@ class Specs:
     def prepare(self) -> Baseline:
         notebook = self._read_notebook()
         self._check_links()
-        specifications = self._read_specifications()
+        specifications = self._read_specifications(self.repository)
         logger.info("baseline_prepared specifications=%d", len(specifications))
         return Baseline(notebook, self._read_accepted_notebook(), specifications)
 
@@ -76,6 +76,7 @@ class Specs:
         files.remove_directory(location)
         try:
             repository = Repository.init(location, nested=True)
+            repository.isolate()
             self._stage(repository, self._write_specification_tree(location, baseline.specifications))
             yield repository
         finally:
@@ -88,7 +89,7 @@ class Specs:
         return self.workspace.draft_file.exists()
 
     # A draft claims to apply to the current specifications. Git validates the whole patch before it writes any part.
-    # A specification tree that JRI moved stays as the checkout left it.
+    # A specification tree that JRI moved stays as the copy left it.
     # Do not trust the Git exit status. Compare the trees before and after.
     # The draft is the delta, not the tree that Git checked out.
     # Validate the changed tree like model output, because a patch can create a link.
@@ -98,11 +99,11 @@ class Specs:
         standing = self._read_specification_tree(repository.path)
         status = repository.read_status()
         try:
-            checked_out = self.read(repository, paths.SPECS_DIR)
+            copied = self.read(repository, paths.SPECS_DIR)
             repository.apply_patch(draft, index=True)
             placed = self.read(repository, paths.SPECS_DIR)
             drafted = tuple(
-                path for path in sorted(checked_out.keys() | placed.keys()) if checked_out.get(path) != placed.get(path)
+                path for path in sorted(copied.keys() | placed.keys()) if copied.get(path) != placed.get(path)
             )
             self._check_specifications(repository.path, standing, self._read_specification_tree(repository.path))
         except (git.Error, SpecsError) as error:
@@ -258,29 +259,40 @@ class Specs:
             logger.exception("draft_write_failed path=%r", self.workspace.draft_file)
         return patch
 
-    # Write the specifications into the project. JRI makes no commit, so the user decides what enters the history.
-    # Write the notebook record last. A run that stops before that write leaves the notes as changes for the next run.
-    def accept(self, patch: bytes, baseline: Baseline) -> None:
-        if self._read_specifications() != baseline.specifications:
+    # Write the specifications of the private repository into the project. JRI makes no commit.
+    # The user decides what enters the history, so Git cannot restore a specification that this write loses.
+    # Replace each file atomically, so that a stop leaves the earlier version or the new one of each file.
+    # Write the notebook record last. A stop before that write leaves the notes as changes for the next run.
+    # After a failure, put the earlier files back. The draft then still applies, and the next run picks it up.
+    def accept(self, repository: git.Repository, baseline: Baseline) -> None:
+        if self._read_specifications(self.repository) != baseline.specifications:
             raise RepositoryStateError("The specifications changed during generation. Try again.")
         if self._read_notebook() != baseline.notebook:
             raise RepositoryStateError("The project notes changed during generation. Try again.")
         self._check_links()
+        accepted = self._read_specifications(repository)
         try:
-            self.repository.apply_patch(patch)
-        except git.Error as error:
-            logger.exception("acceptance_write_failed characters=%d", len(patch))
-            raise SpecsError("JRI could not write the specifications into your project. Try again.") from error
-        try:
-            files.write_atomically(self.workspace.accepted_notebook_file, baseline.notebook.decode())
+            self._replace_specifications(accepted, baseline.specifications)
+            files.write_atomically(self.workspace.accepted_notebook_file, baseline.notebook)
         except OSError as error:
-            logger.exception("accepted_notebook_write_failed path=%r", self.workspace.accepted_notebook_file)
-            raise PersistenceError(
-                f"Could not write the notebook record `{self.workspace.accepted_notebook_file}`: {error.strerror}"
+            logger.exception("acceptance_write_failed files=%d", len(accepted))
+            with suppress(OSError):
+                self._replace_specifications(baseline.specifications, accepted)
+            raise SpecsError(
+                f"JRI could not write the specifications into your project: {error.strerror}. Try again."
             ) from error
         # The project now holds these specifications. A run that resumed the delta would write them twice.
         self.workspace.drop_draft()
-        logger.info("specs_accepted characters=%d", len(patch))
+        logger.info("specs_accepted files=%d", len(accepted))
+
+    # Write only the files that differ. Remove only the specifications that `standing` holds and `wanted` does not.
+    # A file that the user put beside the specifications stays.
+    def _replace_specifications(self, wanted: Mapping[str, bytes], standing: Mapping[str, bytes]) -> None:
+        for path, content in sorted(wanted.items()):
+            if standing.get(path) != content:
+                files.write_atomically(self.workspace.root / path, content)
+        for path in sorted(standing.keys() - wanted.keys()):
+            (self.workspace.root / path).unlink(missing_ok=True)
 
     @staticmethod
     def _decode_all(files: dict[str, bytes]) -> list[tuple[str, str, str]]:
@@ -315,7 +327,7 @@ class Specs:
     # Newer rules can refuse a name that an older draft allowed.
     # Validate its changes as `Specs.write` validates model output.
     # Check every added entry, not only Markdown. A patch can add files that no later round reads.
-    # Compare with the checkout. Names, case folds, and files that already exist are not changes of this draft.
+    # Compare with the copy. Names, case folds, and files that already exist are not changes of this draft.
     @classmethod
     def _check_specifications(
         cls, worktree: Path, standing: Mapping[str, bytes | None], placed: Mapping[str, bytes | None]
@@ -345,7 +357,7 @@ class Specs:
     # A draft that Git did not apply has nothing to remove.
     # Restore the specifications from the bytes that JRI read. Do not trust the Git status.
     # `git apply --reverse` can exit with success after it reverses only one section of a repeated path.
-    # Compare the restored worktree with the checkout.
+    # Compare the restored worktree with the copy.
     # Another round must not write in a worktree whose state JRI does not know.
     # This temporary worktree belongs to this run, and the run removes it when it ends.
     def _restore_specifications(
@@ -390,7 +402,7 @@ class Specs:
     # Read every entry of the specification tree.
     # Store the bytes that JRI can restore, and `None` for links, sockets, and files that JRI cannot read.
     # `Specs.read` defines a specification. This method records what exists.
-    # A restore removes only the files that appeared after the checkout.
+    # A restore removes only the files that appeared after the copy.
     @staticmethod
     def _read_specification_tree(worktree: Path) -> dict[str, bytes | None]:
         tree: dict[str, bytes | None] = {}
@@ -440,7 +452,7 @@ class Specs:
                 f"Could not read the notebook file `{self.workspace.notebook_file}`: {error.strerror}"
             ) from error
 
-    # A missing record means that no run wrote specifications here. An unreadable record shows no changes either.
+    # A missing record means that no run wrote specifications here. An unreadable record shows no changes.
     def _read_accepted_notebook(self) -> bytes | None:
         try:
             return self.workspace.accepted_notebook_file.read_bytes()
@@ -450,17 +462,16 @@ class Specs:
             logger.exception("accepted_notebook_read_failed path=%r", self.workspace.accepted_notebook_file)
             return None
 
-    def _read_specifications(self) -> dict[str, bytes]:
-        return self.read(self.repository, paths.FUNCTIONAL_SPECS_DIR) | self.read(
-            self.repository, paths.ARCHITECTURE_SPECS_DIR
-        )
+    def _read_specifications(self, repository: git.Repository) -> dict[str, bytes]:
+        return self.read(repository, paths.FUNCTIONAL_SPECS_DIR) | self.read(repository, paths.ARCHITECTURE_SPECS_DIR)
 
-    # The files that JRI reads and writes must meet the same link rules as the model paths.
+    # The files that JRI reads and writes obey the link rules of the model paths.
     # Git stores a link as target text.
     # A notebook or a specification that is a link can show a model a file that JRI must keep from it.
     # Check both the filesystem and Git.
     # Each one can report a link that the other cannot, above all a Windows `120000` entry.
     # Use filesystem paths for the filesystem check, and Git paths for the Git check.
+    # JRI does not change the index. A reset can leave an entry for a link that the disk no longer holds.
     def _check_links(self) -> None:
         plain = (
             self.workspace.settings_file,
@@ -471,7 +482,11 @@ class Specs:
         )
         links = sorted(
             {path.relative_to(self.workspace.root).as_posix() for path in plain if path.is_symlink()}
-            | set(self.repository.read_staged_paths(paths.PLAIN_PATHS, linked=True))
+            | {
+                path
+                for path in self.repository.read_staged_paths(paths.PLAIN_PATHS, linked=True)
+                if (self.workspace.root / path).exists(follow_symlinks=False)
+            }
         )
         if links:
             raise RepositoryStateError(

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 # Check for a stop during each model call and between the steps. A run that stops before `Specs.accept` leaves the
-# project unchanged. Do not stop `Specs.accept` itself, because a partial patch or index is worse.
+# project unchanged. Do not stop `Specs.accept` itself, because a partial write is worse.
 def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Progress, None, SpecsResult | None]:
     cancelled = cancelled or Event()
     specs = Specs(Path.cwd())
@@ -33,7 +33,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
 
     cycle = 0
 
-    # Use one worktree for the run. Each round edits its draft.
+    # Use one private repository for the run. Each round edits its draft.
     # Save each change so a later run can continue. The draft is the agreement between rounds.
     with specs.open_staging(baseline) as staging:
         # The copy now holds the project specifications and nothing of this run. Each draft is a delta from this tree.
@@ -155,7 +155,6 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             if cancelled.is_set():
                 return None
             # An empty patch means the models found that the project already has these specifications.
-            # `git apply` rejects empty patches.
             if not patch:
                 logger.info("specs_unchanged cycles=%d", cycle)
                 yield ai.ToolCallStarted("save", "Comparing the specifications with your project", "💾")
@@ -163,7 +162,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 return Unchanged()
             # JRI saves in a step of its own. If the write fails, close the save row, and not the design row.
             yield ai.ToolCallStarted("save", "Saving the specifications to your project", "💾")
-            specs.accept(patch, baseline)
+            specs.accept(staging, baseline)
             yield ai.ToolCallFinished("save", "Saved the specifications to your project", "done")
             return Accepted()
 

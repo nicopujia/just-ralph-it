@@ -46,18 +46,17 @@ def shorten_path(path: Path) -> str:
     return str(expanded)
 
 
-def write_atomically(path: Path, content: str) -> None:
+def write_atomically(path: Path, content: str | bytes) -> None:
     temporary_path: Path | None = None
     # A symbolic link identifies the file to replace, not its directory entry. Create the replacement in the target
     # filesystem.
     target = path.resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        # Use the JRI line ending, not the platform line ending. JRI reads this ending, and Git gets identical bytes
-        # on each system.
-        with NamedTemporaryFile("w", dir=target.parent, delete=False, encoding="utf-8", newline="\n") as file:
+        # Write bytes, not platform line endings. JRI reads this ending, and Git gets identical bytes on each system.
+        with NamedTemporaryFile("wb", dir=target.parent, delete=False) as file:
             temporary_path = Path(file.name)
-            file.write(content)
+            file.write(content.encode() if isinstance(content, str) else content)
         # The temporary file lets only its owner read it. Restore the replaced file permissions.
         temporary_path.chmod(target.stat().st_mode & 0o777 if target.exists() else NEW_FILE_PERMISSIONS)
         temporary_path.replace(target)
