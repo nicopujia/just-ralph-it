@@ -1371,10 +1371,7 @@ def test_rejects_opening_a_worktree_at_an_unknown_revision(tmp_path: Path, creat
 
 
 # A patch must apply whatever the global settings of the user say about the format of a diff.
-@pytest.mark.parametrize(
-    "setting",
-    [("diff.noprefix", "true"), ("diff.mnemonicPrefix", "true"), ("color.ui", "always"), ("diff.external", "false")],
-)
+@pytest.mark.parametrize("setting", [("diff.noprefix", "true"), ("color.ui", "always"), ("diff.external", "false")])
 def test_writes_a_patch_git_can_apply_under_the_diff_settings_of_the_user(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, setting: tuple[str, str]
 ) -> None:

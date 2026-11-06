@@ -372,6 +372,11 @@ def test_reports_a_generation_that_changed_nothing(
         ("ToolCallStarted", "save", "Comparing the specifications with your project"),
         ("ToolCallFinished", "save", "Your project already holds these specifications"),
     ]
+    started, finished = rows[-2:]
+    assert isinstance(started, ToolCallStarted)
+    assert started.symbol == "💾"
+    assert isinstance(finished, ToolCallFinished)
+    assert finished.outcome == "done"
     assert read_specifications(tmp_path) == specifications
     assert read_git_state(tmp_path, run_git) == state
     assert not (tmp_path / paths.DRAFT_FILE).exists()
@@ -500,6 +505,11 @@ def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repo
         ("ToolCallStarted", "save", "Saving the specifications to your project"),
         ("ToolCallFinished", "save", "Saved the specifications to your project"),
     ]
+    started, finished = rows[-2:]
+    assert isinstance(started, ToolCallStarted)
+    assert started.symbol == "💾"
+    assert isinstance(finished, ToolCallFinished)
+    assert finished.outcome == "done"
     # Each started row, but not `save`, must agree with one model request. Different numbers show a call that
     # the model made with no row, or a row with no call.
     assert len([row for row in rows if isinstance(row, ToolCallStarted) and row.call_id != "save"]) == len(
@@ -1120,6 +1130,22 @@ def test_sends_the_analyst_the_uncommitted_index_and_the_notebook_diff_from_the_
     added = [line for line in analyst.splitlines() if line.lstrip().startswith("+")]
     assert any("Export the data as CSV." in line for line in added)
     assert not any("Ship a web app." in line for line in added)
+
+
+# Each draft is a delta from the project, not from the draft before it. A second stop must keep the first files.
+def test_keeps_the_files_of_an_earlier_draft_when_a_second_run_asks_too(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    accept_specs()
+
+    generate(FakeClient([], parsed=[*written_specs({"functional/first.md": "# First\n"}, unresolved=["One?"])]))
+    generate(FakeClient([], parsed=[*written_specs({"functional/second.md": "# Second\n"}, unresolved=["Two?"])]))
+    rows, _ = generate(
+        FakeClient([], parsed=[*written_specs({"functional/third.md": "# Third\n"}, unresolved=["Three?"])])
+    )
+
+    assert read_rows(rows)[1] == ("ToolCallFinished", "resume", "Picked up a draft of 2 specification files")
 
 
 # The first run of the two asks a question and writes a file. The second run writes another file. Only the draft

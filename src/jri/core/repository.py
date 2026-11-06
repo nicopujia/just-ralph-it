@@ -10,7 +10,6 @@ class Repository(git.Repository):
         ("apply.whitespace", "nowarn"),
         ("core.attributesFile", os.devnull),
         ("core.autocrlf", "false"),
-        ("core.safecrlf", "false"),
         ("diff.context", "3"),
     )
 

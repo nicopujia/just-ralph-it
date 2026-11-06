@@ -1,4 +1,5 @@
 import errno
+import logging
 import os
 import re
 import stat
@@ -48,6 +49,7 @@ new file mode 100644
 @@ -0,0 +1 @@
 +Total output is supported.
 """
+FAILING_MOVES = {3, 4}
 FAILING_WRITE = 2
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
 # These drafts place a specification that `Specs.write` refuses to write for a model. Windows reads `CON.md`
@@ -516,16 +518,20 @@ def accept_files(specs: Specs, baseline: Baseline, written: Mapping[str, str], d
 
 
 def test_accepts_the_specifications_of_the_private_repository_and_drops_the_draft(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, caplog: pytest.LogCaptureFixture
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
     git_state = read_git_state(run_git, tmp_path)
     specs = Specs(tmp_path)
-    baseline = specs.prepare()
-    write_draft(tmp_path, ACCEPTANCE_PATCH.decode())
+    with caplog.at_level(logging.INFO, logger="jri"):
+        baseline = specs.prepare()
+        write_draft(tmp_path, ACCEPTANCE_PATCH.decode())
+        accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
 
-    accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
+    messages = [record.getMessage() for record in caplog.records]
+    assert "baseline_prepared specifications=0" in messages
+    assert "specs_accepted files=2" in messages
 
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == b"# Behavior\n"
     assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == baseline.notebook
@@ -551,9 +557,9 @@ def test_removes_a_deleted_specification_and_keeps_the_file_beside_it(
     assert beside.read_bytes() == b"mine\n"
 
 
-# Git holds no copy of uncommitted specifications. A failed write must leave them as they were.
+# Git holds no copy of uncommitted specifications. A full disk stops the write before any of them changes.
 # The draft stays, because it holds the whole work of the run and it still applies.
-def test_keeps_uncommitted_specifications_and_the_draft_when_a_write_fails(
+def test_changes_no_specification_and_keeps_the_draft_when_a_new_file_cannot_be_written(
     tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     create_repository(tmp_path)
@@ -566,32 +572,115 @@ def test_keeps_uncommitted_specifications_and_the_draft_when_a_write_fails(
     # The notes change, so a record of this run would differ from the record of the last run.
     (tmp_path / NOTEBOOK).write_bytes(record + b"# A note after the acceptance.\n")
     baseline = specs.prepare()
-    write_draft(tmp_path, STALE_DRAFT)
-    write = files.write_atomically
+    write = files.write_beside
     calls: list[Path] = []
 
-    # The first write lands and the second one fails. The writes that put the earlier files back then land.
-    def fail_the_second_write(path: Path, content: str | bytes) -> None:
+    def fail_the_second_write(path: Path, content: bytes) -> Path:
         calls.append(path)
         if len(calls) == FAILING_WRITE:
             raise OSError(errno.ENOSPC, "No space left on device")
-        write(path, content)
+        return write(path, content)
 
     with specs.open_staging(baseline) as staging:
+        base = staging.write_tree()
         changed = {"functional/behavior.md": "# Behavior 2\n", "functional/keep.md": "# Keep 2\n"}
         Specs.write(staging, changed, ["functional/old.md"], "functional")
-        monkeypatch.setattr(files, "write_atomically", fail_the_second_write)
+        specs.save_draft(staging, base)
+        monkeypatch.setattr(files, "write_beside", fail_the_second_write)
         with pytest.raises(SpecsError, match="could not write the specifications into your project: No space left"):
             specs.accept(staging, baseline)
+    monkeypatch.undo()
 
     assert read_specifications(tmp_path) == standing
-    assert specs.workspace.draft_file.read_text(encoding="utf-8") == STALE_DRAFT
     assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == record
+    assert not list((tmp_path / ".jri/specs").rglob("*.tmp"))
+    with specs.open_staging(baseline) as staging:
+        assert specs.resume(staging) is not None
+
+
+# A move can fail after an earlier one landed. JRI must put back each file that it can, also after one that it cannot.
+def test_puts_back_every_file_it_can_when_a_move_fails(
+    tmp_path: Path,
+    create_repository: CreateRepository,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    first = {f"functional/{name}.md": f"# {name}\n" for name in ("a", "b", "c", "old")}
+    accept_files(specs, specs.prepare(), first)
+    standing = read_specifications(tmp_path)
+    baseline = specs.prepare()
+    replace = Path.replace
+    calls: list[Path] = []
+
+    # The third move fails. The first file to come back then fails too. The files after it must still come back.
+    def fail_two_moves(path: Path, target: Path) -> Path:
+        calls.append(target)
+        if len(calls) in FAILING_MOVES:
+            raise OSError(errno.EACCES, "Permission denied")
+        return replace(path, target)
+
+    with specs.open_staging(baseline) as staging:
+        changed = {f"functional/{name}.md": f"# {name} 2\n" for name in ("a", "b", "c")}
+        Specs.write(staging, {**changed, "functional/new.md": "# New\n"}, ["functional/old.md"], "functional")
+        monkeypatch.setattr(Path, "replace", fail_two_moves)
+        with pytest.raises(SpecsError, match="could not write the specifications into your project: Permission denied"):
+            specs.accept(staging, baseline)
+    monkeypatch.undo()
+
+    assert read_specifications(tmp_path) == {
+        path: content for path, content in standing.items() if path != "functional/old.md"
+    }
+    assert not list((tmp_path / ".jri/specs").rglob("*.tmp"))
+    assert any(record.getMessage().startswith("specification_restore_failed") for record in caplog.records)
+
+
+# Two passes can rename a file by case alone. The guard of one write sees only that write.
+# On a case-insensitive filesystem, a removal after the move would remove the new file too.
+def test_keeps_a_specification_that_a_run_renamed_by_case_alone(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/Behavior.md": "# Behavior\n"})
+    baseline = specs.prepare()
+
+    with specs.open_staging(baseline) as staging:
+        Specs.write(staging, {}, ["functional/Behavior.md"], "functional")
+        Specs.write(staging, {"functional/behavior.md": "# Behavior 2\n"}, (), "functional")
+        specs.accept(staging, baseline)
+
+    assert list(read_specifications(tmp_path).items()) == [("functional/behavior.md", "# Behavior 2\n")]
+
+
+# `rglob` does not enter a link to a directory. A write through that link would replace a file that JRI never read.
+def test_refuses_to_write_through_a_link_to_a_directory(
+    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# Behavior\n"})
+    outside = tmp_path / "shared"
+    outside.mkdir()
+    (outside / "a.md").write_bytes(b"mine\n")
+    create_link(tmp_path / ".jri/specs/functional/shared", outside)
+    baseline = specs.prepare()
+
+    with specs.open_staging(baseline) as staging:
+        Specs.write(staging, {"functional/shared/a.md": "# Model\n"}, (), "functional")
+        with pytest.raises(SpecsError, match=r"cannot change `functional/shared/a\.md`"):
+            specs.accept(staging, baseline)
+
+    assert (outside / "a.md").read_bytes() == b"mine\n"
 
 
 # A directory stands where JRI writes the record. The operating system then refuses the write on every platform.
 def test_puts_the_specifications_back_when_it_cannot_write_the_notebook_record(
-    tmp_path: Path, create_repository: CreateRepository
+    tmp_path: Path, create_repository: CreateRepository, caplog: pytest.LogCaptureFixture
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
@@ -605,6 +694,7 @@ def test_puts_the_specifications_back_when_it_cannot_write_the_notebook_record(
 
     assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
     assert specs.workspace.draft_file.exists()
+    assert "acceptance_write_failed files=2" in [record.getMessage() for record in caplog.records]
 
 
 # A link that appeared during the run must not receive what JRI writes.
@@ -737,13 +827,14 @@ def test_prepares_the_accepted_notebook_after_an_acceptance(
 
 # A record that JRI cannot read shows no change since the last run. The run then reads the whole notebook.
 def test_prepares_no_accepted_notebook_from_a_record_it_cannot_read(
-    tmp_path: Path, create_repository: CreateRepository
+    tmp_path: Path, create_repository: CreateRepository, caplog: pytest.LogCaptureFixture
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
     (tmp_path / ACCEPTED_NOTEBOOK).mkdir()
 
     assert Specs(tmp_path).prepare().accepted_notebook is None
+    assert any(record.getMessage().startswith("accepted_notebook_read_failed") for record in caplog.records)
 
 
 def test_reports_a_notebook_file_it_cannot_read(tmp_path: Path, create_repository: CreateRepository) -> None:
