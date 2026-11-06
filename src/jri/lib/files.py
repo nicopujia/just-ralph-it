@@ -1,11 +1,13 @@
 import logging
+import os
 import shutil
 import stat
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from uuid import uuid4
 
-__all__ = ["describe_paths", "remove_directory", "shorten_path", "write_atomically"]
+__all__ = ["describe_paths", "remove_directory", "shorten_path", "write_atomically", "write_beside"]
 
 # Show sufficient paths to identify the read. A longer list is not a sentence that a user can read.
 MAX_DESCRIBED_PATHS = 3
@@ -65,6 +67,30 @@ def write_atomically(path: Path, content: str) -> None:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
         raise
+
+
+# Write a new file in the directory of `path` and return it. The caller moves it over `path` later.
+# A full disk or a read-only directory then stops the write here, and `path` does not change.
+# `open` applies the umask of the user to a new file. A replacement keeps the mode of the file that it replaces.
+def write_beside(path: Path, content: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{uuid4().hex}.tmp")
+    try:
+        _write_synced(temporary_path, content)
+        if path.exists():
+            temporary_path.chmod(path.stat().st_mode & 0o777)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return temporary_path
+
+
+# Sync the bytes before a caller moves the file. After a power cut, a move can stand with no bytes behind it.
+def _write_synced(path: Path, content: bytes) -> None:
+    with path.open("wb") as file:
+        file.write(content)
+        file.flush()
+        os.fsync(file.fileno())
 
 
 # Git writes each loose object read-only. Windows refuses to remove a read-only file. POSIX asks only for write

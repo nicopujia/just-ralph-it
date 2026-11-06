@@ -17,7 +17,6 @@ from jri.core.ai import (
 )
 from jri.core.exceptions import RepositoryStateError, SpecsError
 from jri.core.notes import Notebook
-from jri.core.repository import ACCEPTANCE_TRAILER
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.agents import explored
 from tests.doubles.openai import (
@@ -38,7 +37,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
 type Progress = ReasoningDelta | Row
-type Result = specs_generation.Ambiguities | specs_generation.Unchanged | str | None
+type Result = specs_generation.SpecsResult | None
 type Row = ToolCallStarted | ToolCallFinished
 
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
@@ -112,10 +111,10 @@ def generate(
     return events, captured[0]
 
 
-def commit_specs() -> None:
+def accept_specs() -> None:
     client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
-    _, commit = generate(client)
-    assert isinstance(commit, str)
+    _, result = generate(client)
+    assert result == specs_generation.Accepted()
 
 
 # One pass answers in more than one round. It uses one round for each call that writes files, and a last
@@ -184,7 +183,22 @@ def read_rows(events: list[Progress]) -> list[tuple[str, str, str]]:
     return [(type(row).__name__, row.call_id, row.label) for row in events if not isinstance(row, ReasoningDelta)]
 
 
-def test_returns_ambiguities_without_committing(
+# A model names a specification by this path. Every file counts, so a file that is not Markdown shows here too.
+def read_specifications(project: Path) -> dict[str, bytes]:
+    root = project / paths.SPECS_DIR
+    return {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+
+# These are the history and the index. Only the user changes them. A project with no commit has no HEAD to read.
+def read_git_state(project: Path, run_git: RunGit) -> tuple[str, str, str]:
+    return (
+        run_git(project, "rev-parse", "--verify", "--quiet", "HEAD", check=False),
+        run_git(project, "rev-list", "--all", "--count"),
+        run_git(project, "ls-files", "--stage"),
+    )
+
+
+def test_returns_ambiguities_without_writing_specifications(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     build_workspace(tmp_path, create_repository)
@@ -254,7 +268,7 @@ def test_resumes_the_specifications_a_pass_wrote_before_it_asked(
 
     rows, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert read_rows(rows)[:2] == [
         ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
         ("ToolCallFinished", "resume", "Picked up a draft of 1 specification file"),
@@ -289,7 +303,7 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
     discarded = notebook.add_topic("Discarded", "t1", "What discarded covers.")
     notebook.add(["Build a rocket instead."], discarded.id)
     notebook.trash([discarded.id])
-    commit_specs()
+    accept_specs()
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Export the data as CSV."], "t1")
     client = FakeClient(
         [],
@@ -302,7 +316,7 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
 
     _, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     diff = next(prompt for prompt in read_prompts(client) if "<notebook_diff_from_accepted_baseline>" in prompt)
     assert "Export the data as CSV." in diff
     assert "Build a rocket instead." not in diff
@@ -316,26 +330,23 @@ def test_writes_a_first_generation_without_a_notebook_diff(tmp_path: Path, creat
 
     _, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     prompts = read_prompts(client)
     assert any("Ship a web app." in prompt for prompt in prompts)
     assert not any("<notebook_diff_from_accepted_baseline>" in prompt for prompt in prompts)
 
 
 def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    (tmp_path / paths.NOTEBOOK_FILE).write_text("nonsense\n")
-    run_git(tmp_path, "add", "--force", paths.NOTEBOOK_FILE)
-    run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
-    (tmp_path / paths.NOTEBOOK_FILE).unlink()
+    (tmp_path / paths.ACCEPTED_NOTEBOOK_FILE).write_text("nonsense\n")
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Ship a web app."], "t1")
     client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     prompts = read_prompts(client)
     assert any("Ship a web app." in prompt for prompt in prompts)
     assert not any("nonsense" in prompt for prompt in prompts)
@@ -344,27 +355,31 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     assert not any("<notebook_diff_from_accepted_baseline>" in prompt for prompt in prompts)
 
 
-# `git apply` refuses an empty patch. A generation that changes nothing must return before it commits. It
-# must not make an acceptance record and then remove it, because a run that stops between the two steps leaves
-# the project blocked.
+# `git apply` refuses an empty patch. A generation that changes nothing must return before it writes.
 def test_reports_a_generation_that_changed_nothing(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit_specs()
-    accepted = run_git(tmp_path, "rev-parse", "HEAD")
+    accept_specs()
+    specifications = read_specifications(tmp_path)
+    state = read_git_state(tmp_path, run_git)
     client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     rows, result = generate(client)
 
     assert result == specs_generation.Unchanged()
     assert read_rows(rows)[-2:] == [
-        ("ToolCallStarted", "commit", "Comparing the specifications with your project"),
-        ("ToolCallFinished", "commit", "Your project already holds these specifications"),
+        ("ToolCallStarted", "save", "Comparing the specifications with your project"),
+        ("ToolCallFinished", "save", "Your project already holds these specifications"),
     ]
-    assert run_git(tmp_path, "rev-parse", "HEAD") == accepted
-    assert not (tmp_path / paths.ACCEPTANCE_FILE).exists()
-    assert not run_git(tmp_path, "status", "--short")
+    started, finished = rows[-2:]
+    assert isinstance(started, ToolCallStarted)
+    assert started.symbol == "💾"
+    assert isinstance(finished, ToolCallFinished)
+    assert finished.outcome == "done"
+    assert read_specifications(tmp_path) == specifications
+    assert read_git_state(tmp_path, run_git) == state
+    assert not (tmp_path / paths.DRAFT_FILE).exists()
 
 
 @pytest.mark.parametrize(
@@ -389,10 +404,9 @@ def test_stops_a_run_without_touching_the_project(
     assert rows[-1] == stop_at
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
-    # A stop must also leave the worktree context manager. If it does not, a temporary worktree stays after the
-    # run.
+    # A stop must also leave the private repository. If it does not, its directory stays after the run.
     assert not run_git(tmp_path, "diff", "--cached")
-    assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
+    assert not (tmp_path / paths.WORKTREE_DIR).exists()
 
 
 @pytest.mark.parametrize(
@@ -420,7 +434,7 @@ def test_stops_a_run_while_a_model_is_still_answering(
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
     assert not run_git(tmp_path, "diff", "--cached")
-    assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
+    assert not (tmp_path / paths.WORKTREE_DIR).exists()
 
 
 # A stop can arrive while the study still answers. It ends the run at that point. No design uses the part of
@@ -488,15 +502,20 @@ def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repo
         ("ToolCallStarted", "write-architecture", "Writing specification files"),
         ("ToolCallFinished", "write-architecture", "Wrote specification files"),
         ("ToolCallFinished", "architecture-4", "Designed the project architecture"),
-        ("ToolCallStarted", "commit", "Saving the specifications to your project"),
-        ("ToolCallFinished", "commit", "Saved the specifications to your project"),
+        ("ToolCallStarted", "save", "Saving the specifications to your project"),
+        ("ToolCallFinished", "save", "Saved the specifications to your project"),
     ]
-    # Each started row, but not `commit`, must agree with one model request. Different numbers show a call that
+    started, finished = rows[-2:]
+    assert isinstance(started, ToolCallStarted)
+    assert started.symbol == "💾"
+    assert isinstance(finished, ToolCallFinished)
+    assert finished.outcome == "done"
+    # Each started row, but not `save`, must agree with one model request. Different numbers show a call that
     # the model made with no row, or a row with no call.
-    assert len([row for row in rows if isinstance(row, ToolCallStarted) and row.call_id != "commit"]) == len(
+    assert len([row for row in rows if isinstance(row, ToolCallStarted) and row.call_id != "save"]) == len(
         client.responses.inputs
     )
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
 
 
 def test_carries_the_thinking_of_a_call_between_its_two_rows(
@@ -514,7 +533,7 @@ def test_carries_the_thinking_of_a_call_between_its_two_rows(
 
     events, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert [
         ("Thought", event.text) if isinstance(event, ReasoningDelta) else (type(event).__name__, event.call_id)
         for event in events
@@ -531,12 +550,12 @@ def test_carries_the_thinking_of_a_call_between_its_two_rows(
         ("ToolCallFinished", "write-architecture"),
         ("Thought", "Weighing the layers."),
         ("ToolCallFinished", "architecture-1"),
-        ("ToolCallStarted", "commit"),
-        ("ToolCallFinished", "commit"),
+        ("ToolCallStarted", "save"),
+        ("ToolCallFinished", "save"),
     ]
 
 
-def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
+def test_leaves_the_saving_row_open_when_the_project_blocks_the_write(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
@@ -551,14 +570,14 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
                 stray.parent.mkdir(parents=True)
                 stray.write_text("blocked")
 
-    with pytest.raises(RepositoryStateError, match=r"stray\.md"):
+    with pytest.raises(RepositoryStateError, match="The specifications changed during generation"):
         block_the_project_once_the_design_lands()
 
     # The generator does not close a row when an error occurs. A higher layer closes the open rows when
     # `TurnFinished` arrives. This row stays open here on purpose.
     assert read_rows(rows)[-2:] == [
         ("ToolCallFinished", "architecture-1", "Designed the project architecture"),
-        ("ToolCallStarted", "commit", "Saving the specifications to your project"),
+        ("ToolCallStarted", "save", "Saving the specifications to your project"),
     ]
 
 
@@ -602,7 +621,7 @@ def test_names_the_issues_the_round_it_opens_answers(tmp_path: Path, create_repo
 
     rows, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert [row.label for row in rows if isinstance(row, ToolCallStarted) and row.call_id.startswith("functional-")][
         1:
     ] == [
@@ -643,10 +662,8 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
 
 
 # `Specs.write` changes only the files that a round returns. A file that the model does not send again keeps its
-# content, and it stays out of the diff of the next commit. A round does not send every accepted file again.
-def test_keeps_the_accepted_specification_a_round_left_out(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
+# content. A round does not send every accepted file again.
+def test_keeps_the_accepted_specification_a_round_left_out(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
         [],
@@ -663,12 +680,13 @@ def test_keeps_the_accepted_specification_a_round_left_out(
         FakeClient([], parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *explored(), *designed_architecture()])
     )
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").read_text().endswith("# Exports\n")
-    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
-        ".jri/notebook.yaml",
-        ".jri/specs/functional/behavior.md",
-    ]
+    assert (
+        (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md")
+        .read_text()
+        .endswith(UPDATED_FUNCTIONAL_FILES["functional/behavior.md"])
+    )
 
 
 # A pass can write one file and remove another in the same round. Both reach the project.
@@ -698,7 +716,7 @@ def test_removes_the_specification_a_pass_deleted_beside_the_files_it_wrote(
         )
     )
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert not (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").exists()
 
 
@@ -754,7 +772,7 @@ def test_removes_the_architecture_a_design_deleted_beside_the_files_it_wrote(
         )
     )
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert not (tmp_path / paths.ARCHITECTURE_SPECS_DIR / "layers.md").exists()
 
 
@@ -775,7 +793,7 @@ def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_reposito
 
     _, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     polish = next(prompt for prompt in read_prompts(client) if "<architect_feedback>" in prompt)
     assert "functional/exports.md" in polish
     assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").read_text().endswith("# Exports\n")
@@ -790,7 +808,7 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit_specs()
+    accept_specs()
     Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Report the totals too."], "t1")
     client = FakeClient(
         [],
@@ -819,7 +837,7 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     ],
     ids=["ambiguities", "failure"],
 )
-def test_keeps_the_draft_a_run_that_reached_no_commit_wrote(
+def test_keeps_the_draft_of_a_run_that_reached_no_save(
     queue_tail: list[object], tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
@@ -864,19 +882,17 @@ def test_keeps_the_draft_a_stopped_run_wrote(tmp_path: Path, create_repository: 
     assert "+# Design" in draft
 
 
-def test_forgets_the_draft_a_run_committed(tmp_path: Path, create_repository: CreateRepository) -> None:
+def test_forgets_the_draft_a_run_wrote_into_the_project(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
 
     _, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert not (tmp_path / paths.DRAFT_FILE).exists()
 
 
-def test_resumes_the_draft_a_run_left_behind(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
+def test_resumes_the_draft_a_run_left_behind(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     stopped = FakeClient(
         [],
@@ -898,16 +914,16 @@ def test_resumes_the_draft_a_run_left_behind(
 
     rows, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert read_rows(rows)[:2] == [
         ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
         ("ToolCallFinished", "resume", "Picked up a draft of 3 specification files"),
     ]
     assert "functional/exports.md" in read_prompts(client)[1]
-    assert run_git(tmp_path, "show", "--format=", "--name-only", "--", paths.SPECS_DIR).splitlines() == [
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
-        ".jri/specs/functional/exports.md",
+    assert sorted(read_specifications(tmp_path)) == [
+        "architecture/design.md",
+        "functional/behavior.md",
+        "functional/exports.md",
     ]
 
 
@@ -915,7 +931,7 @@ def test_counts_the_draft_rather_than_the_specifications_the_project_holds(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit_specs()
+    accept_specs()
     stopped = FakeClient([], parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES), *explored(), *designed_architecture()])
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
     client = FakeClient(
@@ -929,15 +945,15 @@ def test_counts_the_draft_rather_than_the_specifications_the_project_holds(
 
     rows, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert read_rows(rows)[1] == ("ToolCallFinished", "resume", "Picked up a draft of 1 specification file")
 
 
 def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit_specs()
+    accept_specs()
     stopped = FakeClient(
         [],
         parsed=[
@@ -947,12 +963,9 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
         ],
     )
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
-    # This commit of behavior.md with the acceptance trailer moves the baseline. JRI built the patch of the
-    # stopped draft against the baseline before it, so the patch no longer applies. A user who edits a
-    # specification between two runs makes the same failure.
+    # The user edits a specification between two runs. JRI built the patch of the stopped draft against the
+    # specification before this edit, so the patch no longer applies.
     (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# Totals\nThe project reports totals.\n")
-    run_git(tmp_path, "add", "--force", paths.FUNCTIONAL_SPECS_DIR)
-    run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
     client = FakeClient(
         [],
         parsed=[
@@ -964,7 +977,7 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
 
     rows, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert read_rows(rows)[:2] == [
         ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
         ("ToolCallFinished", "resume", "The drafted specifications no longer fit your project"),
@@ -975,7 +988,6 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
         .read_text()
         .endswith(UPDATED_FUNCTIONAL_FILES["functional/behavior.md"])
     )
-    assert not run_git(tmp_path, "status", "--short")
 
 
 @pytest.mark.parametrize(
@@ -984,10 +996,10 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
     ids=["null-body", "redrafted-device-name", "not-a-specification"],
 )
 def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
-    draft: str, refused: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    draft: str, refused: str, tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit_specs()
+    accept_specs()
     (tmp_path / paths.DRAFT_FILE).write_text(draft, encoding="utf-8", newline="\n")
     client = FakeClient(
         [],
@@ -1000,7 +1012,7 @@ def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
 
     rows, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert read_rows(rows)[:2] == [
         ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
         ("ToolCallFinished", "resume", "The drafted specifications no longer fit your project"),
@@ -1012,15 +1024,11 @@ def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
         .endswith(UPDATED_FUNCTIONAL_FILES["functional/behavior.md"])
     )
     assert refused not in "".join(read_prompts(client))
-    assert run_git(tmp_path, "ls-tree", "-r", "--name-only", result, "--", paths.SPECS_DIR).splitlines() == [
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
-    ]
-    assert not run_git(tmp_path, "status", "--short")
+    assert sorted(read_specifications(tmp_path)) == ["architecture/design.md", "functional/behavior.md"]
 
 
 def test_runs_through_a_draft_it_can_neither_read_nor_replace(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
     (tmp_path / paths.DRAFT_FILE).mkdir(parents=True)
@@ -1028,13 +1036,12 @@ def test_runs_through_a_draft_it_can_neither_read_nor_replace(
 
     rows, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert read_rows(rows)[:2] == [
         ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
         ("ToolCallFinished", "resume", "The drafted specifications no longer fit your project"),
     ]
     assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text().endswith("# Behavior\n")
-    assert not run_git(tmp_path, "status", "--short")
 
 
 def test_opens_no_row_for_a_run_with_no_draft_to_pick_up(tmp_path: Path, create_repository: CreateRepository) -> None:
@@ -1067,7 +1074,169 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
     assert [
         row.call_id for row in rows if isinstance(row, ToolCallStarted) and row.call_id.startswith("architecture-")
     ] == [f"architecture-{cycle}" for cycle in range(1, specs_generation.MAX_CYCLES + 1)]
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
+
+
+@pytest.mark.parametrize("history", ["no-commits", "commits"])
+def test_writes_the_specifications_without_changing_head_or_the_index(
+    history: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    if history == "commits":
+        create_repository(tmp_path)
+    else:
+        run_git(tmp_path, "init", "-q")
+    install_workspace(tmp_path)
+    Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Ship a web app."], "t1")
+    state = read_git_state(tmp_path, run_git)
+    client = FakeClient([], parsed=[*written_specs(), *explored(), *designed_architecture()])
+
+    rows, result = generate(client)
+
+    assert result == specs_generation.Accepted()
+    assert read_rows(rows)[-1] == ("ToolCallFinished", "save", "Saved the specifications to your project")
+    assert read_git_state(tmp_path, run_git) == state
+    specifications = read_specifications(tmp_path)
+    assert sorted(specifications) == ["architecture/design.md", "functional/behavior.md"]
+    assert specifications["functional/behavior.md"].endswith(b"# Behavior\n")
+    assert specifications["architecture/design.md"].endswith(b"# Design\n")
+    assert (tmp_path / paths.ACCEPTED_NOTEBOOK_FILE).read_bytes() == (tmp_path / paths.NOTEBOOK_FILE).read_bytes()
+
+
+# The user did not commit the specifications of the first run. The second run still reads them from the disk, and it
+# compares the notebook with the notebook of the first run.
+def test_sends_the_analyst_the_uncommitted_index_and_the_notebook_diff_from_the_first_run(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Ship a web app."], "t1")
+    accept_specs()
+    Notebook(tmp_path / paths.NOTEBOOK_FILE, "Acme").add(["Export the data as CSV."], "t1")
+    client = FakeClient(
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
+    )
+
+    _, result = generate(client)
+
+    assert result == specs_generation.Accepted()
+    assert not run_git(tmp_path, "ls-files", paths.SPECS_DIR)
+    analyst = next(prompt for prompt in read_prompts(client) if "<notebook_diff_from_accepted_baseline>" in prompt)
+    assert "<current_functional_specifications_index>" in analyst
+    assert summarize("functional/behavior.md") in analyst
+    added = [line for line in analyst.splitlines() if line.lstrip().startswith("+")]
+    assert any("Export the data as CSV." in line for line in added)
+    assert not any("Ship a web app." in line for line in added)
+
+
+# Each draft is a delta from the project, not from the draft before it. A second stop must keep the first files.
+def test_keeps_the_files_of_an_earlier_draft_when_a_second_run_asks_too(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    accept_specs()
+
+    generate(FakeClient([], parsed=[*written_specs({"functional/first.md": "# First\n"}, unresolved=["One?"])]))
+    generate(FakeClient([], parsed=[*written_specs({"functional/second.md": "# Second\n"}, unresolved=["Two?"])]))
+    rows, _ = generate(
+        FakeClient([], parsed=[*written_specs({"functional/third.md": "# Third\n"}, unresolved=["Three?"])])
+    )
+
+    assert read_rows(rows)[1] == ("ToolCallFinished", "resume", "Picked up a draft of 2 specification files")
+
+
+# The first run of the two asks a question and writes a file. The second run writes another file. Only the draft
+# carries the first file to the end of the second run.
+def test_resumes_the_draft_of_a_run_that_asked_while_the_specifications_stay_uncommitted(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    accept_specs()
+    specifications = read_specifications(tmp_path)
+    state = read_git_state(tmp_path, run_git)
+
+    _, asked = generate(
+        FakeClient([], parsed=[*written_specs(UPDATED_FUNCTIONAL_FILES, unresolved=["Which currency?"])])
+    )
+
+    assert asked == specs_generation.Ambiguities(["Which currency?"])
+    assert read_specifications(tmp_path) == specifications
+    client = FakeClient(
+        [],
+        parsed=[
+            *written_specs({"functional/exports.md": "# Exports\n"}),
+            *explored(),
+            *designed_architecture(UPDATED_ARCHITECTURE_FILES),
+        ],
+    )
+
+    rows, result = generate(client)
+
+    assert result == specs_generation.Accepted()
+    assert read_rows(rows)[:2] == [
+        ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
+        ("ToolCallFinished", "resume", "Picked up a draft of 1 specification file"),
+    ]
+    written = read_specifications(tmp_path)
+    assert written["functional/behavior.md"].endswith(UPDATED_FUNCTIONAL_FILES["functional/behavior.md"].encode())
+    assert written["functional/exports.md"].endswith(b"# Exports\n")
+    assert read_git_state(tmp_path, run_git) == state
+
+
+@pytest.mark.parametrize(
+    "parsed",
+    [
+        [*written_specs(), *explored(), *designed_architecture()],
+        [*written_specs(unresolved=["JSON or plain text?"])],
+        [*written_specs(), *explored(report="")],
+    ],
+    ids=["accepted", "ambiguities", "failed"],
+)
+def test_removes_the_private_repository_when_a_run_ends(
+    parsed: list[object], tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+
+    with suppress(SpecsError):
+        generate(FakeClient([], parsed=parsed))
+
+    assert not (tmp_path / paths.WORKTREE_DIR).exists()
+
+
+# The first run left its specifications on the disk, with no commit. The study of the second run must read them.
+def test_studies_a_copy_that_holds_the_uncommitted_specifications(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    studied = "The study reads this line."
+    generate(
+        FakeClient(
+            [],
+            parsed=[
+                *written_specs({"functional/behavior.md": f"# Behavior\n{studied}\n"}),
+                *explored(),
+                *designed_architecture(),
+            ],
+        )
+    )
+    assert not run_git(tmp_path, "ls-files", paths.SPECS_DIR)
+    specification = f"{paths.FUNCTIONAL_SPECS_DIR}/behavior.md"
+    client = FakeClient(
+        [],
+        parsed=[
+            *written_specs(UPDATED_FUNCTIONAL_FILES),
+            response(call("read", "read_files", paths=[specification])),
+            *explored(),
+            *designed_architecture(),
+        ],
+    )
+
+    generate(client)
+
+    assert any(studied in output for output in read_tool_outputs(client))
 
 
 def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
@@ -1080,7 +1249,7 @@ def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
 
     events, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert ReasoningDelta("Weighing which files to read.") in events
     report = next(prompt for prompt in read_prompts(client) if "<repository_analysis_report>" in prompt)
     assert report.endswith("<repository_analysis_report>\nRepository report\n</repository_analysis_report>")
@@ -1088,7 +1257,7 @@ def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
 
 
 def test_keeps_what_the_repository_study_writes_out_of_the_project(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
@@ -1103,9 +1272,8 @@ def test_keeps_what_the_repository_study_writes_out_of_the_project(
 
     _, result = generate(client)
 
-    assert isinstance(result, str)
+    assert result == specs_generation.Accepted()
     assert not (tmp_path / "uv.lock").exists()
-    assert not run_git(tmp_path, "status", "--short")
 
 
 def test_studies_the_project_as_it_stands_on_disk(tmp_path: Path, create_repository: CreateRepository) -> None:
@@ -1163,7 +1331,7 @@ def test_refuses_an_analyst_that_deletes_every_functional_specification(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit_specs()
+    accept_specs()
     client = FakeClient([], parsed=[*written_specs({}, list(FUNCTIONAL_FILES))])
 
     with pytest.raises(SpecsError, match="Functional specifications cannot be empty"):
@@ -1174,7 +1342,7 @@ def test_refuses_an_architect_that_deletes_every_architecture_specification(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit_specs()
+    accept_specs()
     client = FakeClient(
         [],
         parsed=[
