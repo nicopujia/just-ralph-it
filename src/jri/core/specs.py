@@ -271,9 +271,7 @@ class Specs:
             raise RepositoryStateError("The project notes changed during generation. Try again.")
         self._check_links()
         wanted = {**self._read_specifications(repository), paths.ACCEPTED_NOTEBOOK_FILE: baseline.notebook}
-        standing = dict(baseline.specifications)
-        if baseline.accepted_notebook is not None:
-            standing[paths.ACCEPTED_NOTEBOOK_FILE] = baseline.accepted_notebook
+        standing = baseline.specifications
         changed = {path: content for path, content in wanted.items() if standing.get(path) != content}
         self._check_targets(changed)
         try:

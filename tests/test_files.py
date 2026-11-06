@@ -254,19 +254,33 @@ def test_applies_the_umask_to_a_new_file_it_writes_beside(tmp_path: Path) -> Non
     assert stat.S_IMODE(written.stat().st_mode) == PRIVATE_TO_THE_OWNER
 
 
-# A failed write must leave no second file for the caller to find.
+# A failed write and a stop of the process must leave no second file for the caller to find.
+@pytest.mark.parametrize(
+    "failure", [OSError(errno.EPERM, "Operation not permitted"), KeyboardInterrupt("not permitted")]
+)
 def test_removes_what_it_wrote_when_it_cannot_write_beside_a_target(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: BaseException
 ) -> None:
     target = tmp_path / "file.md"
     target.write_bytes(b"first\n")
 
     def refuse(_: Path, _mode: int) -> None:
-        raise OSError(errno.EPERM, "Operation not permitted")
+        raise failure
 
     monkeypatch.setattr(Path, "chmod", refuse)
 
-    with pytest.raises(OSError, match="not permitted"):
+    with pytest.raises(type(failure), match="not permitted"):
         files.write_beside(target, b"second\n")
 
     assert [path.name for path in tmp_path.iterdir()] == ["file.md"]
+
+
+# A write that created no file must report why it failed, and not that the file it would remove is missing.
+def test_reports_the_failure_of_a_write_that_created_no_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(_: Path, _content: bytes) -> int:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_bytes", refuse)
+
+    with pytest.raises(OSError, match="No space left"):
+        files.write_beside(tmp_path / "file.md", b"one")
