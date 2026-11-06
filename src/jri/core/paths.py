@@ -6,7 +6,7 @@ GLOBAL_SETTINGS_FILE = f"~/{SETTINGS_FILE}"
 GITIGNORE_FILE = f"{WORKSPACE_DIR}/.gitignore"
 NOTEBOOK_FILE = f"{WORKSPACE_DIR}/notebook.yaml"
 # This is the notebook of the last run that wrote specifications. The next run reads what changed since then.
-# It stays out of the ignore rules, so a commit of the user carries it with the specifications.
+# It stays out of the ignore rules, so a commit of the user holds it with the specifications.
 ACCEPTED_NOTEBOOK_FILE = f"{WORKSPACE_DIR}/accepted-notebook.yaml"
 SESSION_FILE = f"{WORKSPACE_DIR}/session.json"
 VISUALIZATION_FILE = f"{WORKSPACE_DIR}/visualization.html"

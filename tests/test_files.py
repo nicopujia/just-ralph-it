@@ -203,3 +203,12 @@ def test_names_a_file_outside_the_working_directory_from_home() -> None:
 
 def test_names_a_file_under_neither_the_working_directory_nor_home_in_full() -> None:
     assert files.describe_paths(["/etc/hosts"]) == "/etc/hosts"
+
+
+# A specification can hold any bytes. JRI must not change them on any platform.
+def test_writes_the_bytes_it_is_given_atomically(tmp_path: Path) -> None:
+    target = tmp_path / "file.md"
+
+    files.write_atomically(target, b"caf\xe9\r\nline\n")
+
+    assert target.read_bytes() == b"caf\xe9\r\nline\n"

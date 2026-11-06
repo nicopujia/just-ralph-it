@@ -1,9 +1,23 @@
 import os
+from typing import ClassVar
 
 from jri.lib import git
 
 
 class Repository(git.Repository):
+    # A private copy must keep its bytes and patch format under any global Git settings of the user.
+    ISOLATED_SETTINGS: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("apply.whitespace", "nowarn"),
+        ("core.attributesFile", os.devnull),
+        ("core.autocrlf", "false"),
+        ("core.safecrlf", "false"),
+        ("diff.context", "3"),
+    )
+
+    def isolate(self) -> None:
+        for name, value in self.ISOLATED_SETTINGS:
+            self._run("config", name, value)
+
     # Write the index as a tree and return its name. A tree needs no author, so this works with no Git identity.
     def write_tree(self) -> str:
         return os.fsdecode(self._run("write-tree").stdout).strip()
