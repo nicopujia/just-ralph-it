@@ -626,7 +626,7 @@ def test_puts_back_every_file_it_can_when_a_move_fails(
         changed = {f"functional/{name}.md": f"# {name} 2\n" for name in ("a", "b", "c")}
         Specs.write(staging, {**changed, "functional/new.md": "# New\n"}, ["functional/old.md"], "functional")
         monkeypatch.setattr(Path, "replace", fail_two_moves)
-        with pytest.raises(SpecsError, match="could not write the specifications into your project: Permission denied"):
+        with pytest.raises(SpecsError, match=r"could not put these files back.*: \.jri/specs/functional/old\.md$"):
             specs.accept(staging, baseline)
     monkeypatch.undo()
 
@@ -635,10 +635,7 @@ def test_puts_back_every_file_it_can_when_a_move_fails(
     }
     assert not list((tmp_path / ".jri/specs").rglob("*.tmp"))
     failures = [record.getMessage() for record in caplog.records if record.levelno == logging.ERROR]
-    assert failures == [
-        "specification_restore_failed path=.jri/specs/functional/old.md",
-        "acceptance_write_failed files=5",
-    ]
+    assert failures == ["specification_restore_failed path=.jri/specs/functional/old.md"]
 
 
 # On a case-insensitive filesystem, a new file can share its path with a file that JRI puts back.

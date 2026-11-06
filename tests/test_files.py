@@ -277,10 +277,20 @@ def test_removes_what_it_wrote_when_it_cannot_write_beside_a_target(
 
 # A write that created no file must report why it failed, and not that the file it would remove is missing.
 def test_reports_the_failure_of_a_write_that_created_no_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def refuse(_: Path, _content: bytes) -> int:
+    def refuse(_: Path, _mode: str) -> Never:
         raise OSError(errno.ENOSPC, "No space left on device")
 
-    monkeypatch.setattr(Path, "write_bytes", refuse)
+    monkeypatch.setattr(Path, "open", refuse)
 
     with pytest.raises(OSError, match="No space left"):
         files.write_beside(tmp_path / "file.md", b"one")
+
+
+# After a power cut, a move can stand with no bytes behind it. The bytes must reach the disk before the move.
+def test_syncs_the_whole_file_it_writes_beside_a_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    synced: list[int] = []
+    monkeypatch.setattr(os, "fsync", lambda descriptor: synced.append(os.fstat(descriptor).st_size))
+
+    files.write_beside(tmp_path / "file.md", b"four")
+
+    assert synced == [len(b"four")]
