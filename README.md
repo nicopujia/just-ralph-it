@@ -35,8 +35,8 @@ Just Ralph It (JRI) is currently an agent harness to think ideas through and wri
 ### 0. Prerequisites
 
 - [Python](https://www.python.org/downloads/) >=3.13 or [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- API key from [Vercel AI Gateway](https://vercel.com/d?to=/[team]/~/ai-gateway/api-keys) (the default), any other [OpenAI-compatible](https://github.com/openai/openai-python) LLM inference provider, or a [ChatGPT](https://chatgpt.com/codex/pricing/) subscription
-- [Git](https://git-scm.com/install/) >=2.x.x
+- API key from [Vercel AI Gateway](https://vercel.com/d?to=/[team]/~/ai-gateway/api-keys) (the default) or any other [OpenAI-compatible](https://github.com/openai/openai-python) LLM inference provider
+- [Git](https://git-scm.com/install/) >=2.x.x, with your `user.name` and `user.email` set
 
 ### 1. Installation
 
@@ -48,15 +48,22 @@ pip install just-ralph-it
 
 ### 2. Setup
 
-Move to a project directory and set it up:
+Create a project:
 
 ```bash
-mkdir ./my-project
-cd ./my-project
-jri init
+jri init my-project
+cd my-project
+echo 'AI_GATEWAY_API_KEY=your-key' > .env
 ```
 
-That creates `.jri/settings.yaml`. Open it and follow its comments.
+That creates the directory, a Git repository, and `.jri/`. It makes no commit: JRI commits when a run accepts the specifications, and when `jri init --force` replaces accepted ones. A new directory inside another repository gets its own repository, and the one above ignores it.
+
+To add JRI to a project you already have, run `jri init` inside it.
+
+To change the provider or the models, edit `.jri/settings.yaml` and follow its comments.
+
+> [!WARNING]
+> To explore your project, a model runs shell commands on your machine as you. It can read any file you can read, `.env` too, and JRI does not stop it. A real run sent its key to the provider this way. Use JRI with a key that you can trust to that model provider. Git does not ignore `.env`, so add it to `.gitignore` before you commit.
 
 ### 3. Usage
 

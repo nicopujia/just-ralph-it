@@ -398,8 +398,9 @@ def test_passes_on_a_body_that_says_nothing_of_itself(waits: list[float]) -> Non
     assert len(waits) == LLMRunner.MAX_ATTEMPTS - 1
 
 
-def test_reports_an_exhausted_usage_limit_without_retrying(waits: list[float]) -> None:
-    runner = build_streaming_runner(rate_limited(code="insufficient_quota"), streamed_reply("ready"))
+@pytest.mark.parametrize("code", ["insufficient_quota", "billing_hard_limit_reached"])
+def test_reports_an_exhausted_usage_limit_without_retrying(waits: list[float], code: str) -> None:
+    runner = build_streaming_runner(rate_limited(code=code), streamed_reply("ready"))
 
     with pytest.raises(UsageLimitError, match="Rate limit reached"):
         list(runner.respond([]).events)

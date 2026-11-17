@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from jri.core.repository import Repository
 from tests.conftest import CreateRepository, RunGit
 
@@ -49,3 +51,75 @@ def test_credits_ralph_from_a_worktree_too(
         trailer = run_git(worktree.path, "show", "-s", "--format=%(trailers:key=Co-authored-by,valueonly)", commit)
 
     assert trailer == CO_AUTHOR
+
+
+def test_hides_an_excluded_path_from_this_clone_alone(tmp_path: Path) -> None:
+    repository = Repository.init(tmp_path)
+    exclude_file = tmp_path / ".git" / "info" / "exclude"
+    exclude_file.write_text("# A rule the user wrote", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("note\n", encoding="utf-8")
+
+    repository.exclude("/notes.txt")
+    repository.exclude("/notes.txt")
+
+    assert not repository.read_status()
+    assert exclude_file.read_text(encoding="utf-8") == "# A rule the user wrote\n/notes.txt\n"
+
+
+def test_excludes_a_path_where_git_holds_no_exclude_file(tmp_path: Path) -> None:
+    repository = Repository.init(tmp_path)
+    (tmp_path / ".git" / "info" / "exclude").unlink()
+    (tmp_path / ".git" / "info").rmdir()
+    (tmp_path / "notes.txt").write_text("note\n", encoding="utf-8")
+
+    repository.exclude("/notes.txt")
+
+    assert not repository.read_status()
+    assert (tmp_path / ".git" / "info" / "exclude").read_bytes() == b"/notes.txt\n"
+
+
+def test_excludes_a_path_beside_a_rule_that_is_not_text(tmp_path: Path) -> None:
+    repository = Repository.init(tmp_path)
+    exclude_file = tmp_path / ".git" / "info" / "exclude"
+    exclude_file.write_bytes(b"caf\xe9\n")
+
+    repository.exclude("/notes.txt")
+
+    assert exclude_file.read_bytes() == b"caf\xe9\n/notes.txt\n"
+
+
+def test_names_a_repository_where_git_knows_the_author(tmp_path: Path, run_git: RunGit) -> None:
+    repository = Repository.init(tmp_path)
+    run_git(tmp_path, "config", "user.name", "Someone")
+    run_git(tmp_path, "config", "user.email", "someone@example.com")
+
+    assert repository.has_identity()
+
+
+def test_names_a_repository_where_git_cannot_name_the_author(
+    tmp_path: Path, run_git: RunGit, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for variable in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-global"))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "no-system"))
+    repository = Repository.init(tmp_path / "project")
+    run_git(tmp_path / "project", "config", "user.useConfigOnly", "true")
+
+    assert not repository.has_identity()
+
+
+# A commit needs a committer too. An author alone does not satisfy Git.
+def test_names_a_repository_where_git_knows_only_the_author(
+    tmp_path: Path, run_git: RunGit, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for variable in ("GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Someone")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "someone@example.com")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-global"))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "no-system"))
+    repository = Repository.init(tmp_path / "project")
+    run_git(tmp_path / "project", "config", "user.useConfigOnly", "true")
+
+    assert not repository.has_identity()

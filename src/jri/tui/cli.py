@@ -1,8 +1,10 @@
 import argparse
 import logging
 import os
+import shlex
 from datetime import datetime
-from typing import NoReturn
+from pathlib import Path
+from typing import NoReturn, cast
 
 import yaml
 from dotenv import load_dotenv
@@ -14,10 +16,10 @@ from jri.core import logs, paths, visualization
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.generation import Generation
+from jri.core.repository import Repository
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Reset, Workspace
 from jri.lib import browser, files, git, terminal
-from jri.lib.providers import codex
 
 from . import copy
 from .app import App
@@ -42,6 +44,7 @@ def main() -> None:
 
     init_help = copy.CLI_INIT_HELP.format(file=paths.GLOBAL_SETTINGS_FILE)
     init_parser = subparsers.add_parser("init", help=init_help, description=init_help)
+    init_parser.add_argument("directory", nargs="?", help=copy.CLI_DIRECTORY_HELP)
     init_parser.add_argument("--force", action="store_true", help=copy.CLI_FORCE_HELP)
     init_parser.add_argument("--yes", action="store_true", help=copy.CLI_YES_HELP)
     init_parser.add_argument("--no-comments", action="store_true", help=copy.CLI_NO_COMMENTS_HELP)
@@ -62,7 +65,9 @@ def main() -> None:
         return
 
     handlers = {
-        "init": lambda: _initialize(force=arguments.force, yes=arguments.yes, comments=not arguments.no_comments),
+        "init": lambda: _initialize(
+            arguments.directory, force=arguments.force, yes=arguments.yes, comments=not arguments.no_comments
+        ),
         "chat": _chat,
         "view": _view,
         "start": _start,
@@ -73,9 +78,6 @@ def main() -> None:
 
     try:
         handlers[arguments.command]()
-    except codex.AuthError as error:
-        print(copy.AUTH_ERROR.format(error=error))
-        raise SystemExit(1) from error
     except git.Error as error:
         print(copy.GIT_ERROR.format(error=error))
         raise SystemExit(1) from error
@@ -88,8 +90,11 @@ def main() -> None:
         raise SystemExit(INTERRUPTED_STATUS) from interrupt
 
 
-def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
-    workspace = Workspace.find()
+def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool) -> None:
+    separate = directory is not None
+    workspace = Workspace(Path(directory).resolve()) if directory is not None else Workspace.find()
+    # A named directory with no workspace has nothing to reset. Its repository does not exist yet either.
+    force = force and (not separate or workspace.settings_file.exists())
     # Only an installation that writes a settings file starts the project from the global settings.
     writes_settings = force or not workspace.settings_file.exists()
     settings = Settings.render(_load_global_settings() if writes_settings else None, comments=comments)
@@ -101,29 +106,57 @@ def _initialize(*, force: bool, yes: bool, comments: bool) -> None:
             if not (yes or _confirm_reset(reset)):
                 print(copy.FORCE_CANCELLED)
                 raise SystemExit(1)
-            installation = workspace.install(settings, reset=reset)
+            installation = workspace.install(settings, reset=reset, separate=separate)
     else:
-        installation = workspace.install(settings)
-    # Create a repository only in the command directory. A workspace in a repository already has its root.
-    # A relative path here names `.`.
+        installation = workspace.install(settings, separate=separate)
+    # A named directory and a directory outside any repository get a repository of their own.
     if installation.repository_created:
-        print(copy.INIT_REPOSITORY)
+        print(copy.INIT_REPOSITORY.format(directory=files.shorten_path(workspace.root)))
     reset_copy = copy.INIT_RECREATED if force else copy.INIT_EXISTING
-    directory = files.shorten_path(workspace.directory)
-    print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=directory))
+    shown_directory = files.shorten_path(workspace.directory)
+    print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=shown_directory))
     if installation.commit is not None:
         print(copy.INIT_COMMITTED)
     elif installation.refusal:
         print(copy.INIT_UNCOMMITTED.format(reason=installation.refusal))
-    # A settings file with no comments has no instructions to read.
-    if comments:
-        print(copy.INIT_NEXT_STEPS.format(settings_file=files.shorten_path(workspace.settings_file)))
+    print(_describe_next_steps(workspace, directory))
+
+
+# Name only the steps that this user still has to take.
+def _describe_next_steps(workspace: Workspace, directory: str | None) -> str:
+    steps = []
+    # A command in a subdirectory of a project finds that project, so only a named directory needs a move.
+    moves = directory is not None and workspace.root != Path.cwd().resolve()
+    if moves:
+        steps.append(copy.INIT_STEP_MOVE.format(directory=shlex.quote(cast("str", directory))))
+    # After the move, a path is relative to the project root.
+    settings_file = paths.SETTINGS_FILE if moves else files.shorten_path(workspace.settings_file)
+    steps.extend(
+        copy.INIT_STEP_KEY.format(variable=variable)
+        for variable in _read_api_key_variables(workspace)
+        if variable not in os.environ
+    )
+    # A run commits at its end. Say this now, and not after the user waits for that run.
+    if not Repository(workspace.root).has_identity():
+        steps.append(copy.INIT_STEP_IDENTITY)
+    steps.append(copy.INIT_STEP_CHAT)
+    numbered = "\n".join(f"  {number}. {step}" for number, step in enumerate(steps, start=1))
+    return copy.INIT_NEXT_STEPS.format(steps=numbered, settings_file=settings_file)
+
+
+# A settings file that JRI cannot read names no variable. `jri chat` reports what is wrong with that file.
+def _read_api_key_variables(workspace: Workspace) -> tuple[str, ...]:
+    try:
+        values = yaml.safe_load(workspace.settings_file.read_text(encoding="utf-8"))
+        settings = Settings.model_validate({} if values is None else values)
+    except (OSError, ValueError, yaml.YAMLError):
+        return ()
+    return tuple(variable for variable in (settings.llm.api_key, settings.brave_search.api_key) if variable)
 
 
 def _chat() -> None:
     settings = _load_settings()
     logs.configure(settings)
-    settings.llm.validate_authentication()
     # Ask for the project hold before the app starts. Then no other output can draw in the terminal.
     hold = Workspace.find().open_hold()
     if not hold.take() and not _take_over(hold):
@@ -163,7 +196,6 @@ def _view() -> None:
 def _start() -> None:
     settings = _load_settings()
     logs.configure(settings)
-    settings.llm.validate_authentication()
     # A run says nothing while it works. Say that the run began, because the reader must know that the wait is
     # the run. The run itself says when it began, because a refusal must not come after a line that says the
     # run started.

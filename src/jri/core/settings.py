@@ -6,10 +6,10 @@ from typing import Annotated, Any, Literal, LiteralString, Self, cast
 
 import yaml
 from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
-from jri.lib.providers import codex, gateway
+from jri.lib.providers import gateway
 
 from . import paths
 from .exceptions import PersistenceError
@@ -22,7 +22,6 @@ type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
-APPLICATION_NAME = "jri"
 API_KEY_DESCRIPTION = "Name of the environment variable (NOT the key itself!)"
 COMMENT_WIDTH = 100
 # JRI writes a section that has no value as a comment. This line tells the user how to use that section.
@@ -92,31 +91,20 @@ class AgentProfiles(BaseModel):
 
 class LLM(BaseModel):
     provider: str = Field(
-        default=gateway.BASE_URL,
-        description=(
-            "Here you can set the base URL of any OpenAI-compatible provider.\n"
-            "Or, for a ChatGPT subscription, write `openai-subscription`. "
-            "For that, you need the Codex CLI (https://learn.chatgpt.com/docs/codex/cli) installed and logged in."
-        ),
+        default=gateway.BASE_URL, description="Here you can set the base URL of any OpenAI-compatible provider."
     )
-    api_key: str | None = Field(default="AI_GATEWAY_API_KEY", description=API_KEY_DESCRIPTION)
+    api_key: str = Field(default="AI_GATEWAY_API_KEY", min_length=1, description=API_KEY_DESCRIPTION)
 
     model_config = ConfigDict(extra="forbid")
 
     @property
     def client(self) -> OpenAI:
-        if self.provider == "openai-subscription":
-            return codex.Client(APPLICATION_NAME)
-        api_key = read_api_key(cast("str", self.api_key))
+        api_key = read_api_key(self.api_key)
         # Only the gateway reads the fields its client adds. Give every other address a client that sends the
         # request as the provider library writes it.
         if self.provider == gateway.BASE_URL:
             return gateway.Client(base_url=self.provider, api_key=api_key)
         return OpenAI(base_url=self.provider, api_key=api_key)
-
-    def validate_authentication(self) -> None:
-        if self.provider == "openai-subscription":
-            codex.Auth(APPLICATION_NAME).validate()
 
 
 class BraveSearch(BaseModel):
@@ -141,8 +129,7 @@ class Settings(BaseModel):
             "https://vercel.com/d?to=/[team]/~/ai-gateway/api-keys. "
             "It is also useful because if you already have API keys from other providers, it lets you unify "
             "them under a single provider, as it supports to Bring Your Own Key (BYOK).\n\n"
-            "Nevertheless, you can also use any OpenAI-compatible provider of your choice, or even a ChatGPT "
-            "subscription."
+            "Nevertheless, you can also use any OpenAI-compatible provider of your choice."
         ),
     )
     brave_search: BraveSearch = Field(
@@ -199,28 +186,15 @@ class Settings(BaseModel):
             matches = prefixed if len(prefixed) == 1 else []
         return ".".join([*map(str, path[:-1]), *matches]) if matches else None
 
-    @model_validator(mode="after")
-    def validate_api_keys(self) -> "Settings":
-        subscription = self.llm.provider == "openai-subscription"
-        if not subscription and not self.llm.api_key:
-            raise _reject_setting(
-                ("llm", "api_key"),
-                "must name the environment variable holding the API key, unless llm.provider is openai-subscription",
-            )
-        return self
-
     # Only a command that loads the settings of a project reads these variables. `jri init` writes a settings file
     # before the project has an .env file, so it validates the settings and stops there.
     def validate_api_key_variables(self) -> None:
-        # The subscription has its own login. JRI does not read a key variable for it.
-        subscription = self.llm.provider == "openai-subscription"
-        for section, variable in (
-            ("llm", None if subscription else self.llm.api_key),
-            ("brave_search", self.brave_search.api_key),
-        ):
+        for section, variable in (("llm", self.llm.api_key), ("brave_search", self.brave_search.api_key)):
             if variable and variable not in os.environ:
                 raise _reject_setting(
-                    (section, "api_key"), f"names {variable}, but that environment variable is not set"
+                    (section, "api_key"),
+                    f"names {variable}, but that environment variable is not set. "
+                    "Set it in your shell or in the .env file at the project root",
                 )
 
 
