@@ -16,7 +16,6 @@ from jri.core import logs, paths, visualization
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.generation import Generation
-from jri.core.repository import Repository
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Reset, Workspace
 from jri.lib import browser, files, git, terminal
@@ -115,10 +114,6 @@ def _initialize(directory: str | None, *, force: bool, yes: bool, comments: bool
     reset_copy = copy.INIT_RECREATED if force else copy.INIT_EXISTING
     shown_directory = files.shorten_path(workspace.directory)
     print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=shown_directory))
-    if installation.commit is not None:
-        print(copy.INIT_COMMITTED)
-    elif installation.refusal:
-        print(copy.INIT_UNCOMMITTED.format(reason=installation.refusal))
     print(_describe_next_steps(workspace, directory))
 
 
@@ -136,9 +131,6 @@ def _describe_next_steps(workspace: Workspace, directory: str | None) -> str:
         for variable in _read_api_key_variables(workspace)
         if variable not in os.environ
     )
-    # A run commits at its end. Say this now, and not after the user waits for that run.
-    if not Repository(workspace.root).has_identity():
-        steps.append(copy.INIT_STEP_IDENTITY)
     steps.append(copy.INIT_STEP_CHAT)
     numbered = "\n".join(f"  {number}. {step}" for number, step in enumerate(steps, start=1))
     return copy.INIT_NEXT_STEPS.format(steps=numbered, settings_file=settings_file)

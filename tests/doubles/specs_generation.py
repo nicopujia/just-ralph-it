@@ -8,22 +8,21 @@ from jri.core.exceptions import ProviderRefusalError, ProviderUnavailableError, 
 if TYPE_CHECKING:
     from jri.core.settings import Settings
 
-COMMIT = "1a2b3c4"
-FINISHED_ROW = ToolCallFinished("commit", "Saved the specifications to your project", "done")
-STARTED_ROW = ToolCallStarted("commit", "Saving the specifications to your project", "💾")
+FINISHED_ROW = ToolCallFinished("save", "Saved the specifications to your project", "done")
+STARTED_ROW = ToolCallStarted("save", "Saving the specifications to your project", "💾")
 THOUGHT = ReasoningDelta("Weighing the options.")
 STREAMED_THOUGHT = "part {number} "
 STREAMED_THOUGHTS = 200
 # A stop that never arrives would hang the suite. A stop that will arrive is one poll away.
 STOPS_WITHIN = 10.0
 # A run that changes nothing closes its own rows. It saves no specifications, so it reports none saved.
-UNCHANGED_FINISHED_ROW = ToolCallFinished("commit", "Your project already holds these specifications", "done")
-UNCHANGED_STARTED_ROW = ToolCallStarted("commit", "Comparing the specifications with your project", "💾")
+UNCHANGED_FINISHED_ROW = ToolCallFinished("save", "Your project already holds these specifications", "done")
+UNCHANGED_STARTED_ROW = ToolCallStarted("save", "Comparing the specifications with your project", "💾")
 
 
 def generate_blocked(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
     yield STARTED_ROW
-    raise RepositoryStateError("Your project has uncommitted changes.")
+    raise RepositoryStateError("The specifications changed during generation. Try again.")
 
 
 def generate_failing(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
@@ -45,10 +44,12 @@ def generate_unavailable(_settings: "Settings", _cancelled: Event | None = None)
     raise ProviderUnavailableError("Could not reach the provider at https://provider.test/v1/: connection refused")
 
 
-def generate_succeeding(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:
+def generate_succeeding(
+    _settings: "Settings", _cancelled: Event | None = None
+) -> Generator[object, None, specs_generation.Accepted]:
     yield STARTED_ROW
     yield FINISHED_ROW
-    return COMMIT
+    return specs_generation.Accepted()
 
 
 def generate_unchanged(
@@ -59,24 +60,30 @@ def generate_unchanged(
     return specs_generation.Unchanged()
 
 
-def generate_thinking(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:
+def generate_thinking(
+    _settings: "Settings", _cancelled: Event | None = None
+) -> Generator[object, None, specs_generation.Accepted]:
     yield STARTED_ROW
     yield THOUGHT
     yield FINISHED_ROW
-    return COMMIT
+    return specs_generation.Accepted()
 
 
-def generate_streaming(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:
+def generate_streaming(
+    _settings: "Settings", _cancelled: Event | None = None
+) -> Generator[object, None, specs_generation.Accepted]:
     yield STARTED_ROW
     for number in range(STREAMED_THOUGHTS):
         yield ReasoningDelta(STREAMED_THOUGHT.format(number=number))
     yield FINISHED_ROW
-    return COMMIT
+    return specs_generation.Accepted()
 
 
 # A run spends most of its time in a model call that sends nothing. A stop must reach the run during that call,
 # and not at the next event that the run writes.
-def generate_silently(_settings: "Settings", cancelled: Event | None = None) -> Generator[object, None, str | None]:
+def generate_silently(
+    _settings: "Settings", cancelled: Event | None = None
+) -> Generator[object, None, specs_generation.Accepted | None]:
     assert cancelled is not None
     assert cancelled.wait(STOPS_WITHIN), "the stop never reached the run"
     return None
@@ -86,7 +93,9 @@ def generate_silently(_settings: "Settings", cancelled: Event | None = None) -> 
 # The workflow answers a stop with no result at all. A run in a process of its own learns of a stop only after
 # the watcher reads the file that the follower writes. This double waits for the stop. A test that reads the flag
 # at this point would find no stop, because the stop cannot have arrived yet.
-def generate_stopped(_settings: "Settings", cancelled: Event | None = None) -> Generator[object, None, str | None]:
+def generate_stopped(
+    _settings: "Settings", cancelled: Event | None = None
+) -> Generator[object, None, specs_generation.Accepted | None]:
     yield STARTED_ROW
     assert cancelled is not None
     assert cancelled.wait(STOPS_WITHIN), "the stop never reached the run"

@@ -1,59 +1,29 @@
-import json
+import errno
+import logging
 import os
 import re
-import shutil
 import stat
-import subprocess
 import sys
-import time
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Never
 
 import pytest
 
 from jri.core.ai import Ending, TurnEvent, TurnFinished, architect, functional_analyst
 from jri.core.conversation import Conversation
-from jri.core.exceptions import PersistenceError, SpecsError
-from jri.core.generation import Generation
-from jri.core.repository import ACCEPTANCE_TRAILER
-from jri.core.specs import File, Specs
+from jri.core.exceptions import PersistenceError, RepositoryStateError, SpecsError
+from jri.core.specs import Baseline, File, Specs
 from jri.core.workspace import Workspace
-from jri.lib import git
+from jri.lib import files, git
 from tests.conftest import CreateLink, CreateRepository, RunGit
-from tests.doubles.acceptance import (
-    ACCEPTANCE,
-    HEAD_QUESTION,
-    HOLD_THE_WINDOW,
-    KILL_THE_GIT,
-    MARK_THE_WINDOW,
-    POLL,
-    RECORD_THE_GIT,
-    TIMEOUT,
-    USER_COMMIT,
-    WINDOW_MARKER,
-    bound_the_acceptance_writes,
-    hold_a_commit_of_the_user_s,
-    hold_a_run_amid_accepting,
-    install_a_killing_git,
-    kill_amid_moving_the_branch,
-    kill_amid_staging,
-    kill_amid_writing_the_commit,
-    open_a_filter_window,
-    open_a_window,
-    read_git_locks,
-    read_the_git_in_the_window,
-)
 from tests.doubles.agents import explored
 from tests.doubles.generation import run_in_thread
-from tests.doubles.lock import hold, take, watch_a_process_go
 from tests.doubles.openai import FakeClient, read_tool_outputs, reply, response
 from tests.doubles.settings import build_settings
 from tests.doubles.specs import write_files
 from tests.doubles.workspace import install_workspace
 
-# An acceptance applies this diff, and a staging worktree supplies it.
+# An acceptance applies this diff, and the private repository of a run supplies it.
 # The paths are the paths of the project, and not the paths below the root of a model.
 ACCEPTANCE_PATCH = b"""\
 diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
@@ -69,35 +39,18 @@ BATCH_WEIGHT = 15
 # A read answers with this number of tokens at most. The tests below write files of a few bytes.
 # Only a test that asks for its own cap reaches this one.
 READ_CAP = 1_000
-# This is the same acceptance over both roots, in the order `git apply` writes them. Git writes the files of a
-# patch one at a time. In a window over the second file, Git wrote the first file and not the second file.
-PAIRED_ACCEPTANCE_PATCH = b"""\
-diff --git a/.jri/specs/architecture/design.md b/.jri/specs/architecture/design.md
-new file mode 100644
---- /dev/null
-+++ b/.jri/specs/architecture/design.md
-@@ -0,0 +1 @@
-+# Design
-diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
-new file mode 100644
---- /dev/null
-+++ b/.jri/specs/functional/behavior.md
-@@ -0,0 +1 @@
-+# Behavior
-"""
-# This is the second specification of that patch. A filter of the project on this path moves the window into
-# the write of the file. There, `git apply` made the file, but it wrote none of the bytes yet.
-WINDOWED_SPECIFICATION = ".jri/specs/functional/behavior.md"
 # This draft applies, but it puts no file below the specification tree.
 # A run that reads only the result of Git reports specifications that the patch never named.
 FOREIGN_DRAFT = """\
-diff --git a/README.md b/README.md
---- a/README.md
-+++ b/README.md
-@@ -1 +1,2 @@
- # Project
+diff --git a/notes.txt b/notes.txt
+new file mode 100644
+--- /dev/null
++++ b/notes.txt
+@@ -0,0 +1 @@
 +Total output is supported.
 """
+FAILING_MOVES = {3, 4}
+FAILING_WRITE = 2
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
 # These drafts place a specification that `Specs.write` refuses to write for a model. Windows reads `CON.md`
 # as a device.
@@ -145,7 +98,7 @@ NULL_BODY_DRAFT = (
     "+# Null\x00byte\n"
 )
 # This draft places a specification that JRI writes, and beside it a file that JRI never writes.
-# `Specs.read` answers for `*.md`, and the commit takes `*.md`, so nothing here names the second file again.
+# `Specs.read` answers for `*.md`, so nothing here names the second file again.
 # That file then stays in the project of the user, below a JRI directory, as a file that JRI put there.
 FOREIGN_FILE_DRAFT = """\
 diff --git a/.jri/specs/functional/exports.md b/.jri/specs/functional/exports.md
@@ -231,150 +184,24 @@ diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.
 FUNCTIONAL_PAIR_FILES = {"functional/behavior.md": "# Behavior\n", "functional/exports.md": "# Exports\n"}
 UPDATED_ARCHITECTURE_FILES = {"architecture/design.md": "# Design\nAdd a total accumulator.\n"}
 UPDATED_FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\nTotal output is supported.\n"}
-# This specification is much longer than `WRITE_BOUND`. A write that the kernel cuts at that bound leaves only
-# the start of a specification.
-# The update changes one line, and `git apply` writes the whole file again to do it.
-# The acceptance record stays much below the bound. Only the write of the specification reaches it.
-REFERENCE_SPEC_LINES = tuple(f"Reporting requirement {number} of the ledger." for number in range(500))
-REFERENCE_SPEC_PATCH = (
-    "diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/reference.md\n"
-    "new file mode 100644\n"
-    "--- /dev/null\n"
-    "+++ b/.jri/specs/functional/reference.md\n"
-    f"@@ -0,0 +1,{len(REFERENCE_SPEC_LINES)} @@\n" + "".join(f"+{line}\n" for line in REFERENCE_SPEC_LINES)
-).encode()
-REFERENCE_SPEC_UPDATE = (
-    "diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/reference.md\n"
-    "--- a/.jri/specs/functional/reference.md\n"
-    "+++ b/.jri/specs/functional/reference.md\n"
-    "@@ -1,2 +1,2 @@\n"
-    f"-{REFERENCE_SPEC_LINES[0]}\n"
-    f"+{REFERENCE_SPEC_LINES[0]} Revised.\n"
-    f" {REFERENCE_SPEC_LINES[1]}\n"
-).encode()
-# This patch applies against a specification that the project never had.
-# No commit that JRI can check out makes a worktree where the patch applies.
-UNREBUILDABLE_PATCH = """\
-diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/reference.md
---- a/.jri/specs/functional/reference.md
-+++ b/.jri/specs/functional/reference.md
-@@ -1 +1,2 @@
- Reporting requirement 0 of the ledger.
-+Reporting requirement 1 of the ledger.
-"""
-WRITE_BOUND = 2048
 # The frontmatter of a written file holds its summary. This pattern removes the frontmatter. A test then
 # compares the body of a specification in the same way after a full generation and after `Specs.write`.
 SPEC_FRONTMATTER = re.compile(r"\A---\n.*?\n---\n\n?", re.DOTALL)
-# JRI cannot read these two records of an acceptance again.
-# A write of JRI stopped part way through the first record.
-# The second record holds a field that its model does not name. A record from a different version of JRI reads
-# the same way, and so does a record that another program wrote.
-TRUNCATED_RECORD = b'{"accepted": "93db9f5480'
-FOREIGN_RECORD = b'{"accepted": null, "patch": "", "indexed": [], "held": 999999}'
-# A hook stops an acceptance at the point where Git wrote the commit and released every lock of that commit.
-# The acceptance lock is then the only sign that a second JRI can read the live run from.
-# `MARK_THE_WINDOW` makes the file below. The hook waits until the test removes that file. The acceptance then
-# waits for as long as the test reads the project, and not for a fixed time that a loaded machine can pass.
-HOLD_THE_ACCEPTANCE = f'until [ ! -e ".git/{WINDOW_MARKER}" ]; do sleep 0.02; done\n'
-# A kill below replaces these methods. Keep them here first, so a double can still call the real method.
+# This is the notebook record of the last run that wrote specifications.
+ACCEPTED_NOTEBOOK = ".jri/accepted-notebook.yaml"
+NOTEBOOK = ".jri/notebook.yaml"
+# These are the entries that the first run of a project leaves for the user to commit.
+FIRST_RUN_ENTRIES = [
+    "?? .jri/.gitignore",
+    f"?? {ACCEPTED_NOTEBOOK}",
+    f"?? {NOTEBOOK}",
+    "?? .jri/settings.yaml",
+    "?? .jri/specs/architecture/design.md",
+    "?? .jri/specs/functional/behavior.md",
+]
+HANDWRITTEN_SPECIFICATION = b"---\nsummary: Written by hand.\n---\n\n# Written by hand\n"
+# A double below replaces this method. Keep it here first, so the double can still call the real method.
 APPLY = git.Repository.apply_patch
-COMMIT = git.Repository.commit
-STAGE = git.Repository.stage
-
-
-# A signal is not an exception, and a run does not recover from it. Nothing here catches `KeyboardInterrupt`.
-# These three doubles leave on disk what a `SIGKILL` at the same instruction leaves.
-# The three `amid` doubles after them make the states that no instruction boundary can leave.
-def kill_the_run_before_staging(
-    repository: git.Repository, paths: Sequence[str], *, intent_to_add: bool = False, force: bool = False
-) -> None:
-    # The acceptance is the only staging that records an intent.
-    if intent_to_add:
-        raise KeyboardInterrupt
-    STAGE(repository, paths, intent_to_add=intent_to_add, force=force)
-
-
-def kill_the_run_before_committing(*_: object, **__: object) -> Never:
-    raise KeyboardInterrupt
-
-
-def kill_the_run_after_committing(
-    repository: git.Repository, message: str, trailers: Sequence[str] = (), *, paths: Sequence[str] = ()
-) -> Never:
-    COMMIT(repository, message, trailers, paths=paths)
-    raise KeyboardInterrupt
-
-
-# `git apply` reads a whole patch, and only then it writes the patch, file by file. A kill inside `git apply`
-# leaves the first files of the patch on disk. No `KeyboardInterrupt` makes that state, because Git writes in a
-# subprocess, where there is no Python instruction boundary.
-# Here Git writes the first file that the acceptance patch names, and nothing writes the rest. The state is the
-# same.
-# The signature holds the arguments that a run gives to this method. A call that the double cannot replace
-# fails, and the double never replaces a call wrongly.
-def kill_the_run_amid_applying(
-    repository: git.Repository,
-    patch: bytes,
-    *,
-    index: bool = False,
-    directory: str | None = None,
-    zero_context: bool = False,
-) -> None:
-    # The acceptance is the only application that stages nothing.
-    if index:
-        APPLY(repository, patch, index=index, directory=directory, zero_context=zero_context)
-        return
-    APPLY(repository, patch.partition(b"\ndiff --git ")[0] + b"\n")
-    raise KeyboardInterrupt
-
-
-# This is the same kill. It falls in the window that `git apply` keeps between the moment it makes a file and
-# the moment it writes the file.
-# Twelve real `SIGKILL` signals during an acceptance measured that window. Seven left a file of exactly zero
-# bytes after the files they wrote, and none left a file written in part.
-def kill_the_run_amid_writing(
-    repository: git.Repository,
-    patch: bytes,
-    *,
-    index: bool = False,
-    directory: str | None = None,
-    zero_context: bool = False,
-) -> None:
-    if not index:
-        unwritten = repository.path / ".jri/specs/functional/behavior.md"
-        unwritten.parent.mkdir(parents=True, exist_ok=True)
-        unwritten.touch()
-    kill_the_run_amid_applying(repository, patch, index=index, directory=directory, zero_context=zero_context)
-
-
-# This is the same kill again. It falls in the window where `git apply` removed the file that it rewrites.
-# A poll of that file during a real acceptance finds the file missing. This is how the tests found this window.
-def kill_the_run_amid_rewriting(
-    repository: git.Repository,
-    patch: bytes,
-    *,
-    index: bool = False,
-    directory: str | None = None,
-    zero_context: bool = False,
-) -> None:
-    if not index:
-        (repository.path / ".jri/specs/functional/behavior.md").unlink()
-    kill_the_run_amid_applying(repository, patch, index=index, directory=directory, zero_context=zero_context)
-
-
-# Git answers that it could not write. A run recovers from that error, and a kill is not an error.
-# Only the write into the project fails. The undo finds what the acceptance wrote, because it applies the same
-# patch in a worktree of its own. An apply that also failed in that worktree gives the undo no information.
-# The signature holds the arguments that an acceptance and its undo give to this method. A call that the double
-# cannot replace fails, and the double never replaces a call wrongly.
-def fail_the_acceptance_write(root: Path) -> Callable[..., None]:
-    def apply_patch(repository: git.Repository, patch: bytes, *, check: bool = False, reverse: bool = False) -> None:
-        if repository.path == root and not (check or reverse):
-            raise git.Error("Git command failed.")
-        APPLY(repository, patch, check=check, reverse=reverse)
-
-    return apply_patch
 
 
 # The worktree refuses every write between the apply that placed a draft and the restore that removes it again.
@@ -413,10 +240,6 @@ def read_ending(events: Iterable[TurnEvent], reason: str = "") -> Ending:
     return finished.ending
 
 
-def find_accepted_commit(path: Path) -> str | None:
-    return git.Repository(path).find_commit(ACCEPTANCE_TRAILER)
-
-
 # A prompt is one text, and each block of it holds a different input. This reads only the block that a test is
 # about, so a match in another part of the text cannot pass the test.
 def read_block(rendered: str, name: str) -> str:
@@ -426,6 +249,21 @@ def read_block(rendered: str, name: str) -> str:
 def write_draft(path: Path, patch: str) -> None:
     Workspace(path).open_generation_dir()
     Workspace(path).draft_file.write_text(patch, encoding="utf-8", newline="\n")
+
+
+# This reads every part of the repository that a commit or a staging changes. A run must change none of them.
+def read_git_state(run_git: RunGit, path: Path) -> tuple[str, ...]:
+    return (
+        run_git(path, "rev-parse", "--verify", "--quiet", "HEAD", check=False),
+        run_git(path, "for-each-ref"),
+        run_git(path, "ls-files", "--stage"),
+    )
+
+
+# `RunGit` strips its output, and the first status line can start with a space that means a change in the worktree.
+# The branch line comes first, so that strip reaches only the branch line.
+def read_status(run_git: RunGit, path: Path) -> list[str]:
+    return run_git(path, "status", "--short", "--branch", "--untracked-files=all").splitlines()[1:]
 
 
 def read_specifications(worktree: Path) -> dict[str, str]:
@@ -466,62 +304,23 @@ def updated_client() -> FakeClient:
     return build_client(UPDATED_FUNCTIONAL_FILES, UPDATED_ARCHITECTURE_FILES)
 
 
-# This is a real JRI acceptance. It runs in a process of its own for as long as the block continues.
-# `Specs.accept` holds the acceptance lock here, and not a holder that a test made in its place.
-@contextmanager
-def hold_an_acceptance(path: Path, patch: bytes) -> Iterator[None]:
-    marker = path / ".git" / WINDOW_MARKER
-    with open_a_window(path, "past", MARK_THE_WINDOW + HOLD_THE_ACCEPTANCE):
-        acceptance = subprocess.Popen([sys.executable, "-c", ACCEPTANCE, str(path)], stdin=subprocess.PIPE)
-        assert acceptance.stdin is not None
-        acceptance.stdin.write(patch)
-        acceptance.stdin.close()
-        deadline = time.monotonic() + TIMEOUT
-        while not marker.exists():
-            assert acceptance.poll() is None, "the acceptance ended before it reached its commit"
-            assert time.monotonic() < deadline, "the acceptance never reached its commit"
-            time.sleep(POLL)
-        try:
-            yield
-        finally:
-            marker.unlink()
-            assert acceptance.wait(TIMEOUT) == 0
-
-
-# A run is a process of its own. A kill inside that run reaches the window as a record with no ending,
-# and not as an exception.
-def kill_a_run(path: Path, method: str, kill: object) -> None:
-    # Install before the kill, because an installation makes some of the
-    # Git calls that a run makes.
-    conversation = build_conversation(path, successful_client())
-    with pytest.MonkeyPatch.context() as killed:
-        killed.setattr(git.Repository, method, kill)
-        assert read_ending(conversation.ralph(), "stopped before it finished") == "failed"
-
-
-def test_commits_complete_specification_bundle(
+def test_writes_the_specification_bundle_and_commits_nothing(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
+    git_state = read_git_state(run_git, tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
 
-    list(conversation.ralph())
+    assert read_ending(conversation.ralph()) == "replied"
 
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert run_git(tmp_path, "show", "-s", "--format=%B") == (
-        "jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>\nJRI-Specifications: accepted"
-    )
-    # The first accepted run commits the settings, notes, ignore rules, and specifications together.
-    assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
-        "README.md",
-    ]
-    assert not run_git(tmp_path, "status", "--short")
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == (tmp_path / NOTEBOOK).read_bytes()
+    assert read_git_state(run_git, tmp_path) == git_state
+    assert run_git(tmp_path, "log", "--all", "--format=%s").splitlines() == ["initial"]
+    # The user decides what enters the history. The private repository of the run stays out of that decision.
+    assert read_status(run_git, tmp_path) == FIRST_RUN_ENTRIES
+    assert not (tmp_path / ".jri/worktree").exists()
 
 
 def test_updates_specs_after_restart_and_an_intervening_project_commit(
@@ -530,32 +329,21 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
     list(conversation.ralph())
-    first_spec_commit = find_accepted_commit(tmp_path)
-    assert first_spec_commit is not None
+    first_record = (tmp_path / ACCEPTED_NOTEBOOK).read_bytes()
 
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text("# Changelog\n")
     run_git(tmp_path, "add", "CHANGELOG.md")
     run_git(tmp_path, "commit", "-qm", "docs: add changelog")
-    project_commit = run_git(tmp_path, "rev-parse", "HEAD")
+    git_state = read_git_state(run_git, tmp_path)
 
     restarted = build_conversation(tmp_path, updated_client())
     restarted.restore()
-    assert find_accepted_commit(tmp_path) == first_spec_commit
     restarted.interviewer.notebook.add(["Add a total output record."], "t1")
 
-    list(restarted.ralph())
+    assert read_ending(restarted.ralph()) == "replied"
 
-    second_spec_commit = find_accepted_commit(tmp_path)
-    assert second_spec_commit is not None
-    assert second_spec_commit != first_spec_commit
-    run_git(tmp_path, "merge-base", "--is-ancestor", first_spec_commit, second_spec_commit)
-    assert run_git(tmp_path, "rev-parse", f"{second_spec_commit}^") == project_commit
-    assert run_git(tmp_path, "log", "-3", "--format=%s").splitlines() == [
-        "jri: update specifications",
-        "docs: add changelog",
-        "jri: update specifications",
-    ]
+    assert read_git_state(run_git, tmp_path) == git_state
     assert changelog.read_text() == "# Changelog\n"
     assert (tmp_path / "README.md").read_text() == "# Project\n"
     assert (
@@ -564,15 +352,53 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(
         .endswith("# Behavior\nTotal output is supported.\n")
     )
     assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\nAdd a total accumulator.\n")
-    assert run_git(tmp_path, "show", "--format=", "--name-only", second_spec_commit).splitlines() == [
-        ".jri/notebook.yaml",
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
+    record = (tmp_path / ACCEPTED_NOTEBOOK).read_bytes()
+    assert record != first_record
+    assert record == (tmp_path / NOTEBOOK).read_bytes()
+
+
+# The first run leaves its specifications for the user to commit, and the user need not commit them.
+# The second run then applies its delta on top of those files, with no commit in between.
+def test_accepts_a_second_run_over_specifications_left_uncommitted(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    git_state = read_git_state(run_git, tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    restarted = build_conversation(tmp_path, updated_client())
+    restarted.restore()
+
+    assert read_ending(restarted.ralph()) == "replied"
+
+    assert read_specifications(tmp_path) == UPDATED_ARCHITECTURE_FILES | UPDATED_FUNCTIONAL_FILES
+    assert read_git_state(run_git, tmp_path) == git_state
+    assert read_status(run_git, tmp_path) == FIRST_RUN_ENTRIES
+    assert not Workspace(tmp_path).draft_file.exists()
+
+
+# The user can commit the workspace at any point. Only the files of the next run then differ from that commit.
+def test_updates_specs_after_the_user_committed_the_workspace(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    run_git(tmp_path, "add", ".jri")
+    run_git(tmp_path, "commit", "-qm", "docs: commit the specifications")
+    git_state = read_git_state(run_git, tmp_path)
+    restarted = build_conversation(tmp_path, updated_client())
+    restarted.restore()
+    restarted.interviewer.notebook.add(["Add a total output record."], "t1")
+
+    assert read_ending(restarted.ralph()) == "replied"
+
+    assert read_specifications(tmp_path) == UPDATED_ARCHITECTURE_FILES | UPDATED_FUNCTIONAL_FILES
+    assert read_git_state(run_git, tmp_path) == git_state
+    assert read_status(run_git, tmp_path) == [
+        f" M {ACCEPTED_NOTEBOOK}",
+        f" M {NOTEBOOK}",
+        " M .jri/specs/architecture/design.md",
+        " M .jri/specs/functional/behavior.md",
     ]
-    reopened = build_conversation(tmp_path, FakeClient([]))
-    reopened.restore()
-    assert find_accepted_commit(tmp_path) == second_spec_commit
-    assert not run_git(tmp_path, "status", "--short")
 
 
 def test_shows_specifications_to_the_models_under_neutral_roots(
@@ -604,836 +430,465 @@ def test_shows_specifications_to_the_models_under_neutral_roots(
     assert ".jri" not in architect_architecture_index
 
 
-def test_commits_modified_settings_with_specifications(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, successful_client())
-    settings_file = tmp_path / ".jri/settings.yaml"
-    settings_file.write_text(f"{settings_file.read_text()}\n# Project-specific settings.\n")
-
-    list(conversation.ralph())
-
-    assert run_git(tmp_path, "show", "HEAD:.jri/settings.yaml").endswith("# Project-specific settings.")
-    assert ".jri/settings.yaml" in run_git(tmp_path, "show", "--format=", "--name-only").splitlines()
-    assert not run_git(tmp_path, "status", "--short")
-
-
-def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Path, run_git: RunGit) -> None:
+def test_accepts_specifications_onto_a_freshly_initialized_project(tmp_path: Path, run_git: RunGit) -> None:
     (tmp_path / "README.md").write_text("# New project\n")
     conversation = build_conversation(tmp_path, successful_client())
 
-    list(conversation.ralph())
+    assert read_ending(conversation.ralph()) == "replied"
 
-    assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
-    ]
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert run_git(tmp_path, "status", "--short") == "?? README.md"
+    assert read_specifications(tmp_path) == ARCHITECTURE_FILES | FUNCTIONAL_FILES
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == (tmp_path / NOTEBOOK).read_bytes()
+    assert read_git_state(run_git, tmp_path) == ("", "", "")
 
 
-def test_commits_specifications_onto_a_repository_without_commits(tmp_path: Path, run_git: RunGit) -> None:
+def test_accepts_specifications_onto_a_repository_without_commits(tmp_path: Path, run_git: RunGit) -> None:
     run_git(tmp_path, "init", "-q")
     (tmp_path / "README.md").write_text("# Project\n")
     conversation = build_conversation(tmp_path, successful_client())
 
-    list(conversation.ralph())
+    assert read_ending(conversation.ralph()) == "replied"
 
-    assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
-    ]
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert run_git(tmp_path, "status", "--short") == "?? README.md"
+    assert read_specifications(tmp_path) == ARCHITECTURE_FILES | FUNCTIONAL_FILES
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == (tmp_path / NOTEBOOK).read_bytes()
+    assert read_git_state(run_git, tmp_path) == ("", "", "")
 
 
-def test_leaves_the_project_untouched_when_a_hook_refuses_the_commit(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+def enter_a_merge(path: Path, run_git: RunGit) -> None:
+    base = run_git(path, "rev-parse", "HEAD")
+    (path / "main.md").write_text("# Main\n")
+    run_git(path, "add", "main.md")
+    run_git(path, "commit", "-qm", "docs: add a main note")
+    mainline = run_git(path, "rev-parse", "HEAD")
+    run_git(path, "checkout", "-q", "-b", "side", base)
+    (path / "side.md").write_text("# Side\n")
+    run_git(path, "add", "side.md")
+    run_git(path, "commit", "-qm", "docs: add a side note")
+    run_git(path, "merge", "--no-commit", "--no-ff", "-q", mainline)
+
+
+def enter_a_cherry_pick_conflict(path: Path, run_git: RunGit) -> None:
+    base = run_git(path, "rev-parse", "HEAD")
+    (path / "README.md").write_text("mainline\n")
+    run_git(path, "commit", "-qam", "docs: write the mainline note")
+    mainline = run_git(path, "rev-parse", "HEAD")
+    run_git(path, "checkout", "-q", "-b", "side", base)
+    (path / "README.md").write_text("side\n")
+    run_git(path, "commit", "-qam", "docs: write the side note")
+    run_git(path, "cherry-pick", mainline, check=False)
+
+
+def detach_the_head(path: Path, run_git: RunGit) -> None:
+    run_git(path, "checkout", "-q", "--detach", "HEAD")
+
+
+def stop_a_rebase(path: Path, run_git: RunGit) -> None:
+    (path / "notes.md").write_text("# Notes\n")
+    run_git(path, "add", "notes.md")
+    run_git(path, "commit", "-qm", "docs: add a note")
+    run_git(path, "rebase", "--exec", "false", "HEAD~1", check=False)
+
+
+# JRI makes no commit and changes no index, so no state of Git can stop a run or come out of a run changed.
+@pytest.mark.parametrize(
+    "enter",
+    [enter_a_merge, enter_a_cherry_pick_conflict, detach_the_head, stop_a_rebase],
+    ids=["merge", "cherry-pick-conflict", "detached-head", "stopped-rebase"],
+)
+def test_accepts_specifications_whatever_git_is_in_the_middle_of(
+    enter: Callable[[Path, RunGit], None], tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    hook = tmp_path / ".git/hooks/pre-commit"
-    hook.write_bytes(b"#!/bin/sh\nexit 1\n")
-    hook.chmod(0o755)
+    enter(tmp_path, run_git)
+    git_state = read_git_state(run_git, tmp_path)
+    git_status = read_status(run_git, tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
-    (tmp_path / "uv.lock").write_text("locked\n")
-    (tmp_path / "README.md").write_text("# Project, in progress\n")
-    before = run_git(tmp_path, "status", "--porcelain", "-uall")
 
-    assert read_ending(conversation.ralph()) == "failed"
+    assert read_ending(conversation.ralph()) == "replied"
 
-    assert run_git(tmp_path, "status", "--porcelain", "-uall") == before
-    assert not (tmp_path / ".jri/specs").exists()
-    # A refused commit loses the commit of the run, and nothing more. The draft holds the whole generation.
-    # The next run picks the draft up and does not generate the work again.
-    assert Workspace(tmp_path).draft_file.exists()
-    hook.unlink()
-    list(build_conversation(tmp_path, successful_client()).ralph())
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert read_specifications(tmp_path) == ARCHITECTURE_FILES | FUNCTIONAL_FILES
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == (tmp_path / NOTEBOOK).read_bytes()
+    assert read_git_state(run_git, tmp_path) == git_state
+    assert sorted(read_status(run_git, tmp_path)) == sorted([*git_status, *FIRST_RUN_ENTRIES])
 
 
-def test_keeps_the_content_the_user_staged_when_a_hook_refuses_the_commit(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    hook = tmp_path / ".git/hooks/pre-commit"
-    hook.write_bytes(b"#!/bin/sh\nexit 1\n")
-    hook.chmod(0o755)
-    conversation = build_conversation(tmp_path, successful_client())
-    settings_file = tmp_path / ".jri/settings.yaml"
-    settings_file.write_text("# The settings the user staged.\n")
-    run_git(tmp_path, "add", ".jri/settings.yaml")
-    settings_file.write_text("# The settings the user went on editing.\n")
-    index = run_git(tmp_path, "ls-files", "--stage")
-
-    assert read_ending(conversation.ralph()) == "failed"
-
-    assert run_git(tmp_path, "ls-files", "--stage") == index
-    assert run_git(tmp_path, "show", ":.jri/settings.yaml") == "# The settings the user staged."
-    assert settings_file.read_text() == "# The settings the user went on editing.\n"
+def accept_files(specs: Specs, baseline: Baseline, written: Mapping[str, str], deleted: Sequence[str] = ()) -> None:
+    with specs.open_staging(baseline) as staging:
+        Specs.write(staging, written, deleted, "functional")
+        specs.accept(staging, baseline)
 
 
-def test_undoes_the_acceptance_a_killed_run_left_in_the_worktree(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert find_accepted_commit(tmp_path) is None
-
-    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
-
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-# An undo rebuilds the writes it must remove in a scratch repository below the workspace. A first acceptance has
-# no commit to check out. That scratch is a repository of its own, with its own `.git`, inside the project of
-# the user. The undo is the last operation that can remove that repository, because a run that a kill ends after
-# this point never returns for it.
-def test_removes_the_scratch_repository_the_undo_of_a_first_acceptance_rebuilt_its_writes_in(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    assert find_accepted_commit(tmp_path) is None
-
-    Specs(tmp_path).prepare()
-
-    assert not (tmp_path / ".jri/generation/pre-image").exists()
-    # The undo leaves the workspace as the installation left it, outside the history.
-    assert run_git(tmp_path, "status", "--short") == "?? .jri/"
-
-
-def test_undoes_the_acceptance_a_killed_run_left_half_applied(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "apply_patch", kill_the_run_amid_applying)
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
-
-    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
-
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-def test_undoes_the_acceptance_a_killed_write_left_empty(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "apply_patch", kill_the_run_amid_writing)
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == b""
-
-    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
-
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-# A halt ends a run that refuses to stop. It leaves the same state as a machine that stops there. The run and
-# its Git are both gone, a record of the acceptance stays, and the operating system freed the locks.
-# Git wrote some specifications of the patch, and it committed none of them.
-# The run after this one is the recovery, and it removes what the halted run left.
-@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
-def test_undoes_the_acceptance_a_halted_run_left_half_written(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+def test_accepts_the_specifications_of_the_private_repository_and_drops_the_draft(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, caplog: pytest.LogCaptureFixture
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
+    git_state = read_git_state(run_git, tmp_path)
+    specs = Specs(tmp_path)
+    with caplog.at_level(logging.INFO, logger="jri"):
+        baseline = specs.prepare()
+        write_draft(tmp_path, ACCEPTANCE_PATCH.decode())
+        accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
 
-    with (
-        open_a_filter_window(
-            tmp_path, RECORD_THE_GIT + MARK_THE_WINDOW + HOLD_THE_WINDOW, side="smudge", path=WINDOWED_SPECIFICATION
-        ),
-        hold_a_run_amid_accepting(tmp_path, PAIRED_ACCEPTANCE_PATCH) as runner,
-    ):
-        applying = read_the_git_in_the_window(tmp_path)
+    messages = [record.getMessage() for record in caplog.records]
+    assert "baseline_prepared specifications=0" in messages
+    assert "specs_accepted files=2" in messages
 
-        assert Generation(Workspace(tmp_path)).halt()
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == b"# Behavior\n"
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == baseline.notebook
+    assert not specs.workspace.draft_file.exists()
+    assert read_git_state(run_git, tmp_path) == git_state
 
-        # A killed process answers with the signal that ended it, and a process that ended by itself answers zero.
-        # The test reads both here, because the block ends the group that a halt of the run alone leaves.
-        assert runner.wait(TIMEOUT)
-        assert watch_a_process_go(applying), "the Git the run started is still running"
 
-    # The operating system freed both locks, so a run after this one can take them and settle what it finds.
-    assert take(tmp_path / ".jri/generation/lock")
-    assert take(tmp_path / ".jri/generation/acceptance.lock")
-    assert (tmp_path / ".jri/generation/acceptance.json").exists()
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_bytes() == b"# Design\n"
-    assert not (tmp_path / WINDOWED_SPECIFICATION).read_bytes()
-    assert read_git_locks(tmp_path) == ()
+# A file that the user put beside the specifications is not a specification that a run removed.
+def test_removes_a_deleted_specification_and_keeps_the_file_beside_it(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# Behavior\n", "functional/old.md": "# Old\n"})
+    beside = tmp_path / ".jri/specs/functional/notes.txt"
+    beside.write_bytes(b"mine\n")
 
-    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# Behavior 2\n"}, ["functional/old.md"])
 
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == b"# Behavior 2\n"
+    assert not (tmp_path / ".jri/specs/functional/old.md").exists()
+    assert beside.read_bytes() == b"mine\n"
+
+
+# Git holds no copy of uncommitted specifications. A full disk stops the write before any of them changes.
+# The draft stays, because it holds the whole work of the run and it still applies.
+def test_changes_no_specification_and_keeps_the_draft_when_a_new_file_cannot_be_written(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    first = {"functional/behavior.md": "# Behavior\n", "functional/keep.md": "# Keep\n", "functional/old.md": "# Old\n"}
+    accept_files(specs, specs.prepare(), first)
+    standing = read_specifications(tmp_path)
+    record = (tmp_path / ACCEPTED_NOTEBOOK).read_bytes()
+    # The notes change, so a record of this run would differ from the record of the last run.
+    (tmp_path / NOTEBOOK).write_bytes(record + b"# A note after the acceptance.\n")
+    baseline = specs.prepare()
+    write = files.write_beside
+    calls: list[Path] = []
+
+    def fail_the_second_write(path: Path, content: bytes) -> Path:
+        calls.append(path)
+        if len(calls) == FAILING_WRITE:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return write(path, content)
+
+    with specs.open_staging(baseline) as staging:
+        base = staging.write_tree()
+        changed = {"functional/behavior.md": "# Behavior 2\n", "functional/keep.md": "# Keep 2\n"}
+        Specs.write(staging, changed, ["functional/old.md"], "functional")
+        specs.save_draft(staging, base)
+        monkeypatch.setattr(files, "write_beside", fail_the_second_write)
+        with pytest.raises(SpecsError, match="could not write the specifications into your project: No space left"):
+            specs.accept(staging, baseline)
+    monkeypatch.undo()
+
+    assert read_specifications(tmp_path) == standing
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == record
+    assert not list((tmp_path / ".jri/specs").rglob("*.tmp"))
+    with specs.open_staging(baseline) as staging:
+        assert specs.resume(staging) is not None
+
+
+# A move can fail after an earlier one landed. JRI must put back each file that it can, also after one that it cannot.
+def test_puts_back_every_file_it_can_when_a_move_fails(
+    tmp_path: Path,
+    create_repository: CreateRepository,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    first = {f"functional/{name}.md": f"# {name}\n" for name in ("a", "b", "c", "old")}
+    accept_files(specs, specs.prepare(), first)
+    standing = read_specifications(tmp_path)
+    baseline = specs.prepare()
+    replace = Path.replace
+    calls: list[Path] = []
+
+    # The third move fails. The first file to come back then fails too. The files after it must still come back.
+    def fail_two_moves(path: Path, target: Path) -> Path:
+        calls.append(target)
+        if len(calls) in FAILING_MOVES:
+            raise OSError(errno.EACCES, "Permission denied")
+        return replace(path, target)
+
+    with specs.open_staging(baseline) as staging:
+        changed = {f"functional/{name}.md": f"# {name} 2\n" for name in ("a", "b", "c")}
+        Specs.write(staging, {**changed, "functional/new.md": "# New\n"}, ["functional/old.md"], "functional")
+        monkeypatch.setattr(Path, "replace", fail_two_moves)
+        with pytest.raises(SpecsError, match=r"could not put these files back.*: \.jri/specs/functional/old\.md$"):
+            specs.accept(staging, baseline)
+    monkeypatch.undo()
+
     assert read_specifications(tmp_path) == {
-        "architecture/design.md": "# Design\n",
-        "functional/behavior.md": "# Behavior\n",
+        path: content for path, content in standing.items() if path != "functional/old.md"
     }
-    assert not run_git(tmp_path, "status", "--short")
-    assert not (tmp_path / ".jri/generation/acceptance.json").exists()
+    assert not list((tmp_path / ".jri/specs").rglob("*.tmp"))
+    failures = [record.getMessage() for record in caplog.records if record.levelno == logging.ERROR]
+    assert failures == ["specification_restore_failed path=.jri/specs/functional/old.md"]
 
 
-def test_undoes_the_acceptance_a_killed_rewrite_left_unwritten(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+# On a case-insensitive filesystem, a new file can share its path with a file that JRI puts back.
+# JRI must remove the new file first, or the removal takes the file that came back.
+def test_removes_a_new_file_before_it_puts_back_an_earlier_one(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     create_repository(tmp_path)
-    list(build_conversation(tmp_path, successful_client()).ralph())
-    accepted = find_accepted_commit(tmp_path)
-    with pytest.MonkeyPatch.context() as killed:
-        killed.setattr(git.Repository, "apply_patch", kill_the_run_amid_rewriting)
-        conversation = build_conversation(tmp_path, updated_client())
-        conversation.restore()
-        assert read_ending(conversation.ralph(), "stopped before it finished") == "failed"
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/a.md": "# A\n", "functional/z.md": "# Z\n"})
+    baseline = specs.prepare()
+    replace = Path.replace
+    unlink = Path.unlink
+    events: list[tuple[str, str]] = []
+
+    def record_the_move(path: Path, target: Path) -> Path:
+        events.append(("move", Path(target).name))
+        if Path(target).name == "z.md":
+            raise OSError(errno.EACCES, "Permission denied")
+        return replace(path, target)
+
+    def record_the_removal(path: Path, *, missing_ok: bool = False) -> None:
+        events.append(("remove", path.name))
+        unlink(path, missing_ok=missing_ok)
+
+    with specs.open_staging(baseline) as staging:
+        changed = {"functional/a.md": "# A 2\n", "functional/new.md": "# New\n", "functional/z.md": "# Z 2\n"}
+        Specs.write(staging, changed, (), "functional")
+        monkeypatch.setattr(Path, "replace", record_the_move)
+        monkeypatch.setattr(Path, "unlink", record_the_removal)
+        with pytest.raises(SpecsError, match="could not write the specifications into your project"):
+            specs.accept(staging, baseline)
+    monkeypatch.undo()
+
+    # The first three moves are the writes in order. The moves after the failure put the files back.
+    moves_after_failure = events[events.index(("move", "z.md")) + 1 :]
+    assert moves_after_failure.index(("remove", "new.md")) < moves_after_failure.index(("move", "a.md"))
+
+
+# A location that stays after the removal would hold an old index, and that index would give a wrong base tree.
+def test_refuses_a_private_repository_location_it_could_not_clear(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    specs.workspace.reserve_worktree_dir().mkdir()
+    monkeypatch.setattr(files, "remove_directory", lambda _: None)
+
+    with pytest.raises(FileExistsError, match="exists"), specs.open_staging(baseline):
+        pass
+
+
+# Two passes can rename a file by case alone. The guard of one write sees only that write.
+# On a case-insensitive filesystem, a removal after the move would remove the new file too.
+def test_keeps_a_specification_that_a_run_renamed_by_case_alone(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/Behavior.md": "# Behavior\n"})
+    baseline = specs.prepare()
+
+    with specs.open_staging(baseline) as staging:
+        Specs.write(staging, {}, ["functional/Behavior.md"], "functional")
+        Specs.write(staging, {"functional/behavior.md": "# Behavior 2\n"}, (), "functional")
+        specs.accept(staging, baseline)
+
+    assert list(read_specifications(tmp_path).items()) == [("functional/behavior.md", "# Behavior 2\n")]
+
+
+# `rglob` does not enter a link to a directory. A write through that link would replace a file that JRI never read.
+def test_refuses_to_write_through_a_link_to_a_directory(
+    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# Behavior\n"})
+    outside = tmp_path / "shared"
+    outside.mkdir()
+    (outside / "a.md").write_bytes(b"mine\n")
+    create_link(tmp_path / ".jri/specs/functional/shared", outside)
+    baseline = specs.prepare()
+
+    with specs.open_staging(baseline) as staging:
+        Specs.write(staging, {"functional/shared/a.md": "# Model\n"}, (), "functional")
+        with pytest.raises(SpecsError, match=r"cannot change `functional/shared/a\.md`"):
+            specs.accept(staging, baseline)
+
+    assert (outside / "a.md").read_bytes() == b"mine\n"
+
+
+# A directory stands where JRI writes the record. The operating system then refuses the write on every platform.
+def test_puts_the_specifications_back_when_it_cannot_write_the_notebook_record(
+    tmp_path: Path, create_repository: CreateRepository, caplog: pytest.LogCaptureFixture
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    (tmp_path / ACCEPTED_NOTEBOOK).mkdir()
+    write_draft(tmp_path, ACCEPTANCE_PATCH.decode())
+
+    with pytest.raises(SpecsError, match="could not write the specifications into your project"):
+        accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
+
     assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
-    restarted = build_conversation(tmp_path, updated_client())
-    restarted.restore()
-
-    assert read_ending(restarted.ralph()) == "replied"
-
-    assert find_accepted_commit(tmp_path) not in {None, accepted}
-    assert (
-        (tmp_path / ".jri/specs/functional/behavior.md")
-        .read_text()
-        .endswith("# Behavior\nTotal output is supported.\n")
-    )
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\nAdd a total accumulator.\n")
-    assert not run_git(tmp_path, "status", "--short")
+    assert specs.workspace.draft_file.exists()
+    assert "acceptance_write_failed files=2" in [record.getMessage() for record in caplog.records]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="a bound on the size of a write is `resource`, absent here")
-def test_undoes_the_acceptance_a_kernel_file_bound_cut_short(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    install_workspace(tmp_path)
-    specs = Specs(tmp_path)
-    specs.accept(REFERENCE_SPEC_PATCH, specs.prepare())
-    reference = tmp_path / ".jri/specs/functional/reference.md"
-    accepted = reference.read_bytes()
-
-    report = bound_the_acceptance_writes(tmp_path, REFERENCE_SPEC_UPDATE, WRITE_BOUND)
-
-    # A disk quota or a file-size limit cuts a write in the same way as a kill.
-    # `RLIMIT_FSIZE` makes that failure, and the test needs no full disk.
-    torn = reference.read_bytes()
-    assert torn
-    assert torn != accepted
-    assert len(torn) < len(accepted)
-    assert "JRI could not write the specifications into your project" in report
-    assert (tmp_path / ".jri/generation/acceptance.json").exists()
-
-    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
-
-    assert reference.read_bytes() == accepted
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-def test_reports_the_acceptance_write_git_could_not_finish(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+# A link that appeared during the run must not receive what JRI writes.
+def test_refuses_a_link_that_appeared_during_generation(
+    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
     specs = Specs(tmp_path)
     baseline = specs.prepare()
+    outside = tmp_path / "outside.yaml"
+    outside.write_bytes(b"mine\n")
+    create_link(tmp_path / ACCEPTED_NOTEBOOK, outside)
 
-    with pytest.MonkeyPatch.context() as failed:
-        failed.setattr(git.Repository, "apply_patch", fail_the_acceptance_write(specs.repository.path))
-        with pytest.raises(SpecsError, match="JRI could not write the specifications into your project"):
-            specs.accept(ACCEPTANCE_PATCH, baseline)
+    with pytest.raises(RepositoryStateError, match="these are links"):
+        accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
 
-    assert not (tmp_path / ".jri/generation/acceptance.json").exists()
-    assert not (tmp_path / ".jri/specs").exists()
-    assert not run_git(tmp_path, "diff", "--cached", "--name-only")
+    assert outside.read_bytes() == b"mine\n"
+    assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
 
 
-def test_puts_back_the_specification_a_killed_acceptance_deleted(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+# A reset removes a committed link from the disk, and it does not change the index. The next run must not stop on it.
+def test_ignores_a_link_the_index_holds_and_the_disk_does_not(
+    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    list(build_conversation(tmp_path, build_client(FUNCTIONAL_PAIR_FILES)).ralph())
-    accepted = find_accepted_commit(tmp_path)
-    conversation = build_conversation(
-        tmp_path, build_client({}, UPDATED_ARCHITECTURE_FILES, functional_deleted=["functional/exports.md"])
-    )
-    with pytest.MonkeyPatch.context() as killed:
-        killed.setattr(git.Repository, "stage", kill_the_run_before_staging)
-        conversation.restore()
-        assert read_ending(conversation.ralph(), "stopped before it finished") == "failed"
-    exports = tmp_path / ".jri/specs/functional/exports.md"
-    assert not exports.exists()
+    install_workspace(tmp_path)
+    (tmp_path / "target.md").write_bytes(b"# Target\n")
+    link = tmp_path / ".jri/specs/functional/link.md"
+    link.parent.mkdir(parents=True)
+    create_link(link, tmp_path / "target.md")
+    run_git(tmp_path, "add", "--force", ".jri/specs/functional/link.md")
+    link.unlink()
 
-    Specs(tmp_path).prepare()
-
-    assert exports.read_text().endswith("# Exports\n")
-    assert find_accepted_commit(tmp_path) == accepted
-    assert not run_git(tmp_path, "status", "--short")
+    assert Specs(tmp_path).prepare().specifications == {}
 
 
-def test_leaves_the_leftovers_of_an_acceptance_it_cannot_rebuild(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    record = Workspace(tmp_path).acceptance_file
-    record.write_text(json.dumps(json.loads(record.read_text()) | {"patch": UNREBUILDABLE_PATCH}))
-
-    ending = read_ending(
-        build_conversation(tmp_path, successful_client()).ralph(),
-        r"Commit or remove these files before Ralphing:\n"
-        r"- \.jri/specs/architecture/design\.md\n- \.jri/specs/functional/behavior\.md",
-    )
-
-    assert ending == "blocked"
-    # JRI cannot rebuild the intended content, so it cannot separate the original content from the write of a
-    # model. A guess can delete real work. JRI leaves the files for the user to settle.
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-
-
-def test_undoes_the_acceptance_a_killed_run_left_staged(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
-    assert git.Repository(tmp_path).read_status() == (
-        git.Status(".jri/.gitignore", " ", "A"),
-        git.Status(".jri/notebook.yaml", " ", "A"),
-        git.Status(".jri/settings.yaml", " ", "A"),
-        git.Status(".jri/specs/architecture/design.md", " ", "A"),
-        git.Status(".jri/specs/functional/behavior.md", " ", "A"),
-    )
-
-    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
-
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-def test_keeps_the_acceptance_a_killed_run_had_already_committed(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "commit", kill_the_run_after_committing)
-    accepted = find_accepted_commit(tmp_path)
-
-    baseline = Specs(tmp_path).prepare()
-
-    assert baseline.accepted == accepted
-    assert find_accepted_commit(tmp_path) == accepted
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="a hook that kills its own Git needs a shell and `kill`")
-@pytest.mark.parametrize("window", ["written", "past"])
-def test_keeps_the_acceptance_the_git_a_hook_killed_had_already_committed(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, window: str
-) -> None:
-    create_repository(tmp_path)
-
-    with open_a_window(tmp_path, window, KILL_THE_GIT):
-        ending = read_ending(build_conversation(tmp_path, successful_client()).ralph())
-
-    assert ending == "replied"
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert not run_git(tmp_path, "status", "--short")
-    assert not Workspace(tmp_path).acceptance_file.exists()
-
-    restarted = build_conversation(tmp_path, updated_client())
-    restarted.restore()
-
-    assert read_ending(restarted.ralph()) == "replied"
-    assert (
-        (tmp_path / ".jri/specs/functional/behavior.md")
-        .read_text()
-        .endswith("# Behavior\nTotal output is supported.\n")
-    )
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
-def test_keeps_the_acceptance_a_killed_run_wrote_before_git_copied_the_index(
+# The private repository is not a part of the project. Its index and its files must not reach the project.
+def test_opens_a_private_repository_that_replaces_a_stale_one_and_leaves_the_project_alone(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
-    kill_amid_writing_the_commit(tmp_path, ACCEPTANCE_PATCH)
-    accepted = find_accepted_commit(tmp_path)
-    assert accepted == run_git(tmp_path, "rev-parse", "HEAD")
-    assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
-        ".jri/specs/functional/behavior.md",
-    ]
-    (tmp_path / ".git/index.lock").unlink()
-
-    baseline = Specs(tmp_path).prepare()
-
-    assert baseline.accepted == accepted
-    assert not Workspace(tmp_path).acceptance_file.exists()
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="a Git that ends itself needs a shell and `kill`")
-def test_keeps_the_acceptance_a_second_killed_git_could_not_be_asked_about(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    create_repository(tmp_path)
-    install_workspace(tmp_path)
-    install_a_killing_git(monkeypatch, tmp_path, HEAD_QUESTION)
     specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# Behavior\n"})
+    git_state = read_git_state(run_git, tmp_path)
+    location = specs.workspace.reserve_worktree_dir()
+    location.mkdir()
+    (location / "stale.txt").write_bytes(b"stale\n")
+
+    with specs.open_staging(specs.prepare()) as staging:
+        assert staging.path == location.resolve()
+        assert not (location / "stale.txt").exists()
+        assert Specs.read(staging, ".jri/specs/functional") == {".jri/specs/functional/behavior.md": b"# Behavior\n"}
+        assert read_git_state(run_git, tmp_path) == git_state
+
+    assert not location.exists()
+
+
+def set_binary_attributes(path: Path, run_git: RunGit) -> None:
+    attributes = path / "global-attributes"
+    attributes.write_bytes(b"*.md binary\n")
+    run_git(path, "config", "--global", "core.attributesFile", str(attributes))
+
+
+def set_git_settings(path: Path, run_git: RunGit, *settings: tuple[str, str]) -> None:
+    for name, value in settings:
+        run_git(path, "config", "--global", name, value)
+
+
+# The global settings of the user must not change the bytes of a specification or the format of a draft.
+@pytest.mark.parametrize(
+    "configure",
+    [
+        lambda path, run_git: set_git_settings(path, run_git, ("core.autocrlf", "true"), ("core.safecrlf", "true")),
+        lambda path, run_git: set_git_settings(path, run_git, ("apply.whitespace", "error")),
+        lambda path, run_git: set_git_settings(path, run_git, ("apply.whitespace", "fix")),
+        lambda path, run_git: set_git_settings(path, run_git, ("diff.context", "0")),
+        set_binary_attributes,
+    ],
+    ids=["crlf", "whitespace-error", "whitespace-fix", "no-context", "binary"],
+)
+def test_keeps_specification_bytes_and_drafts_under_the_git_settings_of_the_user(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, configure: Callable[[Path, RunGit], None]
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    accept_files(specs, specs.prepare(), {"functional/behavior.md": "# One\ntwo\nthree\nfour\nfive\nsix\nseven\n"})
+    configure(tmp_path, run_git)
+    edited = "# One\ntwo\nthree  \nfour\nfive\nsix\nseven\n"
     baseline = specs.prepare()
 
-    with open_a_window(tmp_path, "written", MARK_THE_WINDOW + KILL_THE_GIT):
-        commit = specs.accept(ACCEPTANCE_PATCH, baseline)
+    with specs.open_staging(baseline) as staging:
+        base = staging.write_tree()
+        Specs.write(staging, {"functional/behavior.md": edited}, (), "functional")
+        specs.save_draft(staging, base)
+    with specs.open_staging(baseline) as staging:
+        assert specs.resume(staging) == (".jri/specs/functional/behavior.md",)
+        specs.accept(staging, baseline)
 
-    assert commit == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert not run_git(tmp_path, "status", "--short")
-    assert not Workspace(tmp_path).acceptance_file.exists()
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
-def test_settles_the_index_beside_a_record_it_cannot_read(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    install_workspace(tmp_path)
-    kill_amid_writing_the_commit(tmp_path, ACCEPTANCE_PATCH)
-    accepted = find_accepted_commit(tmp_path)
-    (tmp_path / ".git/index.lock").unlink()
-    Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
-    assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
-        ".jri/specs/functional/behavior.md",
-    ]
-
-    baseline = Specs(tmp_path).prepare()
-
-    assert baseline.accepted == accepted
-    assert not Workspace(tmp_path).acceptance_file.exists()
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert not run_git(tmp_path, "status", "--short")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == edited.encode()
 
 
-@pytest.mark.parametrize(
-    "damage",
-    [FOREIGN_RECORD, TRUNCATED_RECORD, b"\x9c\x00 not a record of anything"],
-    ids=["a-foreign-field", "truncated", "corrupted-bytes"],
-)
-def test_keeps_the_leftovers_of_an_acceptance_it_cannot_read(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, damage: bytes
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    head = run_git(tmp_path, "rev-parse", "HEAD")
-    Workspace(tmp_path).acceptance_file.write_bytes(damage)
-
-    ending = read_ending(
-        build_conversation(tmp_path, successful_client()).ralph(),
-        r"Commit or remove these files before Ralphing:\n"
-        r"- \.jri/specs/architecture/design\.md\n- \.jri/specs/functional/behavior\.md",
-    )
-
-    assert ending == "blocked"
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert run_git(tmp_path, "rev-parse", "HEAD") == head
-    assert Workspace(tmp_path).acceptance_file.read_bytes() == damage
-
-
-def test_keeps_the_leftovers_it_cannot_read_of_a_project_holding_no_commit(tmp_path: Path, run_git: RunGit) -> None:
-    run_git(tmp_path, "init", "-q")
-    (tmp_path / "README.md").write_text("# Project\n")
-    # The project reaches the settlement below with no commit, and no worktree file can match a commit.
-    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    assert not run_git(tmp_path, "rev-parse", "--verify", "--quiet", "HEAD", check=False)
-    Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
-
-    ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
-
-    assert ending == "blocked"
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert Workspace(tmp_path).acceptance_file.read_bytes() == TRUNCATED_RECORD
-
-
-def test_keeps_the_content_the_user_staged_beside_a_record_it_cannot_read(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    settings_file = tmp_path / ".jri/settings.yaml"
-    settings_file.write_text("# The settings the user staged.\n")
-    run_git(tmp_path, "add", "--force", ".jri/settings.yaml")
-    settings_file.write_text("# The settings the user went on editing.\n")
-    Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
-
-    ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
-
-    assert ending == "blocked"
-    assert run_git(tmp_path, "show", ":.jri/settings.yaml") == "# The settings the user staged."
-    assert settings_file.read_text() == "# The settings the user went on editing.\n"
-
-
-def test_keeps_the_record_an_acceptance_under_way_cannot_be_read_from(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
-    Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
-
-    # A live lock has more authority than a record that JRI cannot read. Damage in the record does not prove
-    # that no run still writes it. JRI leaves both alone until the holder finishes or ends.
-    with hold(Workspace(tmp_path).acceptance_lock_file):
-        ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
-
-    assert ending == "blocked"
-    assert Workspace(tmp_path).acceptance_file.read_bytes() == TRUNCATED_RECORD
-
-
-@pytest.mark.parametrize(
-    "damage",
-    [b"", TRUNCATED_RECORD, b"\x9c\x00 not a record of anything"],
-    ids=["truncated-to-nothing", "truncated-mid-json", "corrupted-bytes"],
-)
-def test_starts_over_a_record_it_cannot_read(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, damage: bytes
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "commit", kill_the_run_after_committing)
-    record = Workspace(tmp_path).acceptance_file
-    record.write_bytes(damage)
-    restarted = build_conversation(tmp_path, updated_client())
-    restarted.restore()
-
-    assert read_ending(restarted.ralph()) == "replied"
-
-    assert not record.exists()
-    assert (
-        (tmp_path / ".jri/specs/functional/behavior.md")
-        .read_text()
-        .endswith("# Behavior\nTotal output is supported.\n")
-    )
-    assert not run_git(tmp_path, "status", "--short")
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="a file that refuses a read is an access list `chmod` cannot write")
-def test_starts_over_a_record_the_operating_system_refuses(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "commit", kill_the_run_after_committing)
-    record = Workspace(tmp_path).acceptance_file
-    record.chmod(0o000)
-    restarted = build_conversation(tmp_path, updated_client())
-    restarted.restore()
-
-    assert read_ending(restarted.ralph()) == "replied"
-
-    assert not record.exists()
-    assert (
-        (tmp_path / ".jri/specs/functional/behavior.md")
-        .read_text()
-        .endswith("# Behavior\nTotal output is supported.\n")
-    )
-    assert not run_git(tmp_path, "status", "--short")
-
-
-@pytest.mark.skipif(
-    sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
-)
-def test_reports_a_record_it_can_neither_read_nor_remove(tmp_path: Path, create_repository: CreateRepository) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "commit", kill_the_run_after_committing)
-    record = Workspace(tmp_path).acceptance_file
-    record.unlink()
-    record.mkdir()
-    (record / "not-a-record").write_bytes(b"")
-
-    ending = read_ending(
-        build_conversation(tmp_path, updated_client()).ralph(),
-        rf"Could not remove the acceptance record `{re.escape(str(record))}`",
-    )
-
-    assert ending == "failed"
-    assert record.exists()
-
-
-def test_ignores_a_record_of_an_acceptance_the_worktree_no_longer_holds(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    shutil.rmtree(tmp_path / ".jri/specs")
-
-    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
-
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
-@pytest.mark.parametrize(
-    ("kill", "held"),
-    [(kill_amid_staging, "index.lock"), (kill_amid_moving_the_branch, "HEAD.lock")],
-    ids=["index", "branch"],
-)
-def test_names_the_locks_an_acceptance_a_kill_reached_left_in_git(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, kill: Callable[[Path, bytes], None], held: str
-) -> None:
-    create_repository(tmp_path)
-    install_workspace(tmp_path)
-    kill(tmp_path, ACCEPTANCE_PATCH)
-    left = read_git_locks(tmp_path)
-    assert tmp_path / ".git" / held in left
-
-    ending = read_ending(
-        build_conversation(tmp_path, successful_client()).ralph(),
-        r"Git is locked\..*remove these before Ralphing:\n" + rf"(- .*\n)*- {re.escape(str(tmp_path / '.git' / held))}",
-    )
-
-    assert ending == "blocked"
-    assert read_git_locks(tmp_path) == left
-    for lock in left:
-        lock.unlink()
-
-    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
-
-    assert read_git_locks(tmp_path) == ()
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="an editor a commit stands in needs a shell")
-def test_keeps_the_index_lock_a_commit_of_the_user_s_is_holding(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    install_workspace(tmp_path)
-    # A lock file names no holder. JRI cannot separate an old lock of its own from a live lock that a Git
-    # command of the user holds. JRI refuses to continue for both.
-    kill_amid_staging(tmp_path, ACCEPTANCE_PATCH)
-    (tmp_path / ".git/index.lock").unlink()
-
-    with hold_a_commit_of_the_user_s(tmp_path) as commit:
-        ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Git is locked")
-
-        assert ending == "blocked"
-        assert (tmp_path / ".git/index.lock").exists()
-        assert commit.poll() is None
-
-    assert commit.returncode == 0
-    assert run_git(tmp_path, "log", "--format=%s", "--max-count=1") == USER_COMMIT
-    assert not run_git(tmp_path, "status", "--short", "--", "README.md")
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="a hook that kills its own Git needs a shell and `kill`")
-def test_frees_the_locks_the_git_a_run_that_lives_on_started_died_holding(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    list(build_conversation(tmp_path, successful_client()).ralph())
-    accepted = find_accepted_commit(tmp_path)
-    with open_a_window(tmp_path, "index", KILL_THE_GIT):
-        assert read_ending(build_conversation(tmp_path, updated_client()).ralph(), "Git command failed") == "failed"
-    # This hook kills only the Git process, and not the JRI process. The JRI process continues.
-    # It collects the dead Git process and frees the lock that it knows that Git took.
-    assert not Workspace(tmp_path).acceptance_file.exists()
-    assert read_git_locks(tmp_path) == ()
-
-    restarted = build_conversation(tmp_path, updated_client())
-    restarted.restore()
-
-    assert read_ending(restarted.ralph()) == "replied"
-    assert find_accepted_commit(tmp_path) not in {None, accepted}
-    assert (
-        (tmp_path / ".jri/specs/functional/behavior.md")
-        .read_text()
-        .endswith("# Behavior\nTotal output is supported.\n")
-    )
-    assert not run_git(tmp_path, "status", "--short")
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
-def test_keeps_the_locks_a_run_that_is_still_there_may_hold(
+def test_prepares_no_accepted_notebook_before_an_acceptance(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
-    kill_amid_staging(tmp_path, ACCEPTANCE_PATCH)
 
-    with hold(Workspace(tmp_path).acceptance_lock_file):
-        ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Git is locked")
-
-    assert ending == "blocked"
-    assert (tmp_path / ".git/index.lock").exists()
+    assert Specs(tmp_path).prepare().accepted_notebook is None
 
 
-def test_keeps_the_acceptance_a_run_that_is_still_there_is_carrying_out(
+# The next run reads what changed since the last run that wrote specifications, and not the notebook of today.
+def test_prepares_the_accepted_notebook_after_an_acceptance(
     tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
-    record = Workspace(tmp_path).acceptance_file.read_bytes()
-
-    with hold(Workspace(tmp_path).acceptance_lock_file):
-        ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
-
-    assert ending == "blocked"
-    assert Workspace(tmp_path).acceptance_file.read_bytes() == record
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="a hook that holds its own Git needs a shell")
-def test_keeps_the_acceptance_a_live_run_of_its_own_took_the_lock_for(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    accept_files(specs, baseline, {"functional/behavior.md": "# Behavior\n"})
+    (tmp_path / NOTEBOOK).write_bytes(baseline.notebook + b"# A note after the acceptance.\n")
 
-    with hold_an_acceptance(tmp_path, ACCEPTANCE_PATCH):
-        record = Workspace(tmp_path).acceptance_file.read_bytes()
+    prepared = specs.prepare()
 
-        Specs(tmp_path).prepare()
-
-        # The lock that the live acceptance holds is the only sign of it. In every other way, this project
-        # looks the same as a project where a killed run left the same record and the same commit.
-        assert Workspace(tmp_path).acceptance_file.read_bytes() == record
-
-    assert not Workspace(tmp_path).acceptance_file.exists()
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
-    assert not run_git(tmp_path, "status", "--short")
+    assert prepared.accepted_notebook == baseline.notebook
+    assert prepared.notebook != baseline.notebook
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
-def test_leaves_alone_the_lock_no_command_of_its_own_would_meet(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+# A record that JRI cannot read shows no change since the last run. The run then reads the whole notebook.
+def test_prepares_no_accepted_notebook_from_a_record_it_cannot_read(
+    tmp_path: Path, create_repository: CreateRepository, caplog: pytest.LogCaptureFixture
 ) -> None:
     create_repository(tmp_path)
     install_workspace(tmp_path)
-    # JRI watches only the locks that its own commands can take. A run that never touches an unrelated ref must
-    # not stop for the lock of that ref, and it must not remove that lock.
-    spare = tmp_path / ".git/refs/heads/spare.lock"
-    spare.touch()
-    kill_amid_staging(tmp_path, ACCEPTANCE_PATCH)
-    (tmp_path / ".git/index.lock").unlink()
+    (tmp_path / ACCEPTED_NOTEBOOK).mkdir()
 
-    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
-
-    assert read_git_locks(tmp_path) == (spare,)
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert not run_git(tmp_path, "status", "--short")
-
-
-def test_keeps_the_index_lock_standing_beside_a_record_of_its_own(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
-    index_lock = tmp_path / ".git/index.lock"
-    index_lock.touch()
-
-    ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Git is locked")
-
-    assert ending == "blocked"
-    assert index_lock.exists()
-
-
-def test_names_the_locks_no_record_of_its_own_accounts_for(tmp_path: Path, create_repository: CreateRepository) -> None:
-    create_repository(tmp_path)
-    locks = (tmp_path / ".git/index.lock", tmp_path / ".git/HEAD.lock")
-    for lock in locks:
-        lock.touch()
-
-    ending = read_ending(
-        build_conversation(tmp_path, successful_client()).ralph(),
-        r"Git is locked\..*remove these before Ralphing:\n" + "\n".join(rf"- {re.escape(str(lock))}" for lock in locks),
-    )
-
-    assert ending == "blocked"
-    assert all(lock.exists() for lock in locks)
-
-
-def test_leaves_a_leftover_the_user_changed_for_the_user_to_sort_out(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    create_repository(tmp_path)
-    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
-    leftover = tmp_path / ".jri/specs/functional/behavior.md"
-    leftover.write_text("# Behavior\nEdited by hand.\n")
-
-    ending = read_ending(
-        build_conversation(tmp_path, successful_client()).ralph(),
-        r"Commit or remove these files before Ralphing:\n"
-        r"- \.jri/specs/architecture/design\.md\n- \.jri/specs/functional/behavior\.md",
-    )
-
-    assert ending == "blocked"
-    assert leftover.read_text() == "# Behavior\nEdited by hand.\n"
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text().endswith("# Design\n")
-    assert find_accepted_commit(tmp_path) is None
-
-
-def test_refuses_specifications_left_uncommitted_before_generation(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, FakeClient([]))
-    stray = tmp_path / ".jri/specs/functional/stray.md"
-    stray.parent.mkdir(parents=True)
-    stray.write_text("# Stray\n")
-
-    assert read_ending(conversation.ralph(), r"stray\.md") == "blocked"
-
-    assert run_git(tmp_path, "log", "--format=%s").splitlines() == ["initial"]
+    assert Specs(tmp_path).prepare().accepted_notebook is None
+    assert any(record.getMessage().startswith("accepted_notebook_read_failed") for record in caplog.records)
 
 
 def test_reports_a_notebook_file_it_cannot_read(tmp_path: Path, create_repository: CreateRepository) -> None:
@@ -1445,100 +900,7 @@ def test_reports_a_notebook_file_it_cannot_read(tmp_path: Path, create_repositor
         Specs(tmp_path).prepare()
 
 
-def test_refuses_to_start_during_a_merge(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
-    create_repository(tmp_path)
-    base = run_git(tmp_path, "rev-parse", "HEAD")
-    (tmp_path / "main.md").write_text("# Main\n")
-    run_git(tmp_path, "add", "main.md")
-    run_git(tmp_path, "commit", "-qm", "docs: add a main note")
-    mainline = run_git(tmp_path, "rev-parse", "HEAD")
-    run_git(tmp_path, "checkout", "-q", "-b", "side", base)
-    (tmp_path / "side.md").write_text("# Side\n")
-    run_git(tmp_path, "add", "side.md")
-    run_git(tmp_path, "commit", "-qm", "docs: add a side note")
-    run_git(tmp_path, "merge", "--no-commit", "--no-ff", "-q", mainline)
-    conversation = build_conversation(tmp_path, FakeClient([]))
-
-    assert read_ending(conversation.ralph(), "Finish the merge") == "blocked"
-
-    assert run_git(tmp_path, "log", "--format=%s", "-1") == "docs: add a side note"
-
-
-def test_refuses_to_start_during_a_cherry_pick(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    base = run_git(tmp_path, "rev-parse", "HEAD")
-    (tmp_path / "README.md").write_text("mainline\n")
-    run_git(tmp_path, "commit", "-qam", "docs: write the mainline note")
-    mainline = run_git(tmp_path, "rev-parse", "HEAD")
-    run_git(tmp_path, "checkout", "-q", "-b", "side", base)
-    (tmp_path / "README.md").write_text("side\n")
-    run_git(tmp_path, "commit", "-qam", "docs: write the side note")
-    run_git(tmp_path, "cherry-pick", mainline, check=False)
-    conversation = build_conversation(tmp_path, FakeClient([]))
-
-    assert read_ending(conversation.ralph(), "Finish the merge or cherry-pick") == "blocked"
-
-    assert find_accepted_commit(tmp_path) is None
-
-
-def test_refuses_to_start_off_a_branch(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
-    create_repository(tmp_path)
-    run_git(tmp_path, "checkout", "-q", "--detach", "HEAD")
-    conversation = build_conversation(tmp_path, FakeClient([]))
-
-    assert read_ending(conversation.ralph(), "not on a branch") == "blocked"
-
-    assert find_accepted_commit(tmp_path) is None
-
-
-def test_refuses_to_start_during_a_stopped_rebase(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    (tmp_path / "notes.md").write_text("# Notes\n")
-    run_git(tmp_path, "add", "notes.md")
-    run_git(tmp_path, "commit", "-qm", "docs: add a note")
-    # A stopped rebase leaves HEAD detached. This is the same state as a checkout of any commit.
-    # JRI reports the general no-branch refusal, and not a refusal for a rebase.
-    run_git(tmp_path, "rebase", "--exec", "false", "HEAD~1", check=False)
-    conversation = build_conversation(tmp_path, FakeClient([]))
-
-    assert read_ending(conversation.ralph(), "not on a branch") == "blocked"
-
-    assert find_accepted_commit(tmp_path) is None
-
-
-def test_commits_specifications_after_a_rebase_that_finished(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("GIT_EDITOR", "true")
-    create_repository(tmp_path)
-    mainline = run_git(tmp_path, "rev-parse", "--abbrev-ref", "HEAD")
-    run_git(tmp_path, "checkout", "-q", "-b", "side")
-    (tmp_path / "README.md").write_text("side\n")
-    run_git(tmp_path, "commit", "-qam", "docs: write the side note")
-    run_git(tmp_path, "checkout", "-q", mainline)
-    (tmp_path / "README.md").write_text("mainline\n")
-    run_git(tmp_path, "commit", "-qam", "docs: write the mainline note")
-    run_git(tmp_path, "checkout", "-q", "side")
-    run_git(tmp_path, "rebase", mainline, check=False)
-    (tmp_path / "README.md").write_text("resolved\n")
-    run_git(tmp_path, "add", "README.md")
-    run_git(tmp_path, "rebase", "--continue")
-    conversation = build_conversation(tmp_path, successful_client())
-    # Git keeps `REBASE_HEAD` after a rebase finishes, so this file cannot show that a rebase continues.
-    # `_check_state` reads the branch for that reason.
-    assert run_git(tmp_path, "rev-parse", "--verify", "--quiet", "REBASE_HEAD^{commit}", check=False)
-
-    list(conversation.ralph())
-
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-
-
-def test_commits_specifications_onto_a_project_that_moved_during_generation(
+def test_accepts_specifications_onto_a_project_that_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
@@ -1546,40 +908,34 @@ def test_commits_specifications_onto_a_project_that_moved_during_generation(
     events = conversation.ralph()
     next(events)
     run_git(tmp_path, "commit", "--allow-empty", "-qm", "concurrent")
+    git_state = read_git_state(run_git, tmp_path)
 
-    list(events)
+    assert read_ending(events) == "replied"
 
-    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
-    assert run_git(tmp_path, "log", "-2", "--format=%s").splitlines() == ["jri: update specifications", "concurrent"]
+    assert read_git_state(run_git, tmp_path) == git_state
+    assert run_git(tmp_path, "log", "-1", "--format=%s") == "concurrent"
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
 
 
-def test_commits_specifications_while_the_project_has_uncommitted_work(
+def test_accepts_specifications_while_the_project_has_uncommitted_work(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
     (tmp_path / "uv.lock").write_text("locked\n")
     (tmp_path / "README.md").write_text("# Project, in progress\n")
+    git_state = read_git_state(run_git, tmp_path)
 
-    list(conversation.ralph())
+    assert read_ending(conversation.ralph()) == "replied"
 
-    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
-    ]
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert (tmp_path / "uv.lock").read_text() == "locked\n"
     assert (tmp_path / "README.md").read_text() == "# Project, in progress\n"
-    assert git.Repository(tmp_path).read_status() == (
-        git.Status("README.md", " ", "M"),
-        git.Status("uv.lock", "?", "?"),
-    )
+    assert read_git_state(run_git, tmp_path) == git_state
+    assert read_status(run_git, tmp_path) == [" M README.md", *FIRST_RUN_ENTRIES, "?? uv.lock"]
 
 
-def test_commits_specifications_while_the_project_has_work_staged(
+def test_accepts_specifications_while_the_project_has_work_staged(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
@@ -1587,22 +943,16 @@ def test_commits_specifications_while_the_project_has_work_staged(
     (tmp_path / "src").mkdir()
     (tmp_path / "src/app.py").write_text("print('half done')\n")
     run_git(tmp_path, "add", "src/app.py")
-    staged = run_git(tmp_path, "ls-files", "--stage", "src/app.py")
+    git_state = read_git_state(run_git, tmp_path)
 
-    list(conversation.ralph())
+    assert read_ending(conversation.ralph()) == "replied"
 
-    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
-    ]
-    assert run_git(tmp_path, "ls-files", "--stage", "src/app.py") == staged
-    assert run_git(tmp_path, "status", "--short") == "A  src/app.py"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert read_git_state(run_git, tmp_path) == git_state
+    assert read_status(run_git, tmp_path) == ["A  src/app.py", *FIRST_RUN_ENTRIES]
 
 
-def test_commits_specifications_into_a_project_that_ignores_the_workspace(
+def test_accepts_specifications_into_a_project_that_ignores_the_workspace(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
@@ -1614,36 +964,53 @@ def test_commits_specifications_into_a_project_that_ignores_the_workspace(
     junk.parent.mkdir(parents=True)
     junk.write_bytes(b"\x00")
 
-    list(conversation.ralph())
+    assert read_ending(conversation.ralph()) == "replied"
 
-    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
-        ".jri/.gitignore",
-        ".jri/notebook.yaml",
-        ".jri/settings.yaml",
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
-    ]
+    assert read_specifications(tmp_path) == ARCHITECTURE_FILES | FUNCTIONAL_FILES
     assert junk.read_bytes() == b"\x00"
     assert not run_git(tmp_path, "status", "--short")
 
 
-def test_refuses_a_handwritten_specification_the_project_ignores(
+# The rule of the user reaches every repository of that user, the private one of a run included.
+# A copy that lost the specifications would make the second run create files that the project already holds.
+def test_keeps_specifications_a_global_ignore_rule_excludes(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    (tmp_path / ".gitignore").write_text(".jri/\n")
-    run_git(tmp_path, "add", ".gitignore")
-    run_git(tmp_path, "commit", "-qm", "chore: ignore the workspace")
-    conversation = build_conversation(tmp_path, successful_client())
+    rules = tmp_path.parent / f"{tmp_path.name}-ignore"
+    rules.write_text("*.md\n")
+    run_git(tmp_path, "config", "--global", "core.excludesFile", str(rules))
+    git_state = read_git_state(run_git, tmp_path)
+
+    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+    assert read_specifications(tmp_path) == ARCHITECTURE_FILES | FUNCTIONAL_FILES
+
+    restarted = build_conversation(tmp_path, updated_client())
+    restarted.restore()
+
+    assert read_ending(restarted.ralph()) == "replied"
+    assert read_specifications(tmp_path) == UPDATED_ARCHITECTURE_FILES | UPDATED_FUNCTIONAL_FILES
+    assert read_git_state(run_git, tmp_path) == git_state
+
+
+# A file the user put in the specification tree is part of the baseline, whether Git tracks it or ignores it.
+@pytest.mark.parametrize("rules", ["", ".jri/\n"], ids=["untracked", "ignored"])
+def test_takes_a_handwritten_specification_into_the_baseline(
+    rules: str, tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    (tmp_path / ".gitignore").write_text(rules)
+    client = successful_client()
+    conversation = build_conversation(tmp_path, client)
     stray = tmp_path / ".jri/specs/functional/stray.md"
     stray.parent.mkdir(parents=True)
-    stray.write_text("# Stray\n")
+    stray.write_bytes(HANDWRITTEN_SPECIFICATION)
 
-    ending = read_ending(conversation.ralph(), r"Commit or remove these files before Ralphing:\n- \.jri/specs")
+    assert read_ending(conversation.ralph()) == "replied"
 
-    assert ending == "blocked"
-    assert find_accepted_commit(tmp_path) is None
-    assert stray.read_text() == "# Stray\n"
+    assert any("Written by hand." in str(item) for item in client.responses.inputs)
+    assert stray.read_bytes() == HANDWRITTEN_SPECIFICATION
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
 
 
 def test_refuses_a_specification_git_holds_as_a_link(
@@ -1664,14 +1031,30 @@ def test_refuses_a_specification_git_holds_as_a_link(
     # A link inside the specification tree can point to any file on disk. JRI must refuse the link before it
     # renders, or the content of that file reaches the model. That content is a secret here.
     assert not any("hunter2" in str(item) for item in client.responses.inputs)
-    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
+
+
+# Git holds nothing about this link, so only the filesystem reports it.
+def test_refuses_a_specification_link_git_does_not_hold(
+    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink
+) -> None:
+    create_repository(tmp_path)
+    (tmp_path / "secret.txt").write_text("The password is hunter2.\n")
+    client = successful_client()
+    conversation = build_conversation(tmp_path, client)
+    link = tmp_path / ".jri/specs/functional/leak.md"
+    link.parent.mkdir(parents=True)
+    create_link(link, tmp_path / "secret.txt")
+
+    assert read_ending(conversation.ralph(), r"these are links.+\n- \.jri/specs/functional/leak\.md") == "blocked"
+
+    assert not any("hunter2" in str(item) for item in client.responses.inputs)
+    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
 
 
 # This is the same refusal on a machine that makes no links. A checkout leaves the entry as a plain file, and
 # the Git status reports nothing about it.
-# Without the refusal, the run reads a path as the body of the specification, and its acceptance records the link
-# mode again. The machine that cannot see the bad commit writes it, and the next machine that can see it meets
-# the refusal.
+# Without the refusal, the run reads a path as the body of the specification.
 # A checkout reads `core.symlinks`, and not the platform. The tests make this condition on every machine.
 def test_refuses_a_specification_git_holds_as_a_link_where_the_checkout_left_a_file(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
@@ -1690,27 +1073,28 @@ def test_refuses_a_specification_git_holds_as_a_link_where_the_checkout_left_a_f
 
     assert not leak.is_symlink()
     assert not run_git(tmp_path, "status", "--short", "--", ".jri/specs")
-    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
 
 
+@pytest.mark.parametrize("relative", [NOTEBOOK, ACCEPTED_NOTEBOOK], ids=["notebook", "accepted-notebook"])
 def test_refuses_a_notebook_git_would_hold_as_a_link(
-    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink
+    relative: str, tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink
 ) -> None:
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
-    notebook = tmp_path / ".jri/notebook.yaml"
-    shared = tmp_path.parent / "shared-notes.yaml"
-    shared.write_bytes(notebook.read_bytes())
-    notebook.unlink()
+    notebook = tmp_path / relative
+    shared = tmp_path.parent / f"{tmp_path.name}-shared-notes.yaml"
+    shared.write_bytes((tmp_path / NOTEBOOK).read_bytes())
+    notebook.unlink(missing_ok=True)
     create_link(notebook, shared)
 
-    assert read_ending(conversation.ralph(), r"these are links.+\n- \.jri/notebook\.yaml") == "blocked"
+    assert read_ending(conversation.ralph(), rf"these are links.+\n- {re.escape(relative)}") == "blocked"
 
-    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ".jri/specs").exists()
 
 
-def test_refuses_to_commit_when_the_specifications_moved_during_generation(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+def test_refuses_to_accept_when_the_specifications_moved_during_generation(
+    tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
@@ -1719,37 +1103,36 @@ def test_refuses_to_commit_when_the_specifications_moved_during_generation(
     stray = tmp_path / ".jri/specs/functional/stray.md"
     stray.parent.mkdir(parents=True)
     stray.write_text("# Stray\n")
-    run_git(tmp_path, "add", ".jri/specs")
-    run_git(tmp_path, "commit", "-qm", "docs: write a specification by hand")
 
     assert read_ending(events, "specifications changed during generation") == "blocked"
 
-    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
+    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
+    # The specifications moved and the work did not. The draft keeps that work for the next run.
+    assert Workspace(tmp_path).draft_file.exists()
 
 
-# After JRI accepts a generation, the commit that it made holds the specifications that the baseline came from.
-# A baseline taken from that commit, and not from HEAD, agrees with itself and reports no change.
-# Every run after the first one is such a run.
-def test_refuses_to_commit_when_the_specifications_moved_after_an_earlier_acceptance(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+# After an earlier acceptance, the project holds specifications that the baseline read from the disk.
+# A file that arrives during the run still differs from that baseline.
+def test_refuses_to_accept_when_the_specifications_moved_after_an_earlier_acceptance(
+    tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
-    accepted = find_accepted_commit(tmp_path)
+    record = (tmp_path / ACCEPTED_NOTEBOOK).read_bytes()
     restarted = build_conversation(tmp_path, updated_client())
     restarted.restore()
     events = restarted.ralph()
     next(events)
     (tmp_path / ".jri/specs/functional/stray.md").write_text("# Stray\n")
-    run_git(tmp_path, "add", ".jri/specs")
-    run_git(tmp_path, "commit", "-qm", "docs: write a specification by hand")
 
     assert read_ending(events, "specifications changed during generation") == "blocked"
 
-    assert find_accepted_commit(tmp_path) == accepted
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == record
 
 
-def test_refuses_to_commit_when_the_notebook_moved_during_generation(
+def test_refuses_to_accept_when_the_notebook_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
@@ -1760,21 +1143,8 @@ def test_refuses_to_commit_when_the_notebook_moved_during_generation(
 
     assert read_ending(events, "project notes changed during generation") == "blocked"
 
-    assert find_accepted_commit(tmp_path) is None
-
-
-def test_refuses_specifications_jri_never_accepted(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    spec = tmp_path / ".jri/specs/functional/behavior.md"
-    spec.parent.mkdir(parents=True)
-    spec.write_text("# Behavior\n")
-    run_git(tmp_path, "add", ".jri")
-    run_git(tmp_path, "commit", "-qm", "add specifications")
-    conversation = build_conversation(tmp_path, FakeClient([]))
-
-    assert read_ending(conversation.ralph(), "specifications JRI did not write") == "blocked"
+    assert not (tmp_path / ".jri/specs").exists()
+    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
 
 
 def test_reads_every_markdown_specification_under_a_root(tmp_path: Path, create_repository: CreateRepository) -> None:
@@ -1917,10 +1287,10 @@ def test_indexes_a_specification_that_carries_no_summary(content: bytes) -> None
     assert indexed == "<specifications>\n  functional/behavior.md: (no summary)\n</specifications>"
 
 
-# The tree belongs to JRI. A run shows the model what it reads from the tree, and an acceptance commits that.
+# The tree belongs to JRI. A run shows the model what it reads from the tree, and an acceptance applies that.
 # An entry that answers the specification glob and is not a plain file ends the run.
 # The run names the path inside the tree. It does not repeat what the operating system says about a worktree that
-# JRI opened in a temporary directory of its own.
+# JRI opened for a run.
 @pytest.mark.parametrize(
     "stand",
     [
@@ -1966,8 +1336,7 @@ def test_refuses_a_specification_tree_entry_that_is_a_link(
 # This is the same entry, where the platform makes no link. Git keeps the link mode, and the filesystem keeps a
 # plain file that holds the text of the target.
 # A refusal that reads only `Path.is_symlink` accepts that file as a specification. It gives a model a path in
-# the place of the body. It also lets the acceptance commit the mode again, for the next user who checks the
-# tree out where the platform makes links.
+# the place of the body.
 # An index entry written by hand makes this condition on every machine. Only Windows reaches it with a checkout.
 def test_refuses_a_specification_tree_entry_git_holds_as_a_link(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
@@ -2009,7 +1378,7 @@ def test_reports_a_specification_it_cannot_read(tmp_path: Path, create_repositor
 
 
 # A filesystem that ignores case keeps two such names as one file.
-# Windows and macOS cannot check out a tree that holds both names, and JRI commits that tree.
+# Windows and macOS cannot check out a tree that holds both names, and the user can commit that tree.
 @pytest.mark.parametrize(
     ("standing", "written", "deleted"),
     [
@@ -2042,51 +1411,52 @@ def test_removes_the_specification_files_a_model_deleted(
 ) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, build_client(FUNCTIONAL_PAIR_FILES)).ralph())
+    run_git(tmp_path, "add", ".jri")
+    run_git(tmp_path, "commit", "-qm", "docs: commit the specifications")
+    git_state = read_git_state(run_git, tmp_path)
     restarted = build_conversation(
         tmp_path, build_client({}, UPDATED_ARCHITECTURE_FILES, functional_deleted=["functional/exports.md"])
     )
     restarted.restore()
 
-    list(restarted.ralph())
+    assert read_ending(restarted.ralph()) == "replied"
 
     assert not (tmp_path / ".jri/specs/functional/exports.md").exists()
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
-    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/exports.md",
+    assert read_git_state(run_git, tmp_path) == git_state
+    assert read_status(run_git, tmp_path) == [
+        " M .jri/specs/architecture/design.md",
+        " D .jri/specs/functional/exports.md",
     ]
-    assert not run_git(tmp_path, "status", "--short")
 
 
 # A generation that writes the specifications the project already holds changes nothing.
-# There is nothing to accept and nothing to remove, so the turn ends on the conclusion of the models.
-# The run after it commits in the same way as any other run.
-def test_ends_a_generation_that_changed_nothing_without_leaving_a_record(
+# There is nothing to accept, so the turn ends on the conclusion of the models.
+# The run after it writes in the same way as any other run.
+def test_ends_a_generation_that_changed_nothing_without_writing_anything(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
-    accepted = find_accepted_commit(tmp_path)
+    git_state = read_git_state(run_git, tmp_path)
+    specifications = read_specifications(tmp_path)
+    record = (tmp_path / ACCEPTED_NOTEBOOK).read_bytes()
     restarted = build_conversation(tmp_path, successful_client())
     restarted.restore()
+    restarted.interviewer.notebook.add(["A note that changes no specification."], "t1")
 
     assert read_ending(restarted.ralph()) == "replied"
 
-    assert find_accepted_commit(tmp_path) == accepted
-    assert run_git(tmp_path, "rev-parse", "HEAD") == accepted
-    assert not (tmp_path / ".jri/generation/acceptance.json").exists()
-    assert not run_git(tmp_path, "status", "--short")
+    assert read_specifications(tmp_path) == specifications
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == record
+    assert not Workspace(tmp_path).draft_file.exists()
+    assert read_git_state(run_git, tmp_path) == git_state
     changed = build_conversation(tmp_path, updated_client())
     changed.restore()
 
-    list(changed.ralph())
+    assert read_ending(changed.ralph()) == "replied"
 
-    assert find_accepted_commit(tmp_path) not in {None, accepted}
-    assert (
-        (tmp_path / ".jri/specs/functional/behavior.md")
-        .read_text()
-        .endswith("# Behavior\nTotal output is supported.\n")
-    )
+    assert read_specifications(tmp_path) == UPDATED_ARCHITECTURE_FILES | UPDATED_FUNCTIONAL_FILES
 
 
 def test_keeps_the_accepted_specifications_when_a_generation_fails(
@@ -2094,7 +1464,7 @@ def test_keeps_the_accepted_specifications_when_a_generation_fails(
 ) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
-    first_spec_commit = find_accepted_commit(tmp_path)
+    record = (tmp_path / ACCEPTED_NOTEBOOK).read_bytes()
     client = build_client({"functional/behavior.txt": "# Behavior\n"})
     conversation = build_conversation(tmp_path, client)
     conversation.restore()
@@ -2103,7 +1473,7 @@ def test_keeps_the_accepted_specifications_when_a_generation_fails(
     assert read_ending(conversation.ralph(), "at least one file") == "failed"
     assert r"cannot change `functional/behavior.txt`" in read_refusals(client)
 
-    assert find_accepted_commit(tmp_path) == first_spec_commit
+    assert (tmp_path / ACCEPTED_NOTEBOOK).read_bytes() == record
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text().endswith("# Behavior\n")
     assert [note.text for note in conversation.notebook.graph.notes] == ["Report the totals too."]
 
@@ -2122,7 +1492,7 @@ def test_reports_a_specification_path_the_filesystem_refuses(
 
     assert read_ending(conversation.ralph(), "at least one file") == "failed"
     assert "could not write the specification" in read_refusals(client)
-    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
     assert not (tmp_path / ".jri/specs").exists()
 
 
@@ -2150,40 +1520,39 @@ def test_accepts_specifications_that_read_like_patch_metadata(
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, build_client({path: content}))
 
-    list(conversation.ralph())
+    assert read_ending(conversation.ralph()) == "replied"
 
     assert (tmp_path / ".jri/specs" / path).read_text().endswith(content)
-    assert find_accepted_commit(tmp_path) is not None
+    assert (tmp_path / ACCEPTED_NOTEBOOK).exists()
 
 
-def test_refuses_specifications_edited_outside_jri(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+# The specifications on the disk are the baseline, whoever wrote them last.
+# The next run shows the model that edit, keeps it, and writes its own delta beside it.
+@pytest.mark.parametrize(
+    "edited", ["functional/behavior.md", "architecture/design.md"], ids=["functional", "architecture"]
+)
+def test_takes_a_hand_edited_specification_as_the_next_baseline(
+    edited: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, successful_client())
-    list(conversation.ralph())
-    (tmp_path / ".jri/specs/functional/behavior.md").write_text("# Behavior\nEdited by hand.\n")
-    run_git(tmp_path, "add", ".jri/specs")
-    run_git(tmp_path, "commit", "-qm", "docs: edit specifications")
+    git_state = read_git_state(run_git, tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specification = tmp_path / ".jri/specs" / edited
+    specification.write_bytes(HANDWRITTEN_SPECIFICATION)
+    client = build_client({"functional/exports.md": "# Exports\n"}, {"architecture/exports.md": "# Exports\n"})
+    restarted = build_conversation(tmp_path, client)
+    restarted.restore()
 
-    assert read_ending(conversation.ralph(), "differ from the ones JRI accepted") == "blocked"
+    assert read_ending(restarted.ralph()) == "replied"
 
-
-def test_refuses_architecture_specifications_edited_outside_jri(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, successful_client())
-    list(conversation.ralph())
-    (tmp_path / ".jri/specs/architecture/design.md").write_text("# Design\nEdited by hand.\n")
-    run_git(tmp_path, "add", ".jri/specs")
-    run_git(tmp_path, "commit", "-qm", "docs: edit the architecture")
-
-    assert read_ending(conversation.ralph(), "differ from the ones JRI accepted") == "blocked"
+    assert any("Written by hand." in str(item) for item in client.responses.inputs)
+    assert specification.read_bytes() == HANDWRITTEN_SPECIFICATION
+    assert (tmp_path / ".jri/specs/functional/exports.md").read_text().endswith("# Exports\n")
+    assert (tmp_path / ".jri/specs/architecture/exports.md").read_text().endswith("# Exports\n")
+    assert read_git_state(run_git, tmp_path) == git_state
 
 
-# A forced reset replaces the idea of the project, but Git keeps the specifications of the idea it replaced and
-# the commit that accepted them. A run that finds either one stops, and nobody can Ralph the project again.
+# A forced reset replaces the idea of the project. The specifications and the record of that idea go with it.
 def test_prepares_a_baseline_after_a_forced_start_over(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
@@ -2192,7 +1561,7 @@ def test_prepares_a_baseline_after_a_forced_start_over(tmp_path: Path, create_re
 
     baseline = Specs(tmp_path).prepare()
     assert baseline.specifications == {}
-    assert baseline.accepted == git.Repository(tmp_path).read_head()
+    assert baseline.accepted_notebook is None
 
 
 @pytest.mark.parametrize(
@@ -2251,7 +1620,7 @@ def test_refuses_a_path_that_is_not_a_specification_of_its_root(
     # the refusal. The pass then ends with no file written, and the run ends because of that.
     assert read_ending(conversation.ralph(), "at least one file") == "failed"
     assert re.search(reason, read_refusals(client)), read_refusals(client)
-    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
     assert not (tmp_path / ".jri/specs").exists()
 
 
@@ -2264,7 +1633,7 @@ def test_refuses_to_remove_a_path_that_is_not_a_specification_of_its_root(
     conversation = build_conversation(tmp_path, build_client({}, functional_deleted=["architecture/behavior.md"]))
 
     assert read_ending(conversation.ralph(), r"cannot change `architecture/behavior\.md`") == "failed"
-    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
     assert not (tmp_path / ".jri/specs").exists()
 
 
@@ -2280,7 +1649,7 @@ def test_refuses_a_specification_body_git_would_read_as_binary(
 
     assert read_ending(conversation.ralph(), "at least one file") == "failed"
     assert "holds a null character" in read_refusals(client)
-    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ACCEPTED_NOTEBOOK).exists()
     assert not (tmp_path / ".jri/specs").exists()
 
 
@@ -2380,8 +1749,8 @@ def test_removes_a_specification_the_same_answer_also_wrote(
 
 # A draft reports that it is a delta onto the specifications the project holds, and the run asks Git before it
 # accepts the draft.
-# Git reads the whole patch before it writes any part of it. A refusal leaves the worktree of the run
-# exactly as the checkout made it.
+# Git reads the whole patch before it writes any part of it. A refusal leaves the private repository of the run
+# as it was.
 def test_refuses_a_draft_the_specifications_moved_past(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -2391,7 +1760,8 @@ def test_refuses_a_draft_the_specifications_moved_past(
     baseline = specs.prepare()
     write_draft(tmp_path, STALE_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
+        status = read_status(run_git, staging.path)
         restored = specs.resume(staging)
 
         assert restored is None
@@ -2399,16 +1769,16 @@ def test_refuses_a_draft_the_specifications_moved_past(
             "architecture/design.md": "# Design\n",
             "functional/behavior.md": "# Behavior\n",
         }
-        assert not run_git(staging.path, "status", "--short")
+        assert read_status(run_git, staging.path) == status
     assert not Workspace(tmp_path).draft_file.exists()
 
 
 # A draft is a file on the disk of the user, so a patch that no part of JRI wrote can be there.
 # Git places a link where a specification goes, and `Specs.read` refuses such a tree. A run that met that refusal
 # only after it picked the draft up would end there. It would meet the same draft on each run after it.
-# `core.symlinks` decides what the apply leaves, and the platform does not. The apply leaves a link that the
-# filesystem shows. Or it leaves a plain file that holds the text of the target, and that only the index calls
-# a link.
+# `core.symlinks` of the private repository decides what the apply leaves, and the platform does not.
+# The apply leaves a link that the filesystem shows. Or it leaves a plain file that holds the text of the target,
+# and that only the index calls a link.
 # A Windows without the privilege for a link leaves the second one.
 # JRI refuses both, and a machine that reads only `Path.is_symlink` accepts the second one as a specification.
 @pytest.mark.parametrize(
@@ -2420,13 +1790,14 @@ def test_refuses_a_draft_that_puts_a_link_where_a_specification_goes(
     tmp_path: Path, symlinks: str, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    run_git(tmp_path, "config", "core.symlinks", symlinks)
     list(build_conversation(tmp_path, successful_client()).ralph())
     specs = Specs(tmp_path)
     baseline = specs.prepare()
     write_draft(tmp_path, LINKED_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
+        run_git(staging.path, "config", "core.symlinks", symlinks)
+        status = read_status(run_git, staging.path)
         restored = specs.resume(staging)
 
         assert restored is None
@@ -2435,7 +1806,7 @@ def test_refuses_a_draft_that_puts_a_link_where_a_specification_goes(
             "architecture/design.md": "# Design\n",
             "functional/behavior.md": "# Behavior\n",
         }
-        assert not run_git(staging.path, "status", "--short")
+        assert read_status(run_git, staging.path) == status
     assert not Workspace(tmp_path).draft_file.exists()
 
 
@@ -2452,7 +1823,8 @@ def test_refuses_a_draft_cut_off_inside_its_hunk(
     baseline = specs.prepare()
     write_draft(tmp_path, TRUNCATED_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
+        status = read_status(run_git, staging.path)
         restored = specs.resume(staging)
 
         assert restored is None
@@ -2460,7 +1832,7 @@ def test_refuses_a_draft_cut_off_inside_its_hunk(
             "architecture/design.md": "# Design\n",
             "functional/behavior.md": "# Behavior\n",
         }
-        assert not run_git(staging.path, "status", "--short")
+        assert read_status(run_git, staging.path) == status
     assert not Workspace(tmp_path).draft_file.exists()
 
 
@@ -2475,17 +1847,18 @@ def test_refuses_a_draft_that_places_no_specification(
     baseline = specs.prepare()
     write_draft(tmp_path, FOREIGN_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
+        status = read_status(run_git, staging.path)
         restored = specs.resume(staging)
 
         assert restored is None
-        assert (staging.path / "README.md").read_text() == "# Project\n"
-        assert not run_git(staging.path, "status", "--short")
+        assert not (staging.path / "notes.txt").exists()
+        assert read_status(run_git, staging.path) == status
     assert not Workspace(tmp_path).draft_file.exists()
 
 
 # A draft continues after the run that composed it ends, and after that version of JRI ends.
-# The specifications it places are the one tree that reaches a commit with no answer of a model behind it.
+# The specifications it places are the one tree that reaches the project with no answer of a model behind it.
 # JRI reads them against the same rules as an answer. It reads the roots a model writes below, the names a
 # specification can have, and a body that is text.
 @pytest.mark.parametrize(
@@ -2518,7 +1891,8 @@ def test_refuses_a_draft_naming_a_specification_jri_would_not_write(
     baseline = specs.prepare()
     write_draft(tmp_path, draft)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
+        status = read_status(run_git, staging.path)
         restored = specs.resume(staging)
 
         assert restored is None
@@ -2526,13 +1900,13 @@ def test_refuses_a_draft_naming_a_specification_jri_would_not_write(
             "architecture/design.md": "# Design\n",
             "functional/behavior.md": "# Behavior\n",
         }
-        assert not run_git(staging.path, "status", "--short")
+        assert read_status(run_git, staging.path) == status
     assert not Workspace(tmp_path).draft_file.exists()
 
 
-# A restore states as much as an apply does, so the run reads the worktree again against what the checkout
-# left. No round can write into a worktree that JRI cannot restore. The run ends and reports that. It does not
-# write, render and commit a specification that it refused.
+# A restore states as much as an apply does, so the run reads the worktree again against the state before the
+# apply. No round can write into a worktree that JRI cannot restore. The run ends and reports that. It does not
+# write, render and accept a specification that it refused.
 # The draft is gone at that point. The run after this one starts from the specifications the project holds.
 @pytest.mark.skipif(
     sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
@@ -2547,7 +1921,7 @@ def test_refuses_a_worktree_a_drafted_specification_could_not_be_taken_out_of(
     write_draft(tmp_path, REDRAFTED_DEVICE_NAME_DRAFT)
     monkeypatch.setattr(git.Repository, "apply_patch", seal_the_specifications_after_applying)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
         try:
             with pytest.raises(SpecsError, match="could not take a drafted specification back out"):
                 specs.resume(staging)
@@ -2570,7 +1944,8 @@ def test_leaves_a_specification_it_cannot_read_where_it_stands(
     baseline = specs.prepare()
     write_draft(tmp_path, DEVICE_NAME_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
+        status = read_status(run_git, staging.path)
         unreadable = staging.path / ".jri/specs/functional/behavior.md"
         unreadable.chmod(0o000)
         try:
@@ -2583,7 +1958,7 @@ def test_leaves_a_specification_it_cannot_read_where_it_stands(
             "architecture/design.md": "# Design\n",
             "functional/behavior.md": "# Behavior\n",
         }
-        assert not run_git(staging.path, "status", "--short")
+        assert read_status(run_git, staging.path) == status
     assert not Workspace(tmp_path).draft_file.exists()
 
 
@@ -2600,18 +1975,16 @@ def test_leaves_a_specification_it_cannot_read_where_it_stands(
     ids=["folded-name", "unwritable-name", "null-body"],
 )
 def test_keeps_a_draft_beside_a_specification_the_project_already_holds(
-    standing: str, content: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    standing: str, content: str, tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
     (tmp_path / ".jri/specs/functional" / standing).write_text(content, encoding="utf-8", newline="\n")
-    run_git(tmp_path, "add", "--force", ".jri/specs")
-    run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
     specs = Specs(tmp_path)
     baseline = specs.prepare()
     write_draft(tmp_path, UPDATE_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
         restored = specs.resume(staging)
 
         assert restored == (".jri/specs/functional/behavior.md",)
@@ -2623,17 +1996,18 @@ def test_keeps_a_draft_beside_a_specification_the_project_already_holds(
 
 
 # A run picks up the delta that the draft placed. That delta holds none of the specifications the project
-# already has, because the checkout wrote those.
+# already has, because the private repository starts with a copy of those.
 def test_picks_up_the_draft_a_run_before_it_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
     specs = Specs(tmp_path)
     baseline = specs.prepare()
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as drafting:
+    with specs.open_staging(baseline) as drafting:
+        base = drafting.write_tree()
         specs.write(drafting, UPDATED_FUNCTIONAL_FILES, (), "functional")
-        specs.save_draft(drafting, baseline)
+        specs.save_draft(drafting, base)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
+    with specs.open_staging(baseline) as staging:
         restored = specs.resume(staging)
 
         assert restored == (".jri/specs/functional/behavior.md",)
@@ -2643,7 +2017,7 @@ def test_picks_up_the_draft_a_run_before_it_wrote(tmp_path: Path, create_reposit
         }
 
 
-# The ignore file that JRI commits holds a rule for the run directory.
+# The ignore file of the workspace holds a rule for the run directory.
 # The draft stays out of `git status`, out of the tree the architect reads, and out of the copy the
 # repository study runs in.
 def test_keeps_a_draft_out_of_the_project(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
@@ -2652,16 +2026,17 @@ def test_keeps_a_draft_out_of_the_project(tmp_path: Path, create_repository: Cre
     specs = Specs(tmp_path)
     baseline = specs.prepare()
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as drafting:
+    with specs.open_staging(baseline) as drafting:
+        base = drafting.write_tree()
         specs.write(drafting, UPDATED_FUNCTIONAL_FILES, (), "functional")
-        specs.save_draft(drafting, baseline)
+        specs.save_draft(drafting, base)
 
     assert Workspace(tmp_path).draft_file.exists()
     assert ".jri/generation/draft.patch" not in specs.repository.read_worktree_paths()
-    assert not run_git(tmp_path, "status", "--short")
+    assert not any("generation" in entry for entry in read_status(run_git, tmp_path))
 
 
-# A run that writes the specifications the project already committed composed no delta.
+# A run that writes the specifications the project already holds composed no delta.
 # An empty file is not a draft, and the next run can read nothing from it.
 def test_forgets_a_draft_whose_specifications_the_project_already_holds(
     tmp_path: Path, create_repository: CreateRepository
@@ -2672,7 +2047,7 @@ def test_forgets_a_draft_whose_specifications_the_project_already_holds(
     baseline = specs.prepare()
     write_draft(tmp_path, STALE_DRAFT)
 
-    with specs.repository.open_worktree(baseline.commit, location=specs.workspace.reserve_worktree_dir()) as staging:
-        assert specs.save_draft(staging, baseline) == b""
+    with specs.open_staging(baseline) as staging:
+        assert specs.save_draft(staging, staging.write_tree()) == b""
 
     assert not Workspace(tmp_path).draft_file.exists()

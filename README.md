@@ -36,7 +36,7 @@ Just Ralph It (JRI) is currently an agent harness to think ideas through and wri
 
 - [Python](https://www.python.org/downloads/) >=3.13 or [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - API key from [Vercel AI Gateway](https://vercel.com/d?to=/[team]/~/ai-gateway/api-keys) (the default) or any other [OpenAI-compatible](https://github.com/openai/openai-python) LLM inference provider
-- [Git](https://git-scm.com/install/) >=2.x.x, with your `user.name` and `user.email` set
+- [Git](https://git-scm.com/install/) >=2.x.x
 
 ### 1. Installation
 
@@ -56,7 +56,7 @@ cd my-project
 echo 'AI_GATEWAY_API_KEY=your-key' > .env
 ```
 
-That creates the directory, a Git repository, and `.jri/`. It makes no commit: JRI commits when a run accepts the specifications, and when `jri init --force` replaces accepted ones. A new directory inside another repository gets its own repository, and the one above ignores it.
+That creates the directory, a Git repository, and `.jri/`. JRI never makes a commit. A run writes the specifications to `.jri/specs/`, and you commit `.jri/` when you want to. A new directory inside another repository gets its own repository, and the one above ignores it.
 
 To add JRI to a project you already have, run `jri init` inside it.
 
